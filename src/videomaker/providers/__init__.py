@@ -84,9 +84,9 @@ def resolve_chain(kind: str, settings: Settings) -> list[str]:
 # Each import is guarded: a missing optional dependency (or missing credentials at
 # import time) must degrade to "provider unavailable", never an ImportError at CLI
 # startup. Tasks 8-10 add their modules to this list.
-_CONCRETE_MODULES: tuple[str, ...] = ()
+_CONCRETE_MODULES: tuple[str, ...] = ("videomaker.providers.mock",)
 
-for _module in _CONCRETE_MODULES:  # pragma: no cover - populated from Task 8 onwards
+for _module in _CONCRETE_MODULES:  # pragma: no cover - grows from Task 7 onwards
     try:
         __import__(_module)
     except ImportError:
