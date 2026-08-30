@@ -1,0 +1,54 @@
+{#
+  The stage stepper and the three gate rows.
+
+  Context: `project`, `steps` (StageStep, in STAGE_ORDER), `gates` (GateRow, in
+  pipeline order).
+
+  Every mark here comes from `stage_is_current` and `project.approvals` by way of
+  the route — nothing in this template decides that a stage is done, and nothing
+  caches a status (design decision 3). `data-stage`/`data-current` and
+  `data-gate`/`data-approved` are the attributes the tests read, so keep each
+  pair adjacent.
+#}
+<ol class="stepper">
+  {% for step in steps %}
+    {% set gate = gates | selectattr("stage", "equalto", step.stage) | first %}
+    {% if gate %}
+      {# The gate sits *before* the stage it guards, which is where a run stops. #}
+      <li class="stepper-gate {% if gate.approved %}is-approved{% endif %}">
+        <span class="stepper-gate-label">Gate · {{ gate.title }}</span>
+        <span class="status {{ gate.tone }}">{{ gate.state_label }}</span>
+      </li>
+    {% endif %}
+    <li class="step {% if step.current %}is-current{% endif %}" data-stage="{{ step.stage }}" data-current="{{ step.marker }}">
+      <span class="step-mark" aria-hidden="true">{{ step.number }}</span>
+      <span class="step-body">
+        <span class="step-name">{{ step.label }}</span>
+        <span class="step-note muted">{{ step.note }}</span>
+      </span>
+      <span class="status {% if step.current %}status-ok{% endif %}">{{ step.state_label }}</span>
+    </li>
+  {% endfor %}
+</ol>
+
+<h2>Review gates</h2>
+<ul class="card-list">
+  {% for gate in gates %}
+    <li class="card gate" data-gate="{{ gate.name }}" data-approved="{{ gate.marker }}">
+      <div class="row spread">
+        <strong>{{ gate.title }}</strong>
+        <span class="status {{ gate.tone }}">{{ gate.state_label }}</span>
+      </div>
+      <p class="muted">Review {{ gate.review }}, before <code>{{ gate.stage }}</code> runs.</p>
+      {% if gate.approved %}
+        <p class="muted">Approved {{ gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC.</p>
+      {% elif gate.reachable %}
+        {# Only linked once a run would actually stop here: sending someone to a
+           review screen for work that does not exist yet is worse than no link. #}
+        <a class="button" href="/projects/{{ project.id }}/{{ gate.name }}">Review now</a>
+      {% else %}
+        <p class="muted">Waiting for the earlier stages.</p>
+      {% endif %}
+    </li>
+  {% endfor %}
+</ul>

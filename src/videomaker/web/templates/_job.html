@@ -1,0 +1,61 @@
+{#
+  The polled job fragment. **This file is the reason the tab goes quiet.**
+
+  Context: `project_id`, `job` (a `JobState` copy, or None), `poll` (whether the
+  job is still queued or running), `job_tone`, `gate_titles`.
+
+  htmx swaps this element's `outerHTML`, so the `hx-*` attributes come back with
+  every response — and when `poll` is false they simply are not there, which ends
+  the polling loop. Do not "tidy" the trigger out into `base.html` or onto a
+  wrapper: it has to live on the swapped element itself, or a finished job keeps
+  refetching for as long as the browser is open.
+
+  The response is a bare fragment: no `{% extends %}`, because htmx inserts it
+  into a page that already exists.
+#}
+<section id="job" class="card job"
+         {% if poll %}hx-get="/projects/{{ project_id }}/job" hx-trigger="every 1500ms" hx-swap="outerHTML"{% endif %}>
+  <div class="row spread">
+    <h3 class="flush">Latest run</h3>
+    {% if job %}
+      <span class="status {{ job_tone }}" data-job-state="{{ job.state }}">{{ job.state }}</span>
+    {% else %}
+      <span class="status" data-job-state="none">idle</span>
+    {% endif %}
+  </div>
+
+  {% if not job %}
+    <p class="muted">Nothing has been run for this project yet.</p>
+  {% else %}
+    <p class="job-line">
+      <span class="job-kind">{{ job.kind }}</span>
+      {% if job.stage %}<span class="muted">· stage {{ job.stage }}</span>{% endif %}
+    </p>
+
+    {# A bar for work in flight only. A finished job's bar tells nobody anything
+       the state pill has not already said. #}
+    {% if poll %}
+      <progress value="{{ '%.3f'|format(job.progress) }}" max="1">{{ (job.progress * 100)|round|int }}%</progress>
+    {% endif %}
+
+    {% if job.message %}
+      <p class="muted">{{ job.message }}</p>
+    {% endif %}
+
+    {% if job.error %}
+      <pre class="log" role="alert">{{ job.error }}</pre>
+    {% endif %}
+
+    {% if job.state == "blocked" and job.gate %}
+      <p>
+        <a class="button" href="/projects/{{ project_id }}/{{ job.gate }}">Open {{ gate_titles.get(job.gate, job.gate)|lower }}</a>
+      </p>
+    {% endif %}
+
+    {% if not poll %}
+      {# The stepper above was rendered before this job ended, so offer the one
+         thing that refreshes it — a plain link, so it works with no JavaScript. #}
+      <p class="muted">Polling has stopped. <a href="/projects/{{ project_id }}">Reload the page</a> to see the updated stages.</p>
+    {% endif %}
+  {% endif %}
+</section>

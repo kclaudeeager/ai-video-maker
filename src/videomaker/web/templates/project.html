@@ -1,0 +1,44 @@
+{#
+  One project's dashboard: where it has got to, what is running, and the one
+  button that moves it forward.
+
+  Context: everything `_status.html` needs, plus `status`, `status_label`,
+  `status_tone`, `busy`, `advance_label`, and the `_job.html` context.
+
+  The advance control is a real `<form method="post">` ending in a 303, not an
+  htmx button: the browser already does POST-then-redirect correctly, and the
+  page keeps working with JavaScript disabled (M2 global constraint). htmx is
+  used for exactly one thing here — polling the job fragment.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ project.topic }}{% endblock %}
+{% block heading %}{{ project.topic }}{% endblock %}
+
+{% block content %}
+  <section class="card project-head">
+    <div class="row spread">
+      <p class="muted flush">
+        <code>{{ project.id }}</code> · {{ project.template }} ·
+        {{ "%.1f"|format(project.target_minutes) }} min · {{ project.voice }}
+      </p>
+      <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
+    </div>
+
+    <form class="advance" method="post" action="/projects/{{ project.id }}/advance">
+      <button type="submit" class="primary" {% if busy %}disabled{% endif %}>{{ advance_label }}</button>
+      <span class="muted">
+        {% if busy %}
+          A job is already in flight for this project; only one runs at a time.
+        {% else %}
+          Runs the pipeline until the next unapproved gate stops it.
+        {% endif %}
+      </span>
+    </form>
+  </section>
+
+  {% include "_job.html" %}
+
+  <h2>Pipeline</h2>
+  {% include "_status.html" %}
+{% endblock %}
