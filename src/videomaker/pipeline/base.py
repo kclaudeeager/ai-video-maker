@@ -22,6 +22,16 @@ _INJECTED = ("cache", "quota")
 
 DIGEST_CHUNK_BYTES = 1 << 20
 
+#: Breathing room between the end of one scene's narration and the next cut.
+#:
+#: **Shared by captions and assembly, and they must agree.** `captions` offsets each
+#: scene's words by `duration_s + SCENE_GAP_S`; `assemble` builds each scene's video
+#: segment to exactly that same length. Two different values here desynchronise the
+#: burned-in subtitles from the narration, progressively, from scene two onwards.
+#: It matches the margin `providers.stock.pexels.SCENE_GAP_S` demands of a clip, so
+#: a clip long enough to be accepted is long enough to fill its segment.
+SCENE_GAP_S = 0.5
+
 
 @dataclass(frozen=True)
 class StageResult:
