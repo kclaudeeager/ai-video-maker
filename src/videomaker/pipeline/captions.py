@@ -19,6 +19,7 @@ from pathlib import Path
 from videomaker.cache import hash_inputs, stage_key
 from videomaker.media.ass import STYLES, write_ass
 from videomaker.models import Aspect, Project, WordTiming
+from videomaker.pipeline.assemble import SPECS
 from videomaker.pipeline.base import SCENE_GAP_S, StageDeps, StageResult, project_root
 
 STAGE = "captions"
@@ -27,10 +28,10 @@ CAPTIONS_DIRNAME = "captions"
 #: M1 renders wide only; nothing here assumes a single aspect (M3 adds vertical).
 CAPTION_ASPECTS: tuple[Aspect, ...] = (Aspect.WIDE,)
 
-#: Timeline resolution the ASS coordinates are authored against, per aspect.
-PLAY_RES: dict[Aspect, tuple[int, int]] = {
-    Aspect.WIDE: (1920, 1080),
-}
+#: Timeline resolution the ASS coordinates are authored against, taken from the frame
+#: `assemble` actually encodes. Authoring captions against a different resolution than
+#: the video would leave libass silently rescaling the layout they were designed for.
+PLAY_RES: dict[Aspect, tuple[int, int]] = {aspect: spec.size for aspect, spec in SPECS.items()}
 
 
 def caption_relpath(aspect: Aspect) -> str:
