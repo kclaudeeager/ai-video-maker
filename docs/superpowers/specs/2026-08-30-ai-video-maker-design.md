@@ -12,7 +12,8 @@ A local-first, open-source **AI video studio** that turns a topic into finished 
 
 | Decision | Choice | Why |
 |---|---|---|
-| Runtime (phase 1) | Local-first on owner's Mac | True $0/month; same codebase deploys to VPS/Docker later |
+| Runtime (phase 1) | Local-first on owner's Mac | True $0/month; must fully work locally before any deployment |
+| Deployment (phase 2+) | Docker Compose | One artifact deploys unchanged to any inexpensive cloud (DigitalOcean, Render, Hetzner, …) |
 | Stack | Python 3.12 (pinned via `uv`) + FastAPI + Jinja2 + vendored htmx | Python owns the ML ecosystem; no frontend build chain |
 | Output | Dual-format from one project (16:9 + 9:16) | Doubles distribution per unit of effort |
 | License | AGPL-3.0 | Genuinely open; forks offering it as a service must publish changes — the owner's desired "regulation" |
@@ -38,7 +39,7 @@ Income is lottery-shaped; the tool's edge is reducing cost-per-attempt to ~$0 + 
 
 **Stream B — the open-source project.** GitHub Sponsors/Open Collective after public release (young-project realistic: $0–200/mo); open-core hosted version + premium template packs later, only when Stream A or sponsors cover the VPS. AGPL prevents others from beating the owner to a closed-source hosted version.
 
-**Cost timeline.** Phase 0 (now → first income): **$0/mo** (local Mac; Groq/Gemini/Pexels/Cloudflare/GitHub free tiers; domain deferrable). Phase 1: ~€4–15/mo (Hetzner VPS if a hosted instance is wanted — or Cloudflare Tunnel, free, exposing the local Mac; domain ~$10/yr; optional paid TTS $5–22/mo). Phase 2 (SaaS, only if justified): storage/workers scaling with revenue.
+**Cost timeline.** Phase 0 (now → first income): **$0/mo** (local Mac; Groq/Gemini/Pexels/Cloudflare/GitHub free tiers; domain deferrable). Phase 1 (once income exists, deployed via the same Docker Compose artifact): a small VPS — DigitalOcean basic droplet $6–12/mo (2GB+ RAM recommended for FFmpeg renders), Hetzner CX22 ~€4/mo, or Render ($7/mo web service + paid persistent disk; note Render's PaaS model suits the web UI but plain VPSes fit FFmpeg-heavy rendering with large temp files better). A free Cloudflare Tunnel exposing the local Mac remains the $0 remote-access option. Domain ~$10/yr; optional paid TTS $5–22/mo. Phase 2 (SaaS, only if justified): storage/workers scaling with revenue.
 
 ### 3.3 Platform compliance (design inputs, non-negotiable)
 
@@ -158,7 +159,7 @@ Unit (models, hashing, caption chunker, ASS snapshot, filter-graph builders, tem
 - **M3 — Dual format + polish.** Vertical pipeline, karaoke captions, music ducking, thumbnails, `clean`, videotoolbox fast mode. *DoD: one project → final_wide + ≤3-min final_vertical + thumbnail; captions styled per aspect; music ducks audibly.*
 - **M4 — Four niche templates** as validated YAML + `templates lint` + authoring docs. *DoD: 4 real projects, structurally correct and stylistically distinct; lint in CI.*
 - **M5 — Metadata + optional YouTube uploader** (OAuth installed-app, resumable, private default; audit + quota caveats documented; manual stays default). *DoD: metadata.md paste-ready; configured upload puts a private video on the owner's channel.*
-- **M6 — Docker + open-source readiness.** Compose (apt ffmpeg has libass), self-hosting + quickstart docs verified on a clean machine, issue templates, NOTICE.md, v0.1.0. *DoD: `docker compose up` on a clean VM → rendered MP4 via browser.*
+- **M6 — Docker + open-source readiness.** Compose (apt ffmpeg has libass), self-hosting + quickstart docs verified on a clean machine, issue templates, NOTICE.md, v0.1.0. Deployment docs cover DigitalOcean droplet, Render, and generic-VPS paths — all running the identical compose file. *DoD: `docker compose up` on a clean VM → rendered MP4 via browser.*
 
 Post-v1 (deferred): Instagram API publishing, plugin entry-points, SQLite index, multi-job worker, auth, community launch.
 
