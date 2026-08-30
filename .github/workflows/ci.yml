@@ -11,9 +11,18 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      # The integration tests run real encodes, and ffprobe is a separate binary
+      # from ffmpeg (M0 finding 8). Install both rather than trust the runner image
+      # to keep shipping them.
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install (no ml extra — CI never runs model inference)
         run: uv sync
       - name: Lint
         run: uv run ruff check .
-      - name: Unit tests
+      # Unit and integration both: `testpaths` in pyproject.toml covers tests/.
+      # The whole suite is offline — the golden path drives the CLI with
+      # `--providers mock` — so the contract tests against real providers skip
+      # themselves without credentials, and the `slow` ones skip without `ml`.
+      - name: Unit and integration tests
         run: uv run pytest -q
