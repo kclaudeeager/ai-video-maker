@@ -1,0 +1,71 @@
+{#
+  The project list and the create form.
+
+  Context: `rows` (ProjectRow, newest first), `templates_available` (template
+  names), `form` (the values to prefill), `error` (a message, or "").
+
+  The form is a plain `<form method="post">` with no htmx on it: creation ends in
+  a 303 to another page, which is exactly what a browser does well on its own,
+  and it keeps the page working with JavaScript disabled (M2 global constraint).
+#}
+{% extends "base.html" %}
+
+{% block title %}Projects{% endblock %}
+
+{% block content %}
+  <section>
+    <h2>New project</h2>
+    <form class="card" method="post" action="/projects">
+      {% if error %}
+        <p class="status status-failed" role="alert">{{ error }}</p>
+      {% endif %}
+      <div class="field">
+        <label for="topic">Topic</label>
+        <input type="text" id="topic" name="topic" required autofocus
+               placeholder="how solid state drives work"
+               value="{{ form.topic }}">
+      </div>
+      <div class="field">
+        <label for="template">Template</label>
+        <select id="template" name="template">
+          {% for name in templates_available %}
+            <option value="{{ name }}" {% if name == form.template %}selected{% endif %}>{{ name }}</option>
+          {% else %}
+            {# No templates on disk: say so rather than offering an empty menu. #}
+            <option value="" disabled selected>no templates found in templates/</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="minutes">Target length (minutes)</label>
+        <input type="number" id="minutes" name="minutes" min="0.1" step="0.1" value="{{ form.minutes }}">
+      </div>
+      <div class="field">
+        <label for="voice">Voice</label>
+        <input type="text" id="voice" name="voice" value="{{ form.voice }}">
+      </div>
+      <button type="submit" class="primary">Create and write the script</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Projects</h2>
+    {% if rows %}
+      <ul class="card-list">
+        {% for row in rows %}
+          <li class="card">
+            <div class="row spread">
+              <a href="/projects/{{ row.id }}"><strong>{{ row.topic }}</strong></a>
+              {# `data-status` carries the raw derived value; the pill text is the
+                 same value made readable. Nothing here is stored — see decision 3. #}
+              <span class="status {{ row.status_tone }}" data-status="{{ row.status.value }}">{{ row.status_label }}</span>
+            </div>
+            <p class="muted">{{ row.id }} · {{ row.template }} · created {{ row.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No projects yet. Create one above and it will appear here.</p>
+    {% endif %}
+  </section>
+{% endblock %}

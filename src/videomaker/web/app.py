@@ -24,6 +24,7 @@ from videomaker.config import Settings, load_settings
 from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
 from videomaker.web import media
+from videomaker.web.routes import projects
 from videomaker.web.worker import JobQueue
 
 #: Templates and static assets live inside the package, not at the repo root, so
@@ -68,6 +69,7 @@ def create_app(settings: Settings | None = None, *, providers: str | None = None
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
     app.include_router(media.router)
+    app.include_router(projects.router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
