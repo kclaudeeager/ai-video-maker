@@ -32,7 +32,7 @@
 **Interfaces:**
 - Produces: Typer app `videomaker.cli:app`, entry point `videomaker.cli:main`, `videomaker.__version__: str`. Later tasks add commands to this `app` object.
 
-- [ ] **Step 1: Write project metadata files**
+- [x] **Step 1: Write project metadata files**
 
 `pyproject.toml`:
 
@@ -105,7 +105,7 @@ config.yaml
 .DS_Store
 ```
 
-- [ ] **Step 2: Write the failing CLI test**
+- [x] **Step 2: Write the failing CLI test**
 
 `tests/test_cli.py`:
 
@@ -124,12 +124,12 @@ def test_version_command_prints_version():
     assert __version__ in result.output
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `uv sync && uv run pytest tests/test_cli.py -v`
 Expected: FAIL (ModuleNotFoundError: videomaker) — `uv sync` itself may error until the package files exist; that error counts as the failing state.
 
-- [ ] **Step 4: Implement the package + CLI stub**
+- [x] **Step 4: Implement the package + CLI stub**
 
 `src/videomaker/__init__.py`:
 
@@ -162,12 +162,12 @@ def main() -> None:
     app()
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `uv sync && uv run pytest tests/test_cli.py -v`
 Expected: PASS (1 passed). Also run `uv run videomaker version` → prints `0.0.1`, and `uv run ruff check .` → no errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add pyproject.toml uv.lock .python-version .gitignore src/ tests/
@@ -185,7 +185,7 @@ git commit -s -m "feat: project scaffold with uv, Typer CLI stub, pytest + ruff"
 **Interfaces:**
 - Produces: `Settings` (pydantic BaseSettings) with fields `workspace_dir: Path`, `models_dir: Path`, `music_dir: Path`, `groq_api_key: str`, `gemini_api_key: str`, `pexels_api_key: str`, `cloudflare_account_id: str`, `cloudflare_api_token: str`; and `load_settings(config_file: Path | None = None) -> Settings`. Consumed by Tasks 4, 6, 7, 8.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_config.py`:
 
@@ -215,12 +215,12 @@ def test_api_key_read_from_plain_env_var(monkeypatch):
     assert Settings().groq_api_key == "gk-test"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_config.py -v`
 Expected: FAIL (ModuleNotFoundError: videomaker.config)
 
-- [ ] **Step 3: Implement config.py**
+- [x] **Step 3: Implement config.py**
 
 `src/videomaker/config.py`:
 
@@ -263,7 +263,7 @@ def load_settings(config_file: Path | None = None) -> Settings:
     return Settings(**overrides)
 ```
 
-- [ ] **Step 4: Write the example config files**
+- [x] **Step 4: Write the example config files**
 
 `config.example.yaml`:
 
@@ -290,12 +290,12 @@ CLOUDFLARE_ACCOUNT_ID=
 CLOUDFLARE_API_TOKEN=
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_config.py -v`
 Expected: PASS (3 passed)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/videomaker/config.py config.example.yaml .env.example tests/test_config.py
@@ -313,7 +313,7 @@ git commit -s -m "feat: settings with config.yaml paths and plain-env API keys"
 **Interfaces:**
 - Produces: `FFmpegCaps` frozen dataclass (`installed: bool`, `version: str`, `has_subtitles_filter: bool`, `hw_encoder: str`, `has_ffprobe: bool`) and `probe_capabilities() -> FFmpegCaps`. `hw_encoder` is the first available of `h264_qsv`, `h264_vaapi`, `h264_videotoolbox`, else `""` — platform-neutral (QSV/VA-API on the HP's Intel graphics, VideoToolbox on Macs). Consumed by Task 4's doctor checks. This module later grows the render helpers in M1.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_ffmpeg_probe.py`:
 
@@ -370,12 +370,12 @@ def test_probe_detects_missing_libass_and_no_hw_encoder(monkeypatch):
     assert caps.hw_encoder == ""
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_ffmpeg_probe.py -v`
 Expected: FAIL (ModuleNotFoundError: videomaker.media)
 
-- [ ] **Step 3: Implement the probe**
+- [x] **Step 3: Implement the probe**
 
 `src/videomaker/media/__init__.py`: empty file.
 
@@ -421,12 +421,12 @@ def probe_capabilities() -> FFmpegCaps:
     )
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_ffmpeg_probe.py -v`
 Expected: PASS (3 passed)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/videomaker/media/ tests/test_ffmpeg_probe.py
@@ -446,7 +446,7 @@ git commit -s -m "feat: ffmpeg capability probe (subtitles filter, hw encoders)"
 - Consumes: `Settings`/`load_settings` (Task 2), `FFmpegCaps`/`probe_capabilities` (Task 3).
 - Produces: `CheckResult` frozen dataclass (`name: str`, `level: str` — one of `"ok" | "warn" | "fail"` — `detail: str`, `fix: str = ""`), `run_checks(settings: Settings, caps: FFmpegCaps) -> list[CheckResult]`, and constant `FFMPEG_LIBASS_FIX: str`. Task 6 extends `MODEL_FILES`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_doctor.py`:
 
@@ -510,12 +510,12 @@ def test_no_llm_key_warns(tmp_path, monkeypatch):
     assert _by_name(results, "LLM API key").level == "warn"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_doctor.py -v`
 Expected: FAIL (ModuleNotFoundError: videomaker.doctor)
 
-- [ ] **Step 3: Implement doctor.py**
+- [x] **Step 3: Implement doctor.py**
 
 `src/videomaker/doctor.py`:
 
@@ -638,7 +638,7 @@ def run_checks(settings: Settings, caps: FFmpegCaps) -> list[CheckResult]:
     return results
 ```
 
-- [ ] **Step 4: Add the doctor command to the CLI**
+- [x] **Step 4: Add the doctor command to the CLI**
 
 Modify `src/videomaker/cli.py` — replace the whole file with:
 
@@ -691,13 +691,13 @@ def main() -> None:
     app()
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest -v`
 Expected: PASS (all tests). Then run `uv run videomaker doctor` on the HP.
 Expected: table renders; ffmpeg + subtitles filter OK (apt builds include libass), models WARN, API keys WARN. Task 5 confirms the FFmpeg environment and starts the spike log.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/videomaker/doctor.py src/videomaker/cli.py tests/test_doctor.py
@@ -714,22 +714,22 @@ git commit -s -m "feat: doctor command with ffmpeg/disk/model/key checks"
 **Interfaces:**
 - Produces: a verified FFmpeg-with-libass environment on the HP; the spike-results file that Tasks 6–8 append to and the M1 plan reads.
 
-- [ ] **Step 1: Verify FFmpeg is installed with libass**
+- [x] **Step 1: Verify FFmpeg is installed with libass**
 
 Run: `ffmpeg -hide_banner -filters | grep -E "subtitles|drawtext"`
 Expected: lines for `subtitles` and `drawtext` (Ubuntu/Zorin apt builds include libass). If ffmpeg is missing entirely: `sudo apt update && sudo apt install -y ffmpeg`, then re-check.
 
-- [ ] **Step 2: Check for a hardware encoder (optional, warn-level)**
+- [x] **Step 2: Check for a hardware encoder (optional, warn-level)**
 
 Run: `ffmpeg -hide_banner -encoders | grep -E "h264_qsv|h264_vaapi"`
 Expected: at least `h264_vaapi` (the i7-1355U's Intel graphics support Quick Sync). If neither appears and you want hardware fast-renders later: `sudo apt install -y intel-media-va-driver-non-free vainfo` and re-check. Not a blocker — libx264 on 12 threads is the default anyway.
 
-- [ ] **Step 3: Verify doctor is green on ffmpeg**
+- [x] **Step 3: Verify doctor is green on ffmpeg**
 
 Run: `uv run videomaker doctor`
 Expected: `ffmpeg`, `ffmpeg subtitles filter`, `ffprobe` all OK; `hardware encoder` OK or WARN. Remaining WARNs (models, API keys) are expected at this point.
 
-- [ ] **Step 4: Record the result**
+- [x] **Step 4: Record the result**
 
 `docs/superpowers/spike-results-m0.md`:
 
@@ -756,7 +756,7 @@ Machine: HP ProBook 450 G10 — i7-1355U (12 threads), 16GB RAM, Zorin OS 18.1
 
 Fill in the actual values before committing.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/superpowers/spike-results-m0.md
@@ -776,13 +776,13 @@ git commit -s -m "chore: verify ffmpeg/libass environment on HP; start M0 spike 
 - Consumes: `Settings`/`load_settings` (Task 2).
 - Produces: `download_file(url: str, dest: Path, *, client: httpx.Client | None = None) -> Path`; `ensure_models(settings: Settings, downloader=download_file) -> list[Path]`; constants `KOKORO_MODEL_URL`, `KOKORO_VOICES_URL`. Tasks 7–8 add `spike_tts`/`spike_stt` to `setup_cmd.py`.
 
-- [ ] **Step 1: Install the ml extra**
+- [x] **Step 1: Install the ml extra**
 
 Run: `uv sync --extra ml`
 
 Expected: clean install — on Linux x86_64 every package (onnxruntime, kokoro-onnx, ctranslate2, faster-whisper, soundfile) ships current manylinux wheels. Record the resolved versions (`uv pip list | grep -iE "onnx|kokoro|whisper|ctranslate"`) in `docs/superpowers/spike-results-m0.md`. In the unlikely event something fails to resolve or crashes on import, record it and apply the pin ladder documented in `docs/macos-intel-notes.md` (Task 9) — it applies analogously on any platform.
 
-- [ ] **Step 2: Write the failing download-helper test**
+- [x] **Step 2: Write the failing download-helper test**
 
 `tests/test_downloads.py`:
 
@@ -817,12 +817,12 @@ def test_download_file_raises_on_http_error(tmp_path):
         assert not dest.exists()
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_downloads.py -v`
 Expected: FAIL (ModuleNotFoundError: videomaker.downloads)
 
-- [ ] **Step 4: Implement downloads.py**
+- [x] **Step 4: Implement downloads.py**
 
 `src/videomaker/downloads.py`:
 
@@ -852,7 +852,7 @@ def download_file(url: str, dest: Path, *, client: httpx.Client | None = None) -
             client.close()
 ```
 
-- [ ] **Step 5: Write the failing setup-orchestration test**
+- [x] **Step 5: Write the failing setup-orchestration test**
 
 `tests/test_setup_cmd.py`:
 
@@ -892,7 +892,7 @@ def test_ensure_models_skips_existing_files(tmp_path):
     assert calls == []
 ```
 
-- [ ] **Step 6: Run tests to verify they fail, then implement setup_cmd.py**
+- [x] **Step 6: Run tests to verify they fail, then implement setup_cmd.py**
 
 Run: `uv run pytest tests/test_setup_cmd.py -v` → FAIL (ModuleNotFoundError).
 
@@ -944,17 +944,17 @@ def setup() -> None:
 
 Also verify the import now: `uv run python -c "from kokoro_onnx import Kokoro; print('kokoro-onnx import OK')"`. Record the working versions in the spike log.
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `uv run pytest -v`
 Expected: PASS (all)
 
-- [ ] **Step 8: Download the real models on the HP**
+- [x] **Step 8: Download the real models on the HP**
 
 Run: `uv run videomaker setup`
 Expected: both files download to `~/.cache/ai-video-maker/models/` (~340 MB total; a few minutes). Then `uv run videomaker doctor` → `kokoro model files` = OK.
 
-- [ ] **Step 9: Update spike log and commit**
+- [x] **Step 9: Update spike log and commit**
 
 Fill in the "kokoro-onnx / onnxruntime wheels" section of `docs/superpowers/spike-results-m0.md` with the exact package versions installed and any pins that were needed (expected: none).
 
@@ -977,7 +977,7 @@ git commit -s -m "feat: setup command downloads kokoro models; ml extra verified
 - Consumes: `ensure_models`, `Settings`.
 - Produces: `spike_tts(settings: Settings) -> tuple[Path, float, float]` — (wav path, audio seconds, wall-clock seconds). M1's Kokoro TTS provider is written against the same `kokoro_onnx` API calls proven here.
 
-- [ ] **Step 1: Implement spike_tts**
+- [x] **Step 1: Implement spike_tts**
 
 Append to `src/videomaker/setup_cmd.py`:
 
@@ -1020,17 +1020,17 @@ Extend the `setup` command in `src/videomaker/cli.py` — after the `ensure_mode
     )
 ```
 
-- [ ] **Step 2: Run it for real**
+- [x] **Step 2: Run it for real**
 
 Run: `uv run videomaker setup`
 Expected: prints the smoke line with an RTF number; `xdg-open ~/.cache/ai-video-maker/models/smoke_test.wav` plays an intelligible female voice saying the test sentence. RTF (wall/audio) on the i7-1355U is expected well under 1.0 (likely 0.1–0.5) — record the actual number.
 
-- [ ] **Step 3: Verify nothing else broke**
+- [x] **Step 3: Verify nothing else broke**
 
 Run: `uv run pytest -q && uv run ruff check .`
 Expected: all pass.
 
-- [ ] **Step 4: Update spike log and commit**
+- [x] **Step 4: Update spike log and commit**
 
 Fill in "Kokoro TTS smoke test" in the spike log: RTF, voice used, subjective quality note.
 
@@ -1051,7 +1051,7 @@ git commit -s -m "feat: kokoro TTS smoke test in setup; record RTF"
 - Consumes: the smoke wav from `spike_tts`.
 - Produces: `spike_stt(settings: Settings, wav: Path) -> list[tuple[str, float, float]]` — (word, start_s, end_s) tuples. M1's STT provider is written against the same `faster_whisper` API proven here.
 
-- [ ] **Step 1: Implement spike_stt**
+- [x] **Step 1: Implement spike_stt**
 
 Append to `src/videomaker/setup_cmd.py`:
 
@@ -1085,17 +1085,17 @@ Extend the `setup` command in `src/videomaker/cli.py` — after the TTS smoke bl
 
 **Fallback note** (record outcome either way): faster-whisper/ctranslate2 ship manylinux wheels, so failures are unexpected on the HP. If `import faster_whisper` nevertheless crashes, record it and pin the older pair `uv add --optional ml "faster-whisper==0.10.1" "ctranslate2==3.24.0"`; the last-resort whisper-cli subprocess provider is documented in `docs/macos-intel-notes.md` and would apply here analogously — do not build it in M0.
 
-- [ ] **Step 2: Run it for real**
+- [x] **Step 2: Run it for real**
 
 Run: `uv run videomaker setup`
 Expected: whisper base model downloads (~145 MB, first run), then prints ~9 words with timestamps matching the smoke sentence ("this is a kokoro voice test...").
 
-- [ ] **Step 3: Verify nothing else broke**
+- [x] **Step 3: Verify nothing else broke**
 
 Run: `uv run pytest -q && uv run ruff check .`
 Expected: all pass.
 
-- [ ] **Step 4: Update spike log and commit**
+- [x] **Step 4: Update spike log and commit**
 
 Fill in "faster-whisper / ctranslate2 wheels" in the spike log: versions, transcription accuracy of the smoke line, wall time.
 
@@ -1115,7 +1115,7 @@ git commit -s -m "feat: faster-whisper word-timestamp smoke test in setup"
 **Interfaces:**
 - Produces: green CI on every push (lint + unit tests, no ML extra, no model downloads); the AGPL licensing footprint required before the repo can ever go public.
 
-- [ ] **Step 1: Write the CI workflow**
+- [x] **Step 1: Write the CI workflow**
 
 `.github/workflows/ci.yml`:
 
@@ -1141,7 +1141,7 @@ jobs:
         run: uv run pytest -q
 ```
 
-- [ ] **Step 2: Fetch the license texts verbatim**
+- [x] **Step 2: Fetch the license texts verbatim**
 
 ```bash
 curl -fsSL https://www.gnu.org/licenses/agpl-3.0.txt -o LICENSE
@@ -1150,7 +1150,7 @@ curl -fsSL https://www.contributor-covenant.org/version/2/1/code_of_conduct/code
 
 Verify: `head -3 LICENSE` shows "GNU AFFERO GENERAL PUBLIC LICENSE / Version 3"; `head -3 CODE_OF_CONDUCT.md` shows "Contributor Covenant Code of Conduct".
 
-- [ ] **Step 3: Write README.md**
+- [x] **Step 3: Write README.md**
 
 ```markdown
 # AI Video Maker
@@ -1190,7 +1190,7 @@ AGPL-3.0-only. The project name is reserved by the maintainer; forks should
 use their own name. Contributions require DCO sign-off (`git commit -s`).
 ```
 
-- [ ] **Step 4: Write CONTRIBUTING.md, SECURITY.md, NOTICE.md**
+- [x] **Step 4: Write CONTRIBUTING.md, SECURITY.md, NOTICE.md**
 
 `CONTRIBUTING.md`:
 
@@ -1247,7 +1247,7 @@ authentication — never expose it directly to the internet.
 - Bundled fonts (added in M3) are SIL OFL licensed; see assets/fonts/OFL.txt.
 ```
 
-- [ ] **Step 5: Write docs/macos-intel-notes.md (preserves the Mac research for contributors)**
+- [x] **Step 5: Write docs/macos-intel-notes.md (preserves the Mac research for contributors)**
 
 `docs/macos-intel-notes.md`:
 
@@ -1275,7 +1275,7 @@ Intel MacBook Pro (i5-8259U):
    by `videomaker doctor`); on Apple Silicon none of the wheel issues apply.
 ```
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 Run: `uv run pytest -q && uv run ruff check .` → all pass.
 
@@ -1296,7 +1296,7 @@ git commit -s -m "chore: CI workflow, AGPL license, community files, macOS notes
 **Interfaces:**
 - Produces: the verified green baseline M1's plan builds on.
 
-- [ ] **Step 1: Full verification battery**
+- [x] **Step 1: Full verification battery**
 
 Run each and confirm:
 
@@ -1310,7 +1310,7 @@ uv run videomaker setup          # expected: "ready" for cached models (no re-do
                                  #           TTS smoke OK with RTF, STT smoke OK with words
 ```
 
-- [ ] **Step 2: Append the M0 summary to the spike log**
+- [x] **Step 2: Append the M0 summary to the spike log**
 
 Add to `docs/superpowers/spike-results-m0.md`:
 
@@ -1323,7 +1323,7 @@ Add to `docs/superpowers/spike-results-m0.md`:
 - Open follow-ups for M1: <anything discovered, or "none">
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/superpowers/spike-results-m0.md
