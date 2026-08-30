@@ -54,6 +54,15 @@ def setup() -> None:
     console.print("Downloading models (first run only; ~340 MB)...")
     for path in ensure_models(settings):
         console.print(f"  [green]ready[/green] {path}")
+
+    from videomaker.setup_cmd import spike_tts
+
+    console.print("Running Kokoro TTS smoke test...")
+    wav, audio_s, wall_s = spike_tts(settings)
+    rtf = wall_s / audio_s if audio_s else float("inf")
+    console.print(
+        f"  [green]OK[/green] {wav} ({audio_s:.1f}s audio in {wall_s:.1f}s, RTF {rtf:.2f})"
+    )
     console.print("Setup complete. Run [bold]videomaker doctor[/bold] to verify.")
 
 

@@ -100,7 +100,41 @@ identically (writelines consumes the iterator lazily and writes no separators). 
 is unchanged; both download tests pass.
 
 ## Kokoro TTS smoke test (Task 7)
-- (pending)
+- **Result: works, first try, no API adaptation needed.** `spike_tts` uses the plan's
+  snippet verbatim: `Kokoro(model_path, voices_path)` then
+  `kokoro.create(text, voice="af_heart", speed=1.0)`. kokoro-onnx 0.6.1's real signature is
+  `create(text, voice, speed=1.0, lang="en-us", is_phonemes=False, trim=True, sentence_pause=0.25, clause_pause=0.1, continuous=False)`,
+  so `lang` defaults correctly and the plan's call needs no extra argument. The only edit
+  was moving `import time` to the top of `setup_cmd.py` (the plan appends it mid-file,
+  which ruff rejects as E402).
+- Text: `"This is a Kokoro voice test on this machine."` — voice **`af_heart`**, speed 1.0.
+- Output: `~/.cache/ai-video-maker/models/smoke_test.wav`
+
+  ```
+  Input #0, wav, from 'smoke_test.wav':
+    Duration: 00:00:02.39, bitrate: 384 kb/s
+    Stream #0:0: Audio: pcm_s16le, 24000 Hz, 1 channels, s16, 384 kb/s
+  ```
+
+  **24 kHz mono PCM s16le**, 57,344 samples, **2.389 s** of audio. Kokoro returns float32
+  at 24 kHz; `soundfile.write` defaults that to 16-bit PCM — M1 should pass an explicit
+  `subtype` if it wants float or 48 kHz for the mixdown.
+- **RTF (wall/audio) = 0.53** on the i7-1355U — 2.4 s of audio in 1.3 s, as printed by
+  `videomaker setup`. Within the plan's expected "well under 1.0" band. Repeat measurements
+  in one process: 0.86 for the first `create()` (lazy espeak-ng + phonemizer init is paid
+  inside the timed region) then **0.47** warm. Model load / ONNX session construction sits
+  outside the timer. Budget for M1: ~0.5x realtime per narration segment on this laptop,
+  plus a one-off ~1 s warm-up on the first call of a process.
+- Audio is **not silent**, verified numerically: peak amplitude **0.4829**, RMS **0.0731**,
+  and 67.3% of samples exceed |0.01| — consistent with continuous speech, no clipping
+  (peak < 1.0) and no dead channel.
+- **Quality note: subjective listening was NOT possible** — this task was executed by an
+  agent with no audio playback, so the plan's "play it and confirm an intelligible female
+  voice" check could not be performed. What is verified is objective only: correct format,
+  plausible duration for a 44-character sentence (~2.4 s ≈ 18 chars/s, a normal speaking
+  rate), and healthy non-silent amplitude. **Intelligibility is confirmed in Task 8**,
+  where faster-whisper transcribes this exact wav — a round-trip that fails loudly if the
+  audio is noise, truncated, or the wrong words.
 
 ## faster-whisper / ctranslate2 wheels (Task 8)
 - (pending)

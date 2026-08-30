@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from videomaker.config import Settings
@@ -21,3 +22,23 @@ def ensure_models(settings: Settings, downloader=download_file) -> list[Path]:
             downloader(url, dest)
         paths.append(dest)
     return paths
+
+
+def spike_tts(settings: Settings) -> tuple[Path, float, float]:
+    """Synthesize a short line with Kokoro; returns (wav_path, audio_s, wall_s)."""
+    import soundfile as sf
+    from kokoro_onnx import Kokoro
+
+    kokoro = Kokoro(
+        str(settings.models_dir / "kokoro-v1.0.onnx"),
+        str(settings.models_dir / "voices-v1.0.bin"),
+    )
+    started = time.monotonic()
+    samples, sample_rate = kokoro.create(
+        "This is a Kokoro voice test on this machine.", voice="af_heart", speed=1.0
+    )
+    wall_s = time.monotonic() - started
+    out = settings.models_dir / "smoke_test.wav"
+    sf.write(str(out), samples, sample_rate)
+    audio_s = len(samples) / sample_rate
+    return out, audio_s, wall_s
