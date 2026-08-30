@@ -1,0 +1,190 @@
+{#
+  Gate 2's two building blocks, as macros so one definition serves both the page
+  and the partial replies.
+
+  * `scene_card(card)` — one scene: the chosen shot, the alternatives, motion and
+    re-voice. Context: a `SceneCard`.
+  * `gate_card(gate)` — the gate 2 approval card. Context: a `GateView`.
+
+  `storyboard.html` imports both (`{% from "_scene_card.html" import ... %}`). A
+  reply from `choose` or `motion` renders this template *directly* instead, and
+  the body at the bottom is then the updated card followed by the gate card as an
+  out-of-band swap — guarded, because Jinja builds an imported module by running
+  that body too.
+
+  The two must be **siblings at the top level** of that response: htmx looks for
+  `hx-swap-oob` among the response's own top-level elements, so nesting the gate
+  card inside the scene card would silently stop the approval news from arriving.
+
+  `data-candidate`/`data-chosen` and `data-gate`/`data-approved` are the attribute
+  pairs the tests read; keep each pair adjacent.
+#}
+
+{% macro candidate_tile(card, candidate) %}
+  <li class="candidate {% if candidate.chosen %}is-chosen{% endif %}"
+      data-candidate="{{ candidate.index }}" data-chosen="{{ candidate.marker }}">
+    {# A real form per tile, so the picker works with JavaScript switched off;
+       htmx upgrades it to an in-place swap of this one card. #}
+    <form method="post"
+          action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/choose"
+          hx-post="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/choose"
+          hx-target="#scene-{{ card.scene.id }}"
+          hx-swap="outerHTML">
+      <input type="hidden" name="candidate_index" value="{{ candidate.index }}">
+      <button type="submit" class="candidate-pick"
+              {% if candidate.chosen %}aria-current="true"{% endif %}
+              title="{{ candidate.ref.provider }} · {{ candidate.ref.source_id }}">
+        <span class="candidate-thumb {% if candidate.downloaded and candidate.is_video %}is-clip{% endif %}">
+          {% if candidate.downloaded %}
+            {% if candidate.is_video %}
+              <video src="{{ candidate.media_url }}#t=0.1" preload="metadata" muted playsinline></video>
+            {% else %}
+              <img src="{{ candidate.media_url }}"
+                   alt="Option {{ candidate.index + 1 }} for scene {{ card.scene.id }}"
+                   loading="lazy">
+            {% endif %}
+          {% else %}
+            {# The usual state of an alternative: the visuals stage downloads only
+               the hit it picked, and `AssetRef` keeps no remote preview to show. #}
+            <span class="candidate-blank" aria-hidden="true">{{ candidate.kind_label }}</span>
+          {% endif %}
+        </span>
+        <span class="candidate-meta">
+          <span class="candidate-name">Option {{ candidate.index + 1 }}</span>
+          <span class="candidate-label muted">{{ candidate.label }}</span>
+          <span class="candidate-action">{{ "in use" if candidate.chosen else "use this" }}</span>
+        </span>
+      </button>
+    </form>
+  </li>
+{% endmacro %}
+
+{% macro scene_card(card) %}
+  <li id="scene-{{ card.scene.id }}" class="card scene-card" data-scene="{{ card.scene.id }}">
+    <div class="row spread scene-head">
+      <h3 class="flush">Scene {{ card.number }} <code class="scene-id">{{ card.scene.id }}</code></h3>
+      <span class="scene-state">
+        {% if card.note %}
+          <span class="status {{ card.note_tone }}" data-scene-note="{{ card.note }}">{{ card.note }}</span>
+        {% endif %}
+        <span class="status {{ card.state_tone }}" data-scene-visual="{{ "true" if card.visual_current else "false" }}">{{ card.state_label }}</span>
+      </span>
+    </div>
+
+    <p class="muted scene-summary">{{ card.summary }}</p>
+
+    <div class="shot">
+      <div class="shot-main">
+        {% if card.chosen and card.chosen.downloaded %}
+          {% if card.chosen.is_video %}
+            <video class="shot-media" src="{{ card.chosen.media_url }}#t=0.1" controls preload="metadata" muted loop playsinline></video>
+          {% else %}
+            <img class="shot-media" src="{{ card.chosen.media_url }}" alt="Chosen shot for scene {{ card.scene.id }}">
+          {% endif %}
+          <p class="muted shot-caption flush">
+            Chosen · {{ card.chosen.label }} · {{ card.chosen.ref.provider }}
+            {%- if card.chosen.ref.attribution %} · {{ card.chosen.ref.attribution }}{% endif %}
+          </p>
+        {% else %}
+          <p class="shot-empty muted flush">No shot downloaded for this scene yet.</p>
+        {% endif %}
+      </div>
+
+      <div class="shot-controls">
+        <form class="field motion-form"
+              method="post"
+              action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/motion"
+              hx-post="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/motion"
+              hx-trigger="submit, change from:find select"
+              hx-target="#scene-{{ card.scene.id }}"
+              hx-swap="outerHTML">
+          <label for="motion-{{ card.scene.id }}">Motion</label>
+          <select id="motion-{{ card.scene.id }}" name="motion">
+            {% for motion in card.motions %}
+              <option value="{{ motion.value }}" {% if card.scene.visual.motion == motion %}selected{% endif %}>
+                {{ motion.value }} — {{ card.motion_notes[motion] }}
+              </option>
+            {% endfor %}
+          </select>
+          <noscript><button type="submit">Set motion</button></noscript>
+          <p class="muted hint flush">
+            {% if card.is_video %}Footage already moves, so motion is ignored for this shot.{% else %}Applied to the still while the scene plays.{% endif %}
+          </p>
+        </form>
+
+        <form class="revoice" method="post" action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/revoice">
+          <button type="submit">Re-voice this scene</button>
+          <p class="muted hint flush">Speaks the same words again and re-times them. Nothing else is touched.</p>
+        </form>
+      </div>
+    </div>
+
+    {# The query can be a paragraph — it comes from a model — so it is clipped to
+       one line with the whole of it on the title. #}
+    <p class="muted candidates-head flush" title="{{ card.scene.visual.query }}">Alternatives found for “{{ card.scene.visual.query }}”</p>
+    <ul class="candidates card-list">
+      {% for candidate in card.candidates %}{{ candidate_tile(card, candidate) }}{% endfor %}
+    </ul>
+  </li>
+{% endmacro %}
+
+{% macro gate_card(gate) %}
+  <section id="gate-state" class="card gate storyboard-gate"
+           data-gate="{{ gate.gate.name }}" data-approved="{{ gate.gate.marker }}"
+           {% if gate.oob %}hx-swap-oob="true"{% endif %}>
+    <div class="row spread">
+      <strong>Gate 2 · {{ gate.gate.title }}</strong>
+      <span class="status {{ gate.gate.tone }}">{{ gate.gate.state_label }}</span>
+    </div>
+
+    {% if gate.gate.approved %}
+      <p class="muted flush">Approved {{ gate.gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC. Swapping a shot below will not un-approve it, but it will re-build what was made from it.</p>
+    {% else %}
+      <p class="muted flush">Nothing is captioned or assembled until this gate is stamped — that is the point of it.</p>
+    {% endif %}
+
+    {% if gate.cleared %}
+      <p class="notice notice-warn" role="status">
+        That change invalidated work a later gate had already approved, so those
+        approvals were cleared. You will be asked to review them again.
+      </p>
+    {% endif %}
+
+    <p class="muted gate-others-head flush">The other two gates</p>
+    <ul class="gate-downstream card-list">
+      {% for other in gate.others %}
+        <li class="row spread" data-gate="{{ other.name }}" data-approved="{{ other.marker }}">
+          <span class="muted">{{ other.title }}</span>
+          <span class="status {{ other.tone }}">{{ other.state_label }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+
+    <form class="advance" method="post" action="/projects/{{ gate.project_id }}/approve/storyboard">
+      <button type="submit" class="primary" {% if not gate.can_approve %}disabled{% endif %}>
+        {{ "Re-approve and continue" if gate.gate.approved else "Approve storyboard and continue" }}
+      </button>
+      <span class="muted">
+        {% if gate.can_approve %}
+          Stamps gate 2 and starts a run that stops at the next unapproved gate.
+        {% else %}
+          Every scene needs a chosen shot before the storyboard can be approved.
+        {% endif %}
+      </span>
+    </form>
+  </section>
+{% endmacro %}
+
+{#
+  Rendered directly only as the reply to `choose` or `motion`: the updated card,
+  then the gate card as a top-level out-of-band sibling.
+
+  The guard is load-bearing, not defensive. Jinja builds an imported template's
+  module by *executing its body*, so `storyboard.html`'s `{% from ... import %}`
+  runs these two lines with none of the reply's context — without the guard the
+  page itself would fail with `'card' is undefined`.
+#}
+{% if card is defined %}
+{{ scene_card(card) }}
+{{ gate_card(gate) }}
+{% endif %}

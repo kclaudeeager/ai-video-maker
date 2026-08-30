@@ -469,6 +469,7 @@ code {
 .scene-meta {
   font-size: 0.82rem;
 }
+
 /* The scene operations: split, merge, move, delete. One tiny form each, because
    HTML has no nested forms and every one of them is its own POST. They sit on a
    quiet row under the editor so they read as tools rather than as the main act. */
@@ -521,3 +522,211 @@ code {
   border-color: var(--bad);
 }
 
+/* Gate 2: the storyboard page ---------------------------------------------- */
+
+.scene-card {
+  padding: 0.9rem 1.1rem 1rem;
+}
+
+.scene-summary {
+  margin: 0.35rem 0 0.9rem;
+  font-size: 0.9rem;
+}
+
+/* The shot and its controls side by side on a laptop, stacked on a phone. The
+   video gets the room; the two controls are narrow by nature. */
+.shot {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(12rem, 1fr);
+  gap: var(--gap);
+  align-items: start;
+}
+
+@media (max-width: 44rem) {
+  .shot {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.shot-media {
+  display: block;
+  width: 100%;
+  /* Reserve the 16:9 box before the media loads, so the cards below do not jump
+     as each poster frame arrives. */
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.shot-caption {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.shot-empty {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+  padding: 1rem;
+}
+
+.shot-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.shot-controls .field,
+.shot-controls form {
+  margin: 0;
+}
+
+.hint {
+  font-size: 0.78rem;
+  margin-top: 0.3rem;
+}
+
+.candidates-head {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+/* An auto-fill grid rather than a fixed column count: four candidates on a
+   laptop, two on a tablet, one on a phone, with no breakpoint to maintain. */
+.candidates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.6rem;
+}
+
+.candidates form {
+  margin: 0;
+}
+
+/* The whole tile is the button, so the picture is the target rather than a
+   small link beneath it. */
+.candidate-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.35rem;
+  text-align: left;
+}
+
+.candidate-thumb {
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--bg);
+}
+
+.candidate-thumb img,
+.candidate-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0;
+}
+
+/* A candidate that was offered but never downloaded — the usual state of an
+   alternative. Drawn as an obvious placeholder rather than an empty hole. */
+.candidate-blank {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.candidate-meta {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.candidate-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.candidate-label {
+  font-size: 0.75rem;
+}
+
+.candidate-action {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* The chosen shot has to be unmistakable at a glance — the whole page is one
+   question, and this is its answer. */
+.candidate.is-chosen .candidate-pick {
+  border-color: var(--ok);
+  box-shadow: inset 0 0 0 1px var(--ok);
+  cursor: default;
+}
+
+.candidate.is-chosen .candidate-action {
+  color: var(--ok);
+}
+
+.storyboard-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.storyboard-gate > p {
+  margin: 0;
+}
+
+/* A model-written search query can be a paragraph; one clipped line keeps the
+   candidate grid where the eye expects it, and `title` still carries the whole. */
+.candidates-head {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gate-others-head {
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* A clip thumbnail that has not painted its first frame yet is otherwise an
+   empty white box. The glyph sits *behind* the media, so it shows only while
+   there is nothing on top of it — no JavaScript, and nothing to clean up when
+   the frame does arrive. Only on a downloaded clip: a placeholder tile has its
+   own label, and a still never grows a play button. */
+.candidate-thumb {
+  position: relative;
+}
+
+.candidate-thumb.is-clip::before {
+  content: "▶";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--border);
+  font-size: 1.4rem;
+}
+
+.candidate-thumb img,
+.candidate-thumb video {
+  position: relative;
+}

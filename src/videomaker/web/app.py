@@ -24,7 +24,7 @@ from videomaker.config import Settings, load_settings
 from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
 from videomaker.web import media
-from videomaker.web.routes import projects, script
+from videomaker.web.routes import projects, script, storyboard
 from videomaker.web.worker import JobQueue
 
 #: Templates and static assets live inside the package, not at the repo root, so
@@ -74,6 +74,10 @@ def create_app(settings: Settings | None = None, *, providers: str | None = None
     # candidate for nothing here — the paths are disjoint, but keeping the
     # dashboard first states the intended precedence rather than relying on it.
     app.include_router(script.router)
+    # Gate 2. Its paths are disjoint from gate 1's — `/scenes/{id}/choose`,
+    # `/motion`, `/revoice` and `/approve/storyboard` — so the order is a
+    # statement of pipeline order rather than a precedence the app depends on.
+    app.include_router(storyboard.router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
