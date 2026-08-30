@@ -104,7 +104,13 @@ class StockProvider(ABC):
 
 
 class Uploader(ABC):
-    """Publishing target. Declared in M1, implemented in M5."""
+    """Publishing target. Declared in M1, implemented in M5.
+
+    PROVISIONAL SIGNATURE — nothing in M1 calls this. Spec 4.6 specifies
+    ``upload(*, video_path, metadata: VideoMetadata, privacy="private",
+    thumbnail_path, progress) -> UploadResult``; those two types do not exist
+    until M5, so this stands in for them. M5 owns settling it.
+    """
 
     @abstractmethod
     def upload(
