@@ -53,3 +53,24 @@ def test_no_llm_key_warns(tmp_path, monkeypatch):
     )
     results = run_checks(settings, GOOD_CAPS)
     assert _by_name(results, "LLM API key").level == "warn"
+
+
+def test_hardware_encoder_reports_detection_not_use(tmp_path):
+    # M1 defect 8: doctor claimed "available for fast renders", but assemble and
+    # render both hardcode libx264. Fast-render mode is M3 work.
+    settings = Settings(workspace_dir=tmp_path, models_dir=tmp_path / "models")
+    check = _by_name(run_checks(settings, GOOD_CAPS), "hardware encoder")
+    assert check.level == "ok"
+    assert "h264_qsv" in check.detail
+    assert "detected" in check.detail
+    assert "M3" in check.detail
+    assert "libx264" in check.detail
+    assert "fast renders" not in check.detail
+
+
+def test_no_hardware_encoder_still_warns(tmp_path):
+    settings = Settings(workspace_dir=tmp_path, models_dir=tmp_path / "models")
+    caps = FFmpegCaps(True, "ffmpeg version 6.1.1", True, "", True)
+    check = _by_name(run_checks(settings, caps), "hardware encoder")
+    assert check.level == "warn"
+    assert "libx264" in check.detail

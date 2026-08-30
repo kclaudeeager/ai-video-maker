@@ -54,10 +54,14 @@ def _check_ffmpeg(caps: FFmpegCaps) -> list[CheckResult]:
             CheckResult("ffprobe", "fail", "not found on PATH",
                         fix="sudo apt install ffmpeg   # (brew install ffmpeg on macOS)")
         )
+    # Detection is real, but nothing in the pipeline encodes with it yet: `assemble`
+    # and `render` both hardcode libx264, and hardware fast-render mode is M3 work
+    # (spike follow-up 8). Say what is true rather than promising faster renders.
     results.append(
         CheckResult(
             "hardware encoder", "ok" if caps.hw_encoder else "warn",
-            f"{caps.hw_encoder} available for fast renders" if caps.hw_encoder
+            f"{caps.hw_encoder} detected; renders use libx264 (CPU) until "
+            "fast-render mode lands in M3" if caps.hw_encoder
             else "none detected; libx264 (CPU) only",
         )
     )
