@@ -1,0 +1,118 @@
+{#
+  Gate 3, second half: the final render's progress, and the file it produces.
+
+  Context: `project`, `output` and `preview` (ArtefactViews), `seconds`, `gate`,
+  `status`/`status_label`/`status_tone`, and the job block (`job`, `poll`,
+  `job_tone`, `poll_ms`).
+
+  The bar here is driven from inside FFmpeg — output seconds encoded over the
+  timeline's total — not only from stage to stage, because the encode *is* most
+  of the wall clock and a bar that sat still through it would read as a hang.
+  See `routes/render.py`.
+
+  `#render-live` re-fetches this page and lifts itself out with `hx-select`, so
+  the finished `<video>` appears on its own; `hx-trigger` is emitted only while a
+  job is in flight, which is what ends the polling loop.
+
+  The finished file is offered only once nothing is writing it: FFmpeg writes
+  its output in place, so between the first frame and the last there is a file
+  on disk that is not yet a video.
+
+  `data-render` is the attribute the tests read.
+#}
+{% extends "base.html" %}
+
+{% block title %}Render · {{ project.topic }}{% endblock %}
+{% block heading %}Final render{% endblock %}
+
+{% block content %}
+  <section class="card project-head">
+    <div class="row spread">
+      <p class="muted flush">
+        <a href="/projects/{{ project.id }}">{{ project.topic }}</a> ·
+        <code>{{ project.id }}</code> ·
+        <a href="/projects/{{ project.id }}/preview">preview</a>
+      </p>
+      <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
+    </div>
+    <p class="muted flush">
+      Captions burned in, narration mixed and normalised to −14 LUFS, moov atom
+      moved to the front so the file starts playing before it has finished
+      loading. This is the part that takes real time
+      {%- if seconds %} — about {{ seconds|round|int }} s of video to encode{% endif %}.
+    </p>
+  </section>
+
+  <section id="render-live" class="card artefact" data-render="{{ output.state }}"
+           {% if poll %}hx-get="/projects/{{ project.id }}/render"
+           hx-trigger="every {{ poll_ms }}ms"
+           hx-select="#render-live"
+           hx-swap="outerHTML"{% endif %}>
+    <div class="row spread">
+      <h2 class="flush">{{ output.relpath.split("/")[-1] }}</h2>
+      {% if job %}
+        <span class="status {{ job_tone }}" data-job-state="{{ job.state }}">{{ job.state }}</span>
+      {% else %}
+        <span class="status" data-job-state="none">idle</span>
+      {% endif %}
+    </div>
+
+    {% if poll %}
+      {# The one number worth looking at while this runs. #}
+      <p class="render-percent flush">{{ (job.progress * 100)|round|int }}%</p>
+      <progress value="{{ '%.3f'|format(job.progress) }}" max="1">{{ (job.progress * 100)|round|int }}%</progress>
+      <p class="muted flush">
+        {% if job.message %}{{ job.message }}{% elif job.stage %}stage {{ job.stage }}{% else %}waiting for the worker{% endif %}
+      </p>
+    {% endif %}
+
+    {% if job and job.error %}
+      <p class="notice notice-warn" role="status">
+        The render failed{% if job.stage %} at the <code>{{ job.stage }}</code> stage{% endif %}.
+        This is the end of what FFmpeg printed:
+      </p>
+      <pre class="log" role="alert">{{ job.error }}</pre>
+    {% endif %}
+
+    {% if job and job.state == "blocked" and job.gate %}
+      <p class="flush">
+        <a class="button" href="/projects/{{ project.id }}/{{ job.gate }}">Open {{ gate_titles.get(job.gate, job.gate)|lower }}</a>
+      </p>
+    {% endif %}
+
+    {# `writing` and not merely `output.exists`: FFmpeg writes its output in
+       place, so a file appears the instant the encode starts and stays
+       unplayable until it ends. See `writing()` in routes/render.py. #}
+    {% if output.exists and not writing %}
+      <video class="artefact-video" controls preload="metadata" playsinline
+             src="{{ output.url }}">
+        Your browser cannot play this file. It is at
+        <code>{{ output.relpath }}</code> inside the project folder.
+      </video>
+
+      {% if output.state == "stale" %}
+        <p class="notice notice-warn" role="status">
+          This file is from an earlier run and something it was built from has
+          changed since. Approve the preview again to re-render it.
+        </p>
+      {% endif %}
+
+      <label class="path-copy">
+        <span class="muted">On disk</span>
+        {# Readonly rather than plain text: the whole point of showing the path
+           is that it can be selected in one click and pasted somewhere else. #}
+        <input class="path-field" type="text" readonly value="{{ output.location }}"
+               onfocus="this.select()" aria-label="Path to the rendered file">
+      </label>
+      <p class="flush">
+        <a class="button" href="{{ output.url }}">Open the file</a>
+      </p>
+    {% elif not poll %}
+      <p class="artefact-empty muted flush">
+        Nothing has been rendered yet. Approve the preview on the
+        <a href="/projects/{{ project.id }}/preview">preview page</a> to start the
+        final encode.
+      </p>
+    {% endif %}
+  </section>
+{% endblock %}

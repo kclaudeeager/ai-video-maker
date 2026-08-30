@@ -24,7 +24,7 @@ from videomaker.config import Settings, load_settings
 from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
 from videomaker.web import media
-from videomaker.web.routes import projects, script, storyboard
+from videomaker.web.routes import projects, render, script, storyboard
 from videomaker.web.worker import JobQueue
 
 #: Templates and static assets live inside the package, not at the repo root, so
@@ -78,6 +78,11 @@ def create_app(settings: Settings | None = None, *, providers: str | None = None
     # `/motion`, `/revoice` and `/approve/storyboard` — so the order is a
     # statement of pipeline order rather than a precedence the app depends on.
     app.include_router(storyboard.router)
+    # Gate 3, and the render progress page. Registered last because it is last in
+    # the pipeline, not because anything depends on the order: `/preview`,
+    # `/preview/build`, `/approve/preview` and `/render` collide with nothing
+    # above them.
+    app.include_router(render.router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

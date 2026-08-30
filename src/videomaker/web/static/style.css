@@ -773,3 +773,79 @@ code {
 .quota-list li {
   padding: 0.15rem 0;
 }
+
+/* Gate 3: the preview and render pages ------------------------------------ */
+
+/* Both pages are one thing being watched plus the controls for it, so the card
+   is a column and the video is the widest element in it. */
+.artefact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.artefact > * {
+  margin: 0;
+}
+
+/* Letterboxed against a dark ground rather than stretched: a 16:9 file in a
+   narrower column would otherwise be cropped by `object-fit` or distorted by
+   the fallback, and neither is honest about what was rendered. */
+.artefact-video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border: 1px solid var(--border);
+}
+
+/* An empty state has to be as visible as the video it stands in for, or the
+   page reads as broken rather than as not-yet-built. */
+.artefact-empty {
+  padding: 1.25rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+/* The single number worth glancing at during a long encode, big enough to read
+   from across the desk. Tabular figures so it does not jitter as it counts. */
+.render-percent {
+  font-size: 1.9rem;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.artefact progress {
+  height: 0.9rem;
+}
+
+/* The output path is shown to be copied, so it is a readonly field rather than
+   prose: one click selects the whole thing. */
+.path-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.path-field {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.preview-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.preview-gate > p {
+  margin: 0;
+}
