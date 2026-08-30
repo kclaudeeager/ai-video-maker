@@ -25,7 +25,10 @@
   </div>
 
   {% if not job %}
-    <p class="muted">Nothing has been run for this project yet.</p>
+    {# Only web jobs are tracked here; a CLI run leaves no JobState, so this must
+       not claim the project has never run — the stepper above is the truth. #}
+    <p class="muted">No run has been started from this page. Anything already
+      done was run from the command line — see the pipeline below.</p>
   {% else %}
     <p class="job-line">
       <span class="job-kind">{{ job.kind }}</span>
