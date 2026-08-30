@@ -258,7 +258,7 @@ silently inherited). Resampling to 48 kHz happens at mix time, as planned.
 
 ## Follow-ups for M2/M3
 
-### 1. Defect: one scene's opening captions are unsynced (whisper returned no timings)
+### 1. RESOLVED — Defect: one scene's opening captions were unsynced (whisper returned no timings)
 
 **This is the only real defect the DoD battery surfaced.** In scene 3, the first
 seven words came back from faster-whisper with `start_s == end_s == 0.0`:
@@ -284,12 +284,32 @@ degenerate timings. Root cause is upstream — `faster-whisper base`/int8 droppe
 the opening phrase, and snap-to-script assigned the unmatched words 0.0 rather
 than interpolating.
 
-Not fixed here (this task is verification only). Suggested direction for M2/M3:
-when snap-to-script leaves a leading run of words unmatched, interpolate their
-timings linearly across `[0, first matched start)` instead of collapsing them to
-zero, and have the ASS writer refuse to emit any line whose duration is below a
-floor (say 0.15 s). A regression test can assert `end > start` for every
-`Dialogue:` line.
+**Fixed** (see the two commits following this document's original write-up), in
+two layers:
+
+1. `align.snap_to_script`'s `delete` branch no longer collapses an unheard run
+   onto the running cursor. The run is now interpolated across the gap it sits in
+   — from the previous emitted end to the next *heard* word's start — split
+   proportionally to word length by the same `_spread` helper the `replace` branch
+   uses. A leading run therefore fills `[0.0, first heard start)` instead of
+   piling onto 0.0. A trailing run has no later anchor, so it falls back to the
+   scene's measured `duration_s` (passed in by the align stage as the new
+   `audio_duration_s` keyword) and stays zero-width only when even that is
+   unknown. The one-slot-per-token, in-order, monotonic guarantees are unchanged.
+2. `media/ass.py` grew `MIN_DISPLAY_DURATION_S = 0.150` and
+   `merge_degenerate_chunks`. Any chunk still shorter than the floor after the
+   existing inset/`MIN_CHUNK_DURATION_S` clamp is **merged into the chunk that
+   follows it** rather than dropped — the words keep their own (earlier) start and
+   stay on screen for the following chunk's window, so nothing is captioned
+   nowhere. Merging happens inside `chunk_words`, which `chunk_grouped` calls once
+   per scene, so a merge can never pull words across a scene cut. `write_ass`
+   additionally skips any chunk below the floor as a last line of defence; with
+   the merge in place that guard is unreachable, which is the point.
+
+Regression tests: `tests/unit/test_snap_to_script.py` covers leading, mid-utterance
+and trailing unmatched runs; `tests/unit/test_ass_writer.py` asserts no `Dialogue:`
+line written by `write_ass` ever has `end <= start`, driven by a run of words all
+timed at 0.0, flat and grouped.
 
 ### 2. `QuotaTracker` uses a sliding 24 h window; the real APIs reset on a calendar day
 
@@ -356,7 +376,7 @@ with the head of the next. Any M3 work on vertical/karaoke captions must preserv
 the grouping — it is not an optimisation, it is the thing that keeps captions
 readable at cuts.
 
-### 8. New: the hardware encoder is detected but never used
+### 8. RESOLVED (as a wording fix) — the hardware encoder is detected but never used
 
 `doctor` reports "hardware encoder OK — h264_qsv available for fast renders", and
 `media/ffmpeg.py` defines
@@ -367,11 +387,16 @@ nothing in the pipeline ever encodes with it. Both `assemble` and `render` hardc
 
 So the constant and the doctor row are currently a promise the pipeline does not
 keep. Encoding is 70 s of the 184 s cold run (assemble 32 s + render 39 s); QSV
-could plausibly halve that. Either wire `HW_ENCODER_PREFERENCE` into the render
-path (with a libx264 fallback, since QSV output quality at a given bitrate is worse
-and the driver is flaky on this machine per M0), or soften doctor's wording so it
-does not claim renders are faster than they are. M3 is the natural home for this,
-since M3 adds a second aspect and doubles the encode cost.
+could plausibly halve that.
+
+**Fixed by softening the claim, not by wiring QSV up** — hardware fast-render mode
+is M3 work per the spec, and M3 is the natural home for it since M3 adds a second
+aspect and doubles the encode cost. `doctor` now reports
+`"<encoder> detected; renders use libx264 (CPU) until fast-render mode lands in M3"`
+instead of `"<encoder> available for fast renders"`. The check's `level` semantics
+are unchanged (`ok` when an encoder is present, `warn` when none is), and the
+"none detected; libx264 (CPU) only" branch is untouched. `HW_ENCODER_PREFERENCE`
+stays in `media/ffmpeg.py` for M3 to consume.
 
 ### 9. New: stock relevance is keyword-literal
 
