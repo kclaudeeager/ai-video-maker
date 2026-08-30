@@ -13,8 +13,11 @@ every such test, while routes still need `app.state.jobs` to exist to submit to.
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from videomaker import __version__
 from videomaker.config import Settings, load_settings
@@ -22,6 +25,14 @@ from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
 from videomaker.web import media
 from videomaker.web.worker import JobQueue
+
+#: Templates and static assets live inside the package, not at the repo root, so
+#: that `[tool.hatch.build.targets.wheel] packages = ["src/videomaker"]` carries
+#: them into the wheel and an installed copy works with no source tree present.
+#: Anchoring on `__file__` (rather than the CWD) is what makes that true.
+_WEB_DIR = Path(__file__).resolve().parent
+TEMPLATES_DIR = _WEB_DIR / "templates"
+STATIC_DIR = _WEB_DIR / "static"
 
 
 def create_app(settings: Settings | None = None, *, providers: str | None = None) -> FastAPI:
@@ -49,6 +60,12 @@ def create_app(settings: Settings | None = None, *, providers: str | None = None
     app.state.settings = settings
     app.state.store = ProjectStore(settings.workspace_dir)
     app.state.jobs = JobQueue()
+
+    # Starlette's own static handling normalises the request path and refuses
+    # to leave the directory, so `/static` needs no guard of its own — unlike
+    # `/media`, which serves an arbitrary workspace path (see `web.media`).
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
     app.include_router(media.router)
 

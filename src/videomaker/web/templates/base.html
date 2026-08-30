@@ -1,0 +1,31 @@
+{#
+  The document shell for every page in the review UI.
+
+  Blocks: `title` (the <title> and the page heading), `content` (the main
+  column), `scripts` (per-page JS, after htmx has loaded).
+
+  Every asset here is served from our own /static mount. Nothing is loaded from
+  a CDN: the tool has to work with no network at all, and a local review tool
+  should not announce each page view to a third party. tests/unit/test_web_templates.py
+  fails the build if an absolute URL ever appears in this shell.
+#}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}AI Video Maker{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    {# Loaded in <head> without `defer` so that htmx has processed the DOM
+       before any per-page inline script in the `scripts` block runs. #}
+    <script src="/static/vendor/htmx.min.js"></script>
+  </head>
+  <body>
+    {% include "_nav.html" %}
+    <main class="page">
+      <h1 class="page-title">{% block heading %}{{ self.title() }}{% endblock %}</h1>
+      {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

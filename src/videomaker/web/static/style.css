@@ -1,0 +1,246 @@
+/*
+ * The whole stylesheet. One hand-written file, no framework and no build step:
+ * this is a single-user review tool that runs on localhost, and a toolchain
+ * would cost more than the layout it produces is worth.
+ *
+ * Layout is one column capped at a readable measure. Review work is reading a
+ * script, looking at a still and pressing approve or reject — a sidebar would
+ * only push the thing being reviewed off to one side.
+ */
+
+:root {
+  --bg: #fbfaf8;
+  --surface: #ffffff;
+  --border: #ddd8d0;
+  --ink: #1c1a17;
+  --ink-soft: #5d574e;
+  --accent: #1f5fa8;
+  --ok: #1d6b3f;
+  --warn: #8a5a12;
+  --bad: #97281e;
+  --radius: 6px;
+  --gap: 1rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161513;
+    --surface: #201e1b;
+    --border: #3a3630;
+    --ink: #eceae6;
+    --ink-soft: #a49d92;
+    --accent: #7db3ec;
+    --ok: #6fce97;
+    --warn: #e0b464;
+    --bad: #ec8a80;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+a {
+  color: var(--accent);
+}
+
+/* Header ------------------------------------------------------------------ */
+
+.site-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap);
+  padding: 0.7rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.brand {
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.site-nav {
+  display: flex;
+  gap: var(--gap);
+  font-size: 0.9rem;
+}
+
+/* Page -------------------------------------------------------------------- */
+
+.page {
+  /* 60rem keeps prose readable while still fitting a 16:9 still at a useful
+     size; the page stays centred rather than growing on a wide monitor. */
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+}
+
+.page-title {
+  font-size: 1.5rem;
+  margin: 0 0 1.25rem;
+}
+
+h2 {
+  font-size: 1.15rem;
+  margin: 2rem 0 0.75rem;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+/* Cards and lists --------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  margin-bottom: var(--gap);
+}
+
+.card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.spread {
+  justify-content: space-between;
+}
+
+/* Status pills ------------------------------------------------------------ */
+
+.status {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.status-ok {
+  color: var(--ok);
+}
+
+.status-waiting {
+  color: var(--warn);
+}
+
+.status-failed {
+  color: var(--bad);
+}
+
+/* Forms and buttons ------------------------------------------------------- */
+
+label {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  margin-bottom: 0.25rem;
+}
+
+input[type="text"],
+input[type="number"],
+select,
+textarea {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+}
+
+textarea {
+  min-height: 9rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.field {
+  margin-bottom: var(--gap);
+}
+
+button,
+.button {
+  padding: 0.42rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+button:hover,
+.button:hover {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Media ------------------------------------------------------------------- */
+
+img,
+video {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+}
+
+/* Logs and progress ------------------------------------------------------- */
+
+.log {
+  max-height: 22rem;
+  overflow-y: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+
+progress {
+  width: 100%;
+  height: 0.6rem;
+}
+
+/* htmx sets this attribute for the duration of a request. */
+[aria-busy="true"] {
+  opacity: 0.6;
+}
