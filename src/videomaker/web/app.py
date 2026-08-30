@@ -3,9 +3,16 @@
 `create_app` is a factory rather than a module-level singleton so that tests (and
 a future embedded use) can build isolated apps over their own workspace, each
 with its own `Settings` and `ProjectStore` hanging off `app.state`.
+
+The background worker is *constructed* here but only *started* by the lifespan.
+That split matters: `TestClient(app)` used without its context manager never runs
+lifespan, so a queue that started itself in the factory would leak a thread out of
+every such test, while routes still need `app.state.jobs` to exist to submit to.
 """
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -14,6 +21,7 @@ from videomaker.config import Settings, load_settings
 from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
 from videomaker.web import media
+from videomaker.web.worker import JobQueue
 
 
 def create_app(settings: Settings | None = None, *, providers: str | None = None) -> FastAPI:
@@ -27,9 +35,20 @@ def create_app(settings: Settings | None = None, *, providers: str | None = None
     if providers:
         settings = provider_override(settings, providers)
 
-    app = FastAPI(title="AI Video Maker", version=__version__)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.state.jobs.start()
+        try:
+            yield
+        finally:
+            # Joins the worker, so a test client leaves no thread behind. A job
+            # already running is given `stop`'s timeout and no longer than that.
+            app.state.jobs.stop()
+
+    app = FastAPI(title="AI Video Maker", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.state.store = ProjectStore(settings.workspace_dir)
+    app.state.jobs = JobQueue()
 
     app.include_router(media.router)
 
