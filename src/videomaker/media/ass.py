@@ -6,6 +6,10 @@ Two things bite here and both are covered by unit tests:
 * Whisper word timestamps are zero-gap (M0 finding 3): each word starts exactly
   where the previous one ended. Chunk boundaries must be inset or caption blocks
   touch edge-to-edge on screen.
+* Whisper sometimes returns ``start == end == 0.0`` for a run of words. Insetting
+  such a chunk drives its end back onto its start, and a zero-duration
+  ``Dialogue`` line never displays at all — so chunks below
+  :data:`MIN_DISPLAY_DURATION_S` are merged away rather than written.
 """
 
 from dataclasses import dataclass
@@ -18,6 +22,14 @@ CHUNK_INSET_S = 0.040
 
 #: A chunk is never shortened below this, however tight the timings are.
 MIN_CHUNK_DURATION_S = 0.200
+
+#: A chunk shorter than this never displays long enough to be read, so it is
+#: never written as a ``Dialogue`` line. Degenerate word timings can still slip
+#: past :data:`MIN_CHUNK_DURATION_S`, because the clamp above is followed by a
+#: ``min(end, next_start)`` that pulls the end back to the start when the next
+#: chunk begins at the same instant — which is exactly how M1 shipped a
+#: ``0:00:22.50,0:00:22.50`` line (spike follow-up 1).
+MIN_DISPLAY_DURATION_S = 0.150
 
 #: Widely available on Linux; libass falls back gracefully if it is missing.
 DEFAULT_FONT = "DejaVu Sans"
@@ -64,6 +76,10 @@ def chunk_words(words: list[WordTiming], per_chunk: int) -> list[list[WordTiming
     copied with an earlier ``end_s``: back off by :data:`CHUNK_INSET_S`, keep at
     least :data:`MIN_CHUNK_DURATION_S` on screen, and never run into the next
     chunk's start.
+
+    Degenerate word timings survive all three of those rules, so the result is
+    finally passed through :func:`merge_degenerate_chunks`: no chunk this function
+    returns is shorter than :data:`MIN_DISPLAY_DURATION_S`.
     """
     if per_chunk < 1:
         raise ValueError("per_chunk must be at least 1")
@@ -82,7 +98,37 @@ def chunk_words(words: list[WordTiming], per_chunk: int) -> list[list[WordTiming
             end = min(end, next_start)
 
         chunks.append([*group[:-1], group[-1].model_copy(update={"end_s": end})])
-    return chunks
+    return merge_degenerate_chunks(chunks)
+
+
+def chunk_duration(chunk: list[WordTiming]) -> float:
+    """How long ``chunk`` is on screen: exactly what :func:`write_ass` timestamps."""
+    return chunk[-1].end_s - chunk[0].start_s
+
+
+def merge_degenerate_chunks(chunks: list[list[WordTiming]]) -> list[list[WordTiming]]:
+    """Fold any chunk below :data:`MIN_DISPLAY_DURATION_S` into the one after it.
+
+    Merging rather than dropping, because dropping silently captions those words
+    nowhere — the visible half of the M1 defect. The absorbed words keep their own
+    start (the earliest honest moment for them) and stay on screen for the whole of
+    the following chunk's window, so nothing is lost and nothing runs ahead of the
+    narration by more than it already did.
+
+    Merging only ever happens *within one call*, and :func:`chunk_grouped` calls this
+    function once per scene, so a merge can never pull words across a scene cut.
+    The last chunk of a run is never degenerate — it has no ``next_start`` to be
+    clamped against, so :data:`MIN_CHUNK_DURATION_S` stands — which is what
+    guarantees this pass always has somewhere to fold into.
+    """
+    merged: list[list[WordTiming]] = []
+    for chunk in reversed(chunks):
+        if merged and chunk_duration(chunk) < MIN_DISPLAY_DURATION_S:
+            merged[-1] = [*chunk, *merged[-1]]  # merged[-1] is the chunk that follows
+        else:
+            merged.append(chunk)
+    merged.reverse()
+    return merged
 
 
 def chunk_grouped(groups: list[list[WordTiming]], per_chunk: int) -> list[list[WordTiming]]:
@@ -187,6 +233,11 @@ def write_ass(
     for chunk in chunks:
         text = escape_text(" ".join(word.word for word in chunk).strip())
         if not text:
+            continue
+        # Last line of defence: a line that never displays is worse than no line,
+        # because it hides its words *and* leaves the next caption looking early.
+        # `chunk_words` should already have merged these away.
+        if chunk_duration(chunk) < MIN_DISPLAY_DURATION_S:
             continue
         start = format_timestamp(chunk[0].start_s)
         end = format_timestamp(chunk[-1].end_s)

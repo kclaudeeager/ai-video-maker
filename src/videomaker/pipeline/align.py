@@ -76,7 +76,11 @@ def run_align(project: Project, deps: StageDeps) -> StageResult:
             continue
 
         heard = _transcribe(deps, project, scene, audio_path)
-        words = snap_to_script(scene.narration, heard)
+        # `duration_s` is the length `voice` measured for this very file, so it is
+        # the right upper anchor for a trailing run of words whisper never heard.
+        words = snap_to_script(
+            scene.narration, heard, audio_duration_s=scene.duration_s
+        )
         _write_words(words_path, words)
         scene.words = words
         deps.stage_cache.mark(key, current)

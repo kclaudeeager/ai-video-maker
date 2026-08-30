@@ -1,4 +1,10 @@
-from videomaker.media.ass import STYLES, ass_colour, chunk_words, write_ass
+from videomaker.media.ass import (
+    MIN_DISPLAY_DURATION_S,
+    STYLES,
+    ass_colour,
+    chunk_words,
+    write_ass,
+)
 from videomaker.models import Aspect, WordTiming
 
 
@@ -51,3 +57,68 @@ def test_braces_in_narration_are_escaped(tmp_path):
 def test_empty_word_list_writes_header_only(tmp_path):
     out = write_ass([], STYLES[Aspect.WIDE], tmp_path / "c.ass", play_res=(1920, 1080))
     assert "Dialogue:" not in out.read_text()
+
+
+def _dialogue_spans(text):
+    """Every ``Dialogue:`` line's (start, end) in seconds, parsed back from the file."""
+    spans = []
+    for line in text.splitlines():
+        if not line.startswith("Dialogue:"):
+            continue
+        _, start, end, *_ = line[len("Dialogue:"):].split(",")
+        spans.append((_seconds(start), _seconds(end)))
+    return spans
+
+
+def _seconds(stamp):
+    hours, minutes, rest = stamp.split(":")
+    return int(hours) * 3600 + int(minutes) * 60 + float(rest)
+
+
+# M1 defect: whisper returned start == end == 0.0 for scene 3's first seven words,
+# and the writer emitted `Dialogue: 0,0:00:22.50,0:00:22.50,...` — a line that never
+# displays, so five words were captioned nowhere.
+DEGENERATE = [w(f"word{i}", 0.0, 0.0) for i in range(7)] + [
+    w("so", 2.08, 2.70), w("the", 2.70, 2.94), w("read", 2.94, 3.40),
+]
+
+
+def test_no_dialogue_line_has_end_at_or_before_start(tmp_path):
+    out = write_ass(DEGENERATE, STYLES[Aspect.WIDE], tmp_path / "c.ass", play_res=(1920, 1080))
+    spans = _dialogue_spans(out.read_text())
+    assert spans, "degenerate timings must not silence the whole file"
+    for start, end in spans:
+        assert end > start, f"non-displaying Dialogue line {start} -> {end}"
+
+
+def test_no_dialogue_line_has_end_at_or_before_start_when_grouped(tmp_path):
+    # The production path: one group per scene (see `chunk_grouped`).
+    groups = [DEGENERATE, [w("next", 5.0, 5.4), w("scene", 5.4, 5.9)]]
+    out = write_ass([], STYLES[Aspect.WIDE], tmp_path / "c.ass",
+                    play_res=(1920, 1080), groups=groups)
+    spans = _dialogue_spans(out.read_text())
+    assert spans
+    for start, end in spans:
+        assert end > start, f"non-displaying Dialogue line {start} -> {end}"
+
+
+def test_degenerate_chunk_keeps_its_words_by_merging_forward(tmp_path):
+    out = write_ass(DEGENERATE, STYLES[Aspect.WIDE], tmp_path / "c.ass", play_res=(1920, 1080))
+    text = out.read_text()
+    # Nothing is dropped silently: every word is still somewhere in the file.
+    for word in DEGENERATE:
+        assert word.word in text
+
+
+def test_all_words_degenerate_still_emits_one_displayable_line(tmp_path):
+    words = [w(f"w{i}", 0.0, 0.0) for i in range(10)]
+    out = write_ass(words, STYLES[Aspect.WIDE], tmp_path / "c.ass", play_res=(1920, 1080))
+    spans = _dialogue_spans(out.read_text())
+    assert len(spans) == 1
+    assert spans[0][1] - spans[0][0] >= MIN_DISPLAY_DURATION_S
+
+
+def test_chunk_words_never_returns_a_chunk_below_the_display_floor():
+    words = [w(f"w{i}", 0.0, 0.0) for i in range(7)] + [w("so", 2.08, 2.7)]
+    for chunk in chunk_words(words, 5):
+        assert chunk[-1].end_s - chunk[0].start_s >= MIN_DISPLAY_DURATION_S
