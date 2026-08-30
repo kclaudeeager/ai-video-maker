@@ -215,3 +215,30 @@ Transcript (all 9 words joined): **`This is a Kakoro voice test on this machine.
 - **Cold (first run, includes the 142 MB download):** the whole `videomaker setup` command
   took **12.54 s** wall end-to-end, of which Kokoro TTS was 1.0 s and the two Kokoro models
   were already cached — so download + STT was ~11.5 s on this connection.
+
+## M0 summary (definition of done)
+- doctor: all green (API keys warn only) — date: 2026-08-30
+- TTS stack for M1: kokoro-onnx==0.6.1 + onnxruntime==1.29.0 (no pins needed, manylinux wheels)
+- STT stack for M1: faster-whisper==1.2.1 + ctranslate2==4.8.1 (plan's 0.10.1/3.24.0 fallback not needed)
+- Kokoro RTF on this machine: 0.51 warm (0.41–0.63 over four `setup` runs; 1.16 on the
+  first run after an idle period, when the 311 MB ONNX model is not in the page cache)
+- Open follow-ups for M1:
+  - **Never assume `ffmpeg` on PATH implies `ffprobe` or a usable version.** The snap
+    `ffmpeg` 4.3.1 is still installed and shadowed only because `/usr/bin` precedes
+    `/snap/bin`; it exposes no `ffprobe` on PATH and errors on this laptop's GPU. Probe
+    both binaries and the version explicitly.
+  - **Build `WhisperModel` once and reuse it.** Warm `spike_stt` is 2.44 s for 2.389 s of
+    audio (RTF ≈ 1.02), dominated by model construction, not transcription — per-segment
+    construction would make captioning cost realtime.
+  - **Word timestamps are zero-gap.** Whisper's DTW alignment emits `word.start ==
+    previous word.end` inside a segment, so caption boxes will be edge-to-edge unless M1
+    insets or pads them.
+  - **`soundfile.write` silently downcasts.** Kokoro returns float32 at 24 kHz and
+    soundfile defaults to 16-bit PCM; pass an explicit `subtype` (and resample) if the M1
+    mixdown wants float or 48 kHz.
+  - **Anonymous HF Hub downloads are rate-limited.** The whisper fetch warns
+    "You are sending unauthenticated requests to the HF Hub"; fine locally, but a
+    plausible flake source on CI — support an optional `HF_TOKEN`.
+  - **Kokoro TTS output is verified objectively only.** No agent on this box has audio
+    playback; intelligibility is established by the TTS→STT round trip (8/9 words exact,
+    the miss being the proper noun "Kokoro" → "Kakoro"), not by listening.
