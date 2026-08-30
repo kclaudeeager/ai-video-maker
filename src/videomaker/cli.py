@@ -42,5 +42,20 @@ def doctor() -> None:
         raise typer.Exit(code=1)
 
 
+@app.command()
+def setup() -> None:
+    """Download models and run TTS/STT smoke tests (first-run setup)."""
+    from videomaker.config import load_settings
+    from videomaker.setup_cmd import ensure_models
+
+    settings = load_settings()
+    settings.workspace_dir.mkdir(parents=True, exist_ok=True)
+    settings.models_dir.mkdir(parents=True, exist_ok=True)
+    console.print("Downloading models (first run only; ~340 MB)...")
+    for path in ensure_models(settings):
+        console.print(f"  [green]ready[/green] {path}")
+    console.print("Setup complete. Run [bold]videomaker doctor[/bold] to verify.")
+
+
 def main() -> None:
     app()

@@ -57,7 +57,47 @@ is missing (fail-only check). Its absence from the table is the pass signal.
 The three WARNs are the expected pre-`setup` state.
 
 ## kokoro-onnx / onnxruntime wheels (Task 6)
-- (pending)
+- **Result: clean.** `uv sync --extra ml` resolved 52 packages and installed 24 new ones
+  from prebuilt manylinux wheels in ~20s. No build step, no compiler, **no pins needed**.
+- Resolved versions (`uv pip list`, 2026-08-30):
+
+  | package | version |
+  | --- | --- |
+  | kokoro-onnx | 0.6.1 |
+  | onnxruntime | 1.29.0 |
+  | ctranslate2 | 4.8.1 |
+  | faster-whisper | 1.2.1 |
+  | soundfile | 0.14.0 |
+  | numpy | 2.5.2 |
+
+  Notable transitive deps pulled in: `av 18.1.0`, `tokenizers 0.23.1`,
+  `huggingface-hub 1.29.0`, `phonemizer 3.4.0`, `espeakng-loader 0.2.4`,
+  `protobuf 7.36.0`, `hf-xet 1.6.0`. `espeakng-loader` ships its own bundled
+  espeak-ng, so no `apt install espeak-ng` was required.
+- Import check: `uv run python -c "from kokoro_onnx import Kokoro; print('kokoro-onnx import OK')"`
+  printed `kokoro-onnx import OK` with **no warnings** — onnxruntime 1.29.0 loads fine
+  against numpy 2.5.2 (no numpy 1.x pin needed, which is the usual failure mode elsewhere).
+- Model download: `uv run videomaker setup` fetched both files to
+  `~/.cache/ai-video-maker/models/` on the first try (GitHub release
+  `thewh1teagle/kokoro-onnx@model-files-v1.0`, HTTP redirect to the CDN followed):
+
+  ```
+  -rw-rw-r-- 311M kokoro-v1.0.onnx
+  -rw-rw-r--  27M voices-v1.0.bin
+  ```
+
+  338 MB total, matching the plan's ~340 MB estimate. `uv run videomaker doctor` then
+  reports `kokoro model files` = **OK** and exits 0 (only the two API-key WARNs remain).
+- Downloader note: `download_file` streams to a `<name>.part` sibling and `Path.replace`s
+  it into place, so a killed download leaves no truncated model behind and re-running
+  `setup` is idempotent (`ensure_models` skips files that already exist).
+
+### Deviation from the plan's snippet
+The plan's `downloads.py` writes chunks with an explicit `for chunk in ...: fh.write(chunk)`
+loop, which this repo's ruff (0.16.5, default ruleset) rejects as **FURB122**. Applied
+ruff's own autofix — `fh.writelines(response.iter_bytes(256 * 1024))` — which streams
+identically (writelines consumes the iterator lazily and writes no separators). Behaviour
+is unchanged; both download tests pass.
 
 ## Kokoro TTS smoke test (Task 7)
 - (pending)
