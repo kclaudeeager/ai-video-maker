@@ -25,7 +25,7 @@ A local-first, open-source **AI video studio** that turns a topic into finished 
 
 **Strengths** — $0 marginal cost per video; full pipeline ownership (no vendor lock-in); Kokoro-82M (Apache 2.0) is near-commercial TTS on CPU; dual-format output; multi-niche template system; human-in-the-loop design aligned with 2026 platform policy where competitors are not.
 
-**Weaknesses** — Solo dev + solo creator (owner's time is the scarce resource); Intel Mac limits (renders take minutes, no local image gen/LLM); free-tier rate limits cap throughput (fine for quality cadence, blocks bulk use — also a feature); cold-start audience of zero; smaller voice variety than paid TTS.
+**Weaknesses** — Solo dev + solo creator (owner's time is the scarce resource); no discrete GPU (no local image gen/LLM; renders are CPU-bound minutes); free-tier rate limits cap throughput (fine for quality cadence, blocks bulk use — also a feature); cold-start audience of zero; smaller voice variety than paid TTS.
 
 **Opportunities** — No well-maintained *quality-first* open-source AI video studio exists (MoneyPrinterTurbo is templated-output-focused, ShortGPT stalled); Kokoro's ~8 languages enable multilingual re-versions; open-core/hosted/premium-template revenue later; GitHub Sponsors after release; meta-content ("building this tool") feeds the owner's tech channel; niche templates are pure data files → low contribution barrier.
 
@@ -39,7 +39,7 @@ Income is lottery-shaped; the tool's edge is reducing cost-per-attempt to ~$0 + 
 
 **Stream B — the open-source project.** GitHub Sponsors/Open Collective after public release (young-project realistic: $0–200/mo); open-core hosted version + premium template packs later, only when Stream A or sponsors cover the VPS. AGPL prevents others from beating the owner to a closed-source hosted version.
 
-**Cost timeline.** Phase 0 (now → first income): **$0/mo** (local Mac; Groq/Gemini/Pexels/Cloudflare/GitHub free tiers; domain deferrable). Phase 1 (once income exists, deployed via the same Docker Compose artifact): a small VPS — DigitalOcean basic droplet $6–12/mo (2GB+ RAM recommended for FFmpeg renders), Hetzner CX22 ~€4/mo, or Render ($7/mo web service + paid persistent disk; note Render's PaaS model suits the web UI but plain VPSes fit FFmpeg-heavy rendering with large temp files better). A free Cloudflare Tunnel exposing the local Mac remains the $0 remote-access option. Domain ~$10/yr; optional paid TTS $5–22/mo. Phase 2 (SaaS, only if justified): storage/workers scaling with revenue.
+**Cost timeline.** Phase 0 (now → first income): **$0/mo** (local machine; Groq/Gemini/Pexels/Cloudflare/GitHub free tiers; domain deferrable). Phase 1 (once income exists, deployed via the same Docker Compose artifact): a small VPS — DigitalOcean basic droplet $6–12/mo (2GB+ RAM recommended for FFmpeg renders), Hetzner CX22 ~€4/mo, or Render ($7/mo web service + paid persistent disk; note Render's PaaS model suits the web UI but plain VPSes fit FFmpeg-heavy rendering with large temp files better). A free Cloudflare Tunnel exposing the local machine remains the $0 remote-access option. Domain ~$10/yr; optional paid TTS $5–22/mo. Phase 2 (SaaS, only if justified): storage/workers scaling with revenue.
 
 ### 3.3 Platform compliance (design inputs, non-negotiable)
 
