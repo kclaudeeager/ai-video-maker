@@ -12,7 +12,7 @@ A local-first, open-source **AI video studio** that turns a topic into finished 
 
 | Decision | Choice | Why |
 |---|---|---|
-| Runtime (phase 1) | Local-first on owner's Mac | True $0/month; must fully work locally before any deployment |
+| Runtime (phase 1) | Local-first on owner's HP ProBook 450 G10 (Zorin OS 18, Linux x86_64) | True $0/month; must fully work locally before any deployment. Migrated from the Intel MacBook 2026-08-30: ~2–2.5× faster renders, first-class manylinux ML wheels, dev/prod parity with the Linux Docker target |
 | Deployment (phase 2+) | Docker Compose | One artifact deploys unchanged to any inexpensive cloud (DigitalOcean, Render, Hetzner, …) |
 | Stack | Python 3.12 (pinned via `uv`) + FastAPI + Jinja2 + vendored htmx | Python owns the ML ecosystem; no frontend build chain |
 | Output | Dual-format from one project (16:9 + 9:16) | Doubles distribution per unit of effort |
@@ -57,13 +57,15 @@ AGPL-3.0 license; project name stays owner's trademark (forks must rename — co
 
 Working name `ai-video-maker`, Python package `videomaker`.
 
-### 4.1 Machine-verified constraints (checked on this Mac, 2026-08-30)
+### 4.1 Machine constraints
 
-- Intel i5-8259U (8 threads), 16GB RAM, ~120GB free; `uv` 0.9.28 with Python 3.12.12 already available; git/gh/brew present.
-- **FFmpeg 8.1.1 installed but it is a lean build WITHOUT libass/freetype** — no `subtitles`/`ass`/`drawtext` filters. Caption burning is impossible until `brew reinstall ffmpeg` (standard bottle includes libass). `videomaker doctor` probes for the `subtitles` filter and prints this remediation. Bonus: `h264_videotoolbox` HW encoder is present → optional fast-render mode (2–4×; libx264 veryfast remains default quality path).
-- **PyTorch has no Intel-macOS wheels after 2.2.2** → the `kokoro` pip package is not viable here. Default TTS is **kokoro-onnx** with onnxruntime pinned to the last macOS x86_64 cp312 release (verify exact pin in M0; ~1.18–1.19). Fallback ladder: sherpa-onnx (also runs Kokoro) → macOS `say` (dev-only). Same wheel risk for faster-whisper/CTranslate2 → pin (faster-whisper 0.10.x + ctranslate2 3.24.x) or fall back to a `whisper-cli` (brew) subprocess provider. The provider abstraction confines each swap to one file; M0 runs a hard install spike before any feature work.
-- espeak-ng not installed — only needed for some non-English Kokoro voices; `doctor` checks conditionally.
+**Primary dev machine (from 2026-08-30): HP ProBook 450 G10** — i7-1355U (2P+8E cores, 12 threads), 16GB RAM, 512GB disk, Zorin OS 18.1 (Ubuntu-based, Wayland). Chosen over the Intel MacBook because: ~2–2.5× faster multi-core (renders drop from ~10–20 min to ~4–8 min per aspect), all ML packages ship first-class manylinux wheels (eliminating the Intel-Mac wheel risk entirely), distro FFmpeg includes libass out of the box, Intel graphics provide `h264_qsv`/`h264_vaapi` hardware encoding as the fast-render option, and the platform matches the Linux Docker deployment target exactly (dev/prod parity).
+
+- Default TTS remains **kokoro-onnx** (no PyTorch dependency — lighter on CPU and keeps Intel-Mac contributors viable); STT is faster-whisper (manylinux wheels, no pins needed on Linux).
+- `videomaker doctor` probes ffmpeg for the `subtitles` filter (libass) and detects the best available hardware encoder (`h264_qsv` → `h264_vaapi` → `h264_videotoolbox`); libx264 stays the default quality path.
+- espeak-ng only needed for some non-English Kokoro voices; `doctor` checks conditionally.
 - No MoviePy anywhere; `ffprobe -print_format json` covers probing.
+- **macOS (Intel) findings preserved for contributors** in `docs/macos-intel-notes.md` (verified on the owner's 2018 MacBook): lean Homebrew ffmpeg builds may lack libass (`brew reinstall ffmpeg` fixes); PyTorch has no Intel-Mac wheels after 2.2.2; onnxruntime/ctranslate2 may need pins (~1.19.2 / 3.24.0) with sherpa-onnx and whisper-cli as last-resort fallbacks. The provider abstraction confines any such swap to one file.
 
 ### 4.2 Repo structure
 
@@ -153,7 +155,7 @@ Unit (models, hashing, caption chunker, ASS snapshot, filter-graph builders, tem
 
 ## 5. Milestones (each ends with a runnable definition-of-done)
 
-- **M0 — Scaffold + install spike.** Repo skeleton, pyproject/uv.lock, community files, CI, `videomaker doctor` (ffmpeg `subtitles`-filter probe with remediation, keys, disk) + `setup` (downloads Kokoro ONNX + whisper model, 5-word TTS+STT smoke test). Proves the Intel-Mac wheel stacks before feature work. *DoD: `uv run videomaker doctor` all green; pytest green in CI.*
+- **M0 — Scaffold + install spike.** Repo skeleton, pyproject/uv.lock, community files, CI, `videomaker doctor` (ffmpeg `subtitles`-filter probe with remediation, keys, disk) + `setup` (downloads Kokoro ONNX + whisper model, 5-word TTS+STT smoke test). Verifies the full ML + FFmpeg stack on the HP before feature work. *DoD: `uv run videomaker doctor` all green; pytest green in CI.*
 - **M1 — CLI happy path (wide).** ProjectStore + hash engine, providers + mocks, stages through render, golden-path CI test. *DoD: `videomaker new "how ssds work" -t tech_explainer && videomaker run <id> --yes` → playable `final_wide.mp4`; immediate re-run <10s.*
 - **M2 — Review web UI.** All three gates in browser. *DoD: full project via browser; editing one scene at storyboard re-generates only that scene.*
 - **M3 — Dual format + polish.** Vertical pipeline, karaoke captions, music ducking, thumbnails, `clean`, videotoolbox fast mode. *DoD: one project → final_wide + ≤3-min final_vertical + thumbnail; captions styled per aspect; music ducks audibly.*
@@ -165,11 +167,11 @@ Post-v1 (deferred): Instagram API publishing, plugin entry-points, SQLite index,
 
 ## 6. Risk register (top items)
 
-1. FFmpeg without libass on this Mac — certain/blocker → `brew reinstall ffmpeg`; doctor probe. 
-2. Intel-Mac ML wheels (onnxruntime, ctranslate2) — high/blocker if unpinned → pins + fallback ladder, proven in M0. 
-3. Render time on 4-core i5 (10-min video ≈ 10–20 min/aspect libx264) — certain/medium → per-scene caching, 480p previews, videotoolbox 2–4×. 
-4. Pexels 200 req/h during storyboard browsing — medium → batched search, 7-day cache, budget UI, pixabay fallback. 
-5. Free-LLM JSON flakiness — medium → schema mode + repair retry + fallback + response cache. 
-6. Disk pressure (1–3GB intermediates/project) — low/medium → `clean --keep-outputs`, doctor warning <20GB. 
-7. YouTube API private-lock for unaudited apps — certain/low → manual upload is the default and recommendation. 
+1. FFmpeg builds without libass (affects some macOS contributor setups; distro Linux builds are fine) — doctor probes the `subtitles` filter and prints the per-platform remediation.
+2. ML wheel availability — near-zero risk on the Linux primary machine (manylinux wheels); Intel-Mac contributors follow the pin ladder in `docs/macos-intel-notes.md`; M0 smoke tests verify the stack either way.
+3. Render time (10-min video ≈ 4–8 min/aspect libx264 on the i7-1355U) — medium → per-scene caching, 480p previews, QSV/VA-API hardware encode fast mode.
+4. Pexels 200 req/h during storyboard browsing — medium → batched search, 7-day cache, budget UI, pixabay fallback.
+5. Free-LLM JSON flakiness — medium → schema mode + repair retry + fallback + response cache.
+6. Disk pressure (1–3GB intermediates/project) — low/medium → `clean --keep-outputs`, doctor warning <20GB.
+7. YouTube API private-lock for unaudited apps — certain/low → manual upload is the default and recommendation.
 8. Platform AI-content policy — the three human gates and original-script workflow exist precisely for this; documented in docs/youtube-policy.md.
