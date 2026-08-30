@@ -221,3 +221,55 @@ def test_captions_marks_its_unit_per_aspect(deps):
     persisted = StageCache(deps.stage_cache.path)
     assert persisted.is_stale(stage_key("captions", Aspect.WIDE.value), "not-the-real-hash") is True
     assert run_captions(project, deps).skipped_units == 1
+
+
+def _ass_seconds(stamp: str) -> float:
+    hours, minutes, seconds = stamp.split(":")
+    return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+
+def test_no_caption_runs_past_its_scene_into_the_next(deps):
+    """A chunk straddling a scene cut reads as a mixture of two narrations.
+
+    Word counts here are deliberately NOT multiples of `words_per_chunk`, so flat
+    chunking really would spill across the cut; with 5-word scenes the boundaries
+    coincide with chunk boundaries and the bug is invisible.
+    """
+    project = deps.store.create("uneven", "tech_explainer", target_minutes=1.0)
+    uneven = {
+        "s01": ("Solid state drives keep every single byte", 3.5),
+        "s02": ("A flash cell traps", 2.0),
+        "s03": ("Nothing moves so reads finish quickly", 3.0),
+    }
+    project.scenes = [
+        Scene(
+            id=sid,
+            narration=narration,
+            visual=SceneVisual(query=f"{sid} b-roll"),
+            audio_path=f"scenes/{sid}/narration.wav",
+            duration_s=duration_s,
+            words=_words(narration, duration_s),
+            in_short=True,
+        )
+        for sid, (narration, duration_s) in uneven.items()
+    ]
+    deps.store.save(project)
+
+    run_captions(project, deps)
+    dialogue = _dialogue(_ass_path(deps, project))
+    assert dialogue
+
+    # Where each scene begins on the finished timeline.
+    starts, offset = [], 0.0
+    for _, duration_s in uneven.values():
+        starts.append(offset)
+        offset += duration_s + SCENE_GAP_S
+
+    for raw_start, raw_end, text in dialogue:
+        start, end = _ass_seconds(raw_start), _ass_seconds(raw_end)
+        later = [s for s in starts if s > start + 1e-6]
+        if later:
+            assert end <= later[0] + 1e-6, (
+                f"caption {text!r} runs from {start:.2f}s past the next scene "
+                f"cut at {later[0]:.2f}s"
+            )

@@ -85,6 +85,20 @@ def chunk_words(words: list[WordTiming], per_chunk: int) -> list[list[WordTiming
     return chunks
 
 
+def chunk_grouped(groups: list[list[WordTiming]], per_chunk: int) -> list[list[WordTiming]]:
+    """Chunk each group independently so a caption never mixes two groups' words.
+
+    Callers pass one group per scene. Chunking the whole timeline as one run lets a
+    chunk straddle a scene cut — the words are correctly timed but read as a mixture
+    of two narrations, and the caption visibly spans the inter-scene gap.
+    """
+    chunks: list[list[WordTiming]] = []
+    for group in groups:
+        if group:
+            chunks.extend(chunk_words(group, per_chunk))
+    return chunks
+
+
 def format_timestamp(seconds: float) -> str:
     """Format seconds as ASS ``H:MM:SS.cc`` (centiseconds)."""
     centiseconds = max(0, round(seconds * 100))
@@ -157,10 +171,20 @@ def write_ass(
     out_path: Path,
     *,
     play_res: tuple[int, int],
+    groups: list[list[WordTiming]] | None = None,
 ) -> Path:
-    """Write ``words`` as caption chunks to ``out_path`` and return that path."""
+    """Write ``words`` as caption chunks to ``out_path`` and return that path.
+
+    Pass ``groups`` (one list per scene) to keep chunks inside scene boundaries;
+    ``words`` is then only the flat fallback. See :func:`chunk_grouped`.
+    """
+    chunks = (
+        chunk_grouped(groups, style.words_per_chunk)
+        if groups is not None
+        else chunk_words(words, style.words_per_chunk)
+    )
     lines = [_header(style, play_res)]
-    for chunk in chunk_words(words, style.words_per_chunk):
+    for chunk in chunks:
         text = escape_text(" ".join(word.word for word in chunk).strip())
         if not text:
             continue

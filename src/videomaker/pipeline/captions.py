@@ -72,6 +72,25 @@ def timeline_words(project: Project) -> list[WordTiming]:
     return words
 
 
+def timeline_word_groups(project: Project) -> list[list[WordTiming]]:
+    """`timeline_words`, but kept split per scene so captions respect scene cuts."""
+    groups: list[list[WordTiming]] = []
+    offset = 0.0
+    for scene in project.scenes:
+        if scene.duration_s is None:
+            continue
+        groups.append(
+            [
+                word.model_copy(
+                    update={"start_s": word.start_s + offset, "end_s": word.end_s + offset}
+                )
+                for word in scene.words
+            ]
+        )
+        offset += scene.duration_s + SCENE_GAP_S
+    return groups
+
+
 def aspect_hash(project: Project, aspect: Aspect) -> str:
     return hash_inputs(
         scenes=[
@@ -109,7 +128,13 @@ def run_captions(project: Project, deps: StageDeps) -> StageResult:
             skipped += 1
             continue
 
-        write_ass(words, STYLES[aspect], path, play_res=PLAY_RES[aspect])
+        write_ass(
+            words,
+            STYLES[aspect],
+            path,
+            play_res=PLAY_RES[aspect],
+            groups=timeline_word_groups(project),
+        )
         deps.stage_cache.mark(key, current)
         changed = True
 
