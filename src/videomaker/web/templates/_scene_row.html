@@ -6,6 +6,11 @@
   card would replace the textarea the user is still typing into and throw the
   caret to the end of the text on every pause. The server still answers with the
   whole row partial, so the same response works for any other target.
+
+  The scene operations sit *outside* the editing form, as siblings of it: HTML
+  has no nested forms, and each of split/merge/move/delete is its own POST. They
+  are plain forms with no htmx at all — every one of them changes the shape of
+  the list, so the honest response is a fresh page rather than a partial swap.
 #}
 <li id="scene-{{ row.scene.id }}" class="card scene" data-scene="{{ row.scene.id }}">
   <form class="scene-form"
@@ -47,4 +52,45 @@
       <button type="submit">Save scene</button>
     </div>
   </form>
+
+  <div class="scene-ops">
+    <form method="post" action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}/split" class="op">
+      <label for="split-{{ row.scene.id }}">Split after word</label>
+      <input type="number"
+             id="split-{{ row.scene.id }}"
+             name="at_word"
+             min="1"
+             max="{{ row.max_split_word }}"
+             value="{{ row.default_split_word }}"
+             {% if not row.can_split %}disabled{% endif %}>
+      <button type="submit" {% if not row.can_split %}disabled{% endif %}>Split</button>
+    </form>
+
+    <form method="post" action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}/merge" class="op">
+      {% if row.next_id %}<input type="hidden" name="second_id" value="{{ row.next_id }}">{% endif %}
+      <button type="submit" {% if not row.next_id %}disabled{% endif %}>Merge with next</button>
+    </form>
+
+    {#
+      The move buttons post a whole new order, not a direction. The server then
+      never has to reconstruct "up" against a list that may have changed since
+      this page was rendered — a stale order is simply not a permutation of the
+      project's ids any more, and is refused instead of applied to the wrong list.
+    #}
+    <form method="post" action="/projects/{{ row.project_id }}/scenes/reorder" class="op">
+      <input type="hidden" name="focus" value="{{ row.scene.id }}">
+      {% for sid in row.up_order %}<input type="hidden" name="order" value="{{ sid }}">{% endfor %}
+      <button type="submit" {% if not row.can_move_up %}disabled{% endif %}>Move up</button>
+    </form>
+
+    <form method="post" action="/projects/{{ row.project_id }}/scenes/reorder" class="op">
+      <input type="hidden" name="focus" value="{{ row.scene.id }}">
+      {% for sid in row.down_order %}<input type="hidden" name="order" value="{{ sid }}">{% endfor %}
+      <button type="submit" {% if not row.can_move_down %}disabled{% endif %}>Move down</button>
+    </form>
+
+    <form method="post" action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}/delete" class="op op-danger">
+      <button type="submit" class="danger">Delete scene</button>
+    </form>
+  </div>
 </li>

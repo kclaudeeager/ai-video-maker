@@ -32,11 +32,12 @@ preview approvals, and the response carries an out-of-band `#gate-state` update
 so the page says so without a reload.
 """
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from videomaker.cache import StageCache
@@ -50,6 +51,7 @@ from videomaker.runner import (
     stage_cache_for,
     status_key,
 )
+from videomaker.scenes import delete_scene, merge_scenes, reorder_scenes, split_scene
 
 # `_load` (the shared 404 helper), the status pill palette and the "run to the
 # next gate" job body all belong to the dashboard module. Importing them keeps
@@ -130,12 +132,65 @@ class SceneRow:
     voice_current: bool
     align_current: bool
     visual_current: bool
+    #: Every scene id in the project, in order. The move buttons post a whole new
+    #: order rather than a direction, so `POST /scenes/reorder` never has to guess
+    #: what "up" meant against a project that may have moved since this render.
+    sibling_ids: tuple[str, ...] = ()
     #: Transient feedback from a save that just happened, if this row is a reply.
     note: str = ""
 
     @property
     def word_count(self) -> int:
         return len(self.scene.narration.split())
+
+    @property
+    def can_split(self) -> bool:
+        """A one-word scene has no interior boundary to cut at."""
+        return self.word_count > 1
+
+    @property
+    def max_split_word(self) -> int:
+        return max(self.word_count - 1, 1)
+
+    @property
+    def default_split_word(self) -> int:
+        return max(self.word_count // 2, 1)
+
+    @property
+    def next_id(self) -> str | None:
+        """The scene this one would merge with, or None if it is the last."""
+        index = self.number
+        return self.sibling_ids[index] if index < len(self.sibling_ids) else None
+
+    @property
+    def can_move_up(self) -> bool:
+        return self.number > 1
+
+    @property
+    def can_move_down(self) -> bool:
+        return self.number < len(self.sibling_ids)
+
+    @property
+    def up_order(self) -> list[str]:
+        return self._swapped(-1)
+
+    @property
+    def down_order(self) -> list[str]:
+        return self._swapped(1)
+
+    def _swapped(self, step: int) -> list[str]:
+        """This scene's id moved one place, as a complete order to post back.
+
+        Always a full permutation of the project's ids, even at the ends where the
+        swap is a no-op: `reorder_scenes` rejects anything less, and it should —
+        a partial list would be a silent delete.
+        """
+        ids = list(self.sibling_ids)
+        here = self.number - 1
+        there = here + step
+        if 0 <= there < len(ids):
+            ids[here], ids[there] = ids[there], ids[here]
+        return ids
 
     @property
     def state_label(self) -> str:
@@ -181,6 +236,7 @@ def scene_rows(project: Project, stage_cache: StageCache) -> list[SceneRow]:
             voice_current=voice.get(scene.id, False),
             align_current=align.get(scene.id, False),
             visual_current=visuals.get(scene.id, False),
+            sibling_ids=tuple(other.id for other in project.scenes),
         )
         for number, scene in enumerate(project.scenes, start=1)
     ]
@@ -240,6 +296,152 @@ def script_page(request: Request, project_id: str):
     )
 
 
+# --------------------------------------------------- editing the scene list
+
+# **Scene ids are stable and are not positions** (design decision 5). The
+# arithmetic lives in `videomaker.scenes`, which is pure and separately tested;
+# these four handlers are the adapter: 404 for an id that does not exist, 400 for
+# an operation that does not make sense, and one write under one lock for
+# everything else.
+#
+# Unlike `save_scene` there is no no-op guard, and there should not be: a
+# structural operation is a deliberate button press that always changes the list,
+# so the compare-first dance that autosave needs would only be ceremony here.
+
+
+def _is_htmx(request: Request) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def _scene_or_404(project: Project, scene_id: str) -> Scene:
+    try:
+        return project.scene_by_id(scene_id)
+    except KeyError as missing:
+        raise HTTPException(
+            status_code=404, detail=f"no such scene: {project.id}/{scene_id}"
+        ) from missing
+
+
+def _following_id(project: Project, scene_id: str) -> str:
+    """The id of the scene after `scene_id` — what "merge with next" means."""
+    _scene_or_404(project, scene_id)
+    ids = [scene.id for scene in project.scenes]
+    index = ids.index(scene_id)
+    if index + 1 >= len(ids):
+        raise ValueError("the last scene has nothing after it to merge with")
+    return ids[index + 1]
+
+
+#: A scene operation: the project as it is on disk, plus the store and cache it
+#: may need to keep the artefacts honest, in exchange for the project as it should
+#: become.
+SceneOp = Callable[[Project, ProjectStore, StageCache], Project]
+
+
+def _restructure(request: Request, project_id: str, operate: SceneOp, *, anchor: str = ""):
+    """Run one scene operation under the project lock and answer the browser.
+
+    The project is loaded twice on purpose. The first load is the 404 — it happens
+    *before* `store.lock`, which would otherwise create a folder for an id nobody
+    has; the second is inside the lock, because the worker thread may have moved
+    the project since the page that posted this was rendered.
+
+    `KeyError` from the operation is an id the project does not have (404);
+    `ValueError` is an operation that cannot mean anything — a split at word zero,
+    an order that is not a permutation (400). Both are raised before anything is
+    written or deleted, so a rejected operation leaves the project exactly as it
+    was.
+    """
+    store: ProjectStore = request.app.state.store
+    _load(request, project_id)
+
+    with store.lock(project_id):
+        project = _load(request, project_id)
+        stage_cache = stage_cache_for(store, project_id)
+        try:
+            project = operate(project, store, stage_cache)
+        except KeyError as missing:
+            raise HTTPException(
+                status_code=404, detail=f"no such scene: {project_id}/{missing.args[0]}"
+            ) from missing
+        except ValueError as bad:
+            raise HTTPException(status_code=400, detail=str(bad)) from bad
+        # Adding, removing or rewording a scene can invalidate a gate somebody has
+        # already signed off; M1 decides which, exactly as it does for an edit.
+        clear_stale_approvals(project, stage_cache)
+        store.save(project)
+
+    url = f"/projects/{project_id}/script"
+    if anchor:
+        url = f"{url}#scene-{anchor}"
+    if _is_htmx(request):
+        # Half the page has moved, so there is no honest partial to swap: tell
+        # htmx to navigate. A plain form post gets the same destination as a 303.
+        return Response(status_code=204, headers={"HX-Redirect": url})
+    return RedirectResponse(url=url, status_code=303)
+
+
+# **This route must be registered before `POST /projects/{id}/scenes/{scene_id}`.**
+# Starlette matches in registration order, so the other way round every reorder
+# arrives at `save_scene` as a scene called "reorder" and answers 404 forever.
+@router.post("/projects/{project_id}/scenes/reorder")
+def reorder(
+    request: Request,
+    project_id: str,
+    order: list[str] = Form(default=[]),
+    focus: str = Form(""),
+):
+    """Put the scenes in the posted order. Re-encodes nothing that belongs to a scene.
+
+    The form posts the whole new order rather than "move s03 up", so the server
+    never has to reconstruct an intent from a page that may be stale — and a
+    stale order (one that is no longer a permutation of the project's ids) is
+    rejected outright rather than applied to the wrong list.
+    """
+    return _restructure(
+        request,
+        project_id,
+        lambda project, _store, _cache: reorder_scenes(project, list(order)),
+        anchor=focus,
+    )
+
+
+@router.post("/projects/{project_id}/scenes/{scene_id}/split")
+def split(request: Request, project_id: str, scene_id: str, at_word: int = Form(...)):
+    """Cut a scene in two at a word boundary; the new half takes a fresh id."""
+    return _restructure(
+        request,
+        project_id,
+        lambda project, store, cache: split_scene(
+            project, scene_id, at_word, store=store, stage_cache=cache
+        ),
+        anchor=scene_id,
+    )
+
+
+@router.post("/projects/{project_id}/scenes/{scene_id}/merge")
+def merge(request: Request, project_id: str, scene_id: str, second_id: str = Form("")):
+    """Join this scene with another — by default the one after it — keeping this id."""
+
+    def operate(project: Project, store: ProjectStore, cache: StageCache) -> Project:
+        second = second_id or _following_id(project, scene_id)
+        return merge_scenes(project, scene_id, second, store=store, stage_cache=cache)
+
+    return _restructure(request, project_id, operate, anchor=scene_id)
+
+
+@router.post("/projects/{project_id}/scenes/{scene_id}/delete")
+def delete(request: Request, project_id: str, scene_id: str):
+    """Remove a scene and every artefact that was ever built for it."""
+    return _restructure(
+        request,
+        project_id,
+        lambda project, store, cache: delete_scene(
+            project, scene_id, store=store, stage_cache=cache
+        ),
+    )
+
+
 # ------------------------------------------------------------- saving a scene
 
 
@@ -273,19 +475,6 @@ def _apply(scene: Scene, changes: dict[str, str]) -> None:
         scene.narration = changes["narration"]
     if "query" in changes:
         scene.visual.query = changes["query"]
-
-
-def _is_htmx(request: Request) -> bool:
-    return request.headers.get("HX-Request", "").lower() == "true"
-
-
-def _scene_or_404(project: Project, scene_id: str) -> Scene:
-    try:
-        return project.scene_by_id(scene_id)
-    except KeyError as missing:
-        raise HTTPException(
-            status_code=404, detail=f"no such scene: {project.id}/{scene_id}"
-        ) from missing
 
 
 @router.post("/projects/{project_id}/scenes/{scene_id}")
@@ -355,15 +544,9 @@ def save_scene(
         {
             **_gate_context(project, cleared=cleared, oob=True),
             "project": project,
-            "row": SceneRow(
-                project_id=row.project_id,
-                number=row.number,
-                scene=row.scene,
-                voice_current=row.voice_current,
-                align_current=row.align_current,
-                visual_current=row.visual_current,
-                note=note,
-            ),
+            # `replace`, not a re-listing of the fields: a row built by hand here
+            # would quietly lose whatever `scene_rows` learns to attach next.
+            "row": replace(row, note=note),
             "autosave_delay_ms": AUTOSAVE_DELAY_MS,
         },
     )

@@ -469,3 +469,55 @@ code {
 .scene-meta {
   font-size: 0.82rem;
 }
+/* The scene operations: split, merge, move, delete. One tiny form each, because
+   HTML has no nested forms and every one of them is its own POST. They sit on a
+   quiet row under the editor so they read as tools rather than as the main act. */
+.scene-ops {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.scene-ops .op {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.scene-ops label {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+/* Wide enough for a three-digit word index and no wider: this is a spinner, not
+   a text field, and the flex row above should not give it the whole width. */
+.scene-ops input[type="number"] {
+  width: 5rem;
+}
+
+.scene-ops button {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.6rem;
+}
+
+/* Destructive, so it is pushed away from the others and coloured like a warning
+   rather than like an action you are being invited to take. */
+.scene-ops .op-danger {
+  margin-left: auto;
+}
+
+.scene-ops button.danger {
+  color: var(--bad);
+  border-color: var(--border);
+}
+
+.scene-ops button.danger:hover {
+  border-color: var(--bad);
+}
+
