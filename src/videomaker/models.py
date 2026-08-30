@@ -106,7 +106,8 @@ class Project(BaseModel):
     voice: str = "af_heart"
     target_minutes: float = 2.0
     created_at: datetime
-    status: Status = Status.NEW
+    # No stored `status`: it is derived from the stage cache by runner.derive_status()
+    # so it can never drift from the artifacts on disk (spec 4.4).
     approvals: Approvals = Field(default_factory=Approvals)
     scenes: list[Scene] = Field(default_factory=list)
     outputs: dict[Aspect, OutputSpec] = Field(default_factory=dict)
