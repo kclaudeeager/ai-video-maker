@@ -42,3 +42,19 @@ def spike_tts(settings: Settings) -> tuple[Path, float, float]:
     sf.write(str(out), samples, sample_rate)
     audio_s = len(samples) / sample_rate
     return out, audio_s, wall_s
+
+
+def spike_stt(settings: Settings, wav: Path) -> list[tuple[str, float, float]]:
+    """Transcribe the smoke wav with word timestamps; returns (word, start, end) tuples."""
+    from faster_whisper import WhisperModel
+
+    model = WhisperModel(
+        "base", device="cpu", compute_type="int8",
+        download_root=str(settings.models_dir / "whisper"),
+    )
+    segments, _info = model.transcribe(str(wav), word_timestamps=True)
+    words: list[tuple[str, float, float]] = []
+    for segment in segments:
+        for word in segment.words or []:
+            words.append((word.word.strip(), word.start, word.end))
+    return words

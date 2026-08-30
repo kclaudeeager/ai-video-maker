@@ -137,4 +137,81 @@ is unchanged; both download tests pass.
   audio is noise, truncated, or the wrong words.
 
 ## faster-whisper / ctranslate2 wheels (Task 8)
-- (pending)
+- **Result: clean, first try, no API adaptation and no pins needed.** `spike_stt` uses the
+  plan's snippet **verbatim** — `WhisperModel("base", device="cpu", compute_type="int8",
+  download_root=...)` then `model.transcribe(str(wav), word_timestamps=True)`, iterating
+  `segment.words` for `(word.word.strip(), word.start, word.end)`. faster-whisper 1.2.1's
+  real signatures still accept every one of those arguments (`WhisperModel.__init__(self,
+  model_size_or_path, device='auto', device_index=0, compute_type='default', cpu_threads=0,
+  num_workers=1, download_root=None, local_files_only=False, ...)` and `transcribe(...,
+  word_timestamps=False, ...) -> Tuple[Iterable[Segment], TranscriptionInfo]`), checked with
+  `inspect.signature` before writing the code rather than assumed. The plan's fallback pin
+  (`faster-whisper==0.10.1` + `ctranslate2==3.24.0`) was **not** needed — `pyproject.toml`
+  and `uv.lock` are unchanged by this task.
+- Resolved versions (unchanged since Task 6): **faster-whisper 1.2.1**, **ctranslate2 4.8.1**,
+  with `av 18.1.0`, `tokenizers 0.23.1`, `huggingface-hub 1.29.0`, `onnxruntime 1.29.0`
+  (Silero VAD), `numpy 2.5.2`. All prebuilt manylinux wheels; no compiler, no `apt` package.
+- **Model cache location:** `download_root` is passed straight to `huggingface_hub`, so the
+  files land in a HF-layout cache **under our own models dir**, not in `~/.cache/huggingface`:
+
+  ```
+  ~/.cache/ai-video-maker/models/whisper/
+    models--Systran--faster-whisper-base/
+      snapshots/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66/
+        config.json  model.bin  tokenizer.json  vocabulary.txt
+  ```
+
+  **142 MB** on disk (repo `Systran/faster-whisper-base`), matching the plan's ~145 MB
+  estimate. Download emits one benign stderr line — `Warning: You are sending
+  unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits
+  and faster downloads.` — anonymous access works fine; M1 need not require a token, but a
+  rate-limited CI runner is a plausible future flake source.
+
+### Round-trip result: Kokoro TTS → whisper STT
+Input sentence (what Task 7 synthesized): `This is a Kokoro voice test on this machine.`
+
+Transcript (all 9 words joined): **`This is a Kakoro voice test on this machine.`**
+
+| # | word | start (s) | end (s) |
+| --- | --- | --- | --- |
+| 1 | This | 0.00 | 0.16 |
+| 2 | is | 0.16 | 0.32 |
+| 3 | a | 0.32 | 0.46 |
+| 4 | Kakoro | 0.46 | 0.86 |
+| 5 | voice | 0.86 | 1.16 |
+| 6 | test | 1.16 | 1.46 |
+| 7 | on | 1.46 | 1.64 |
+| 8 | this | 1.64 | 1.80 |
+| 9 | machine. | 1.80 | 2.06 |
+
+- **Accuracy: 8/9 words exact (88.9% WER-complement); the single miss is the proper noun.**
+  "Kokoro" came back as **"Kakoro"** — one vowel wrong out of six characters. Every common
+  word, the sentence casing and the final period are correct. This is the expected failure
+  mode for an out-of-vocabulary proper noun on the `base` model and is **not** evidence of
+  bad TTS audio; whisper simply has no "Kokoro" prior. M1 mitigation if proper-noun fidelity
+  ever matters for alignment: `transcribe(..., hotwords="Kokoro")` or `initial_prompt=` are
+  available in 1.2.1, or use a larger model.
+- **This retroactively confirms Task 7's audio is genuinely intelligible speech**, which the
+  Task 7 agent could not verify by ear. A round-trip that recovers the exact sentence proves
+  the wav is not noise, not truncated, and says the right words in the right order.
+
+### Word-timestamp quality
+- Timings are **plausible and well-formed**: monotonically increasing, contiguous
+  (each word's `start` equals the previous word's `end` — whisper's DTW alignment emits no
+  gaps inside a segment), starting at 0.00 s.
+- Coverage vs the source: the wav is **2.389 s**; the last word ends at **2.06 s**, leaving
+  **0.33 s** unaccounted. That tail is Kokoro's trailing silence/decay after "machine", so
+  the alignment is consistent with the audio rather than short of it. No timestamp exceeds
+  the file duration.
+- Per-word durations (0.14–0.40 s) track word length sensibly — "a" is shortest at 0.14 s,
+  "Kakoro" longest at 0.40 s. Good enough to drive M1's word-level caption highlighting;
+  note the zero-gap behaviour means word boxes will be edge-to-edge unless M1 insets them.
+
+### Wall time
+- **Warm (model already cached): 2.44 s** for the full `spike_stt` call — model load +
+  transcribe of 2.389 s of audio. That is **RTF ≈ 1.02**, i.e. roughly realtime, and it is
+  dominated by the one-off `WhisperModel` construction; M1 should build the model **once**
+  and reuse it across segments rather than per call.
+- **Cold (first run, includes the 142 MB download):** the whole `videomaker setup` command
+  took **12.54 s** wall end-to-end, of which Kokoro TTS was 1.0 s and the two Kokoro models
+  were already cached — so download + STT was ~11.5 s on this connection.

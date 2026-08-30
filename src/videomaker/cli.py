@@ -63,6 +63,13 @@ def setup() -> None:
     console.print(
         f"  [green]OK[/green] {wav} ({audio_s:.1f}s audio in {wall_s:.1f}s, RTF {rtf:.2f})"
     )
+
+    from videomaker.setup_cmd import spike_stt
+
+    console.print("Running faster-whisper STT smoke test (downloads base model on first run)...")
+    words = spike_stt(settings, wav)
+    preview = " ".join(w for w, _, _ in words[:6])
+    console.print(f"  [green]OK[/green] {len(words)} words with timestamps: '{preview} ...'")
     console.print("Setup complete. Run [bold]videomaker doctor[/bold] to verify.")
 
 
