@@ -242,3 +242,52 @@ Transcript (all 9 words joined): **`This is a Kakoro voice test on this machine.
   - **Kokoro TTS output is verified objectively only.** No agent on this box has audio
     playback; intelligibility is established by the TTS→STT round trip (8/9 words exact,
     the miss being the proper noun "Kokoro" → "Kakoro"), not by listening.
+
+## End-to-end pipeline spike (post-M0, 2026-08-30)
+
+Not part of the M0 plan. Once all four provider credentials were configured, a
+throwaway script drove the whole stack — Groq script → Kokoro narration →
+faster-whisper word timings → Cloudflare Flux stills + Pexels footage → FFmpeg
+assembly with libass-burned captions — to confirm the architecture end to end
+before M1 builds it properly. The script lives outside the repo (scratchpad only).
+
+**Result: a 20.5 s, 1280x720 captioned MP4 built in 29.8 s wall-clock** — the whole
+pipeline runs faster than realtime on the ProBook. Cost of one run: ~175 of the
+10,000 daily Cloudflare neurons (3 images), 1 Groq completion, 1 Pexels
+search + clip download. All provider keys verified live: Groq, Gemini, Pexels,
+Cloudflare Workers AI.
+
+### Findings for M1
+
+- **Do not hardcode Groq model ids.** The `llama-3.3-70b-versatile` /
+  `llama-3.1-8b-instant` ids that most guides (and earlier drafts of this project's
+  notes) assume are **no longer served by Groq** and 404 on first call. As of
+  2026-08-30 the usable chat models are `openai/gpt-oss-120b` (131k ctx),
+  `qwen/qwen3.8-27b`, `openai/gpt-oss-20b`, and `groq/compound`. The LLM provider
+  must fetch `/openai/v1/models` and resolve against a preference list at runtime.
+- **"First available chat model" is an actively dangerous fallback.** A naive
+  alphabetical pick selected `allam-2-7b` (4,096 ctx, Arabic-focused), which
+  silently produced a shorter, factually wrong script — it attributed ocean colour
+  to "dispersion" and claimed blue has the shortest wavelength. Re-running with
+  `gpt-oss-120b` gave the correct absorption-based explanation and the full scene
+  count. Bad model selection presents as a *content-quality* problem, not a config
+  error, so the provider must fail loudly on an unmatched preference list rather
+  than degrade to whatever id sorts first.
+- **Flux returns 1024x1024 square images.** Cropping to 16:9 discards roughly a
+  third of each frame, and a 9:16 Short would crop far harder. M1 needs an explicit
+  aspect strategy — request composition headroom in the image prompt, generate once
+  per aspect, or pad rather than crop. Do not assume the image matches the timeline.
+- **Pin `@cf/black-forest-labs/flux-1-schnell`.** Neuron cost across Workers AI
+  image models spans ~100x: Flux Schnell is 4.8 neurons per 512px tile + 9.6 per
+  step (~58 neurons for a 1024x1024 at 4 steps, ~170 images/day free), while
+  Leonardo Phoenix/Lucid Origin are 530-636 neurons *per tile* (~3-4 images/day).
+  Also note Workers AI auto-bills at $0.011/1,000 neurons past the free cap instead
+  of hard-failing, so M1 should track spend and stop rather than roll over.
+- **The audio chain is 24 kHz mono end to end.** Kokoro emits 24 kHz, so the muxed
+  AAC track is 24 kHz. Fine for speech, but the M3 music bed will want 48 kHz —
+  resample at mix time, not at TTS time. (See also the `soundfile` downcast note
+  in the M0 summary above.)
+- **Per-scene narration makes timing trivial.** Synthesising each scene separately
+  yields exact per-scene durations, so visual segments can be cut to the audio
+  without alignment guesswork; concatenating the wavs afterwards still gives one
+  continuous track for whisper to caption. Worth keeping in M1's renderer.
