@@ -67,11 +67,11 @@ Unlike the M0 plan, **not every step carries full implementation code** — M1 i
 - `Project(id: str, topic: str, template: str, language: str = "en", voice: str = "af_heart", target_minutes: float = 2.0, created_at: datetime, approvals: Approvals, scenes: list[Scene], outputs: dict[Aspect, OutputSpec])` with helpers `scene_by_id(sid) -> Scene` and `next_scene_id() -> str`.
 - Consumed by every later task.
 
-- [ ] **Step 1: Reorganise the test tree**
+- [x] **Step 1: Reorganise the test tree**
 
 `git mv` the five M0 test files into `tests/unit/`. Run `uv run pytest -q` and confirm 16 still pass (pyproject's `testpaths = ["tests"]` already recurses). Commit this move on its own so the later diff stays readable.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 `tests/unit/test_models.py`:
 
@@ -160,11 +160,11 @@ def test_crop_focus_is_bounded():
         SceneVisual(query="x", crop_focus_x=1.5)
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 `uv run pytest tests/unit/test_models.py -v` → FAIL (`ModuleNotFoundError: videomaker.models`).
 
-- [ ] **Step 4: Implement models.py**
+- [x] **Step 4: Implement models.py**
 
 Use pydantic v2 `BaseModel`. Notes:
 - `StrEnum` from `enum` (Python 3.12) so aspect keys serialise as plain strings.
@@ -172,7 +172,7 @@ Use pydantic v2 `BaseModel`. Notes:
 - `next_scene_id()` returns `f"s{max(existing)+1:02d}"`, or `"s01"` when empty.
 - Give `Approvals`, `scenes`, `outputs` proper `default_factory` values — never mutable defaults.
 
-- [ ] **Step 5: Run tests, then commit**
+- [x] **Step 5: Run tests, then commit**
 
 ```bash
 uv run pytest -q && uv run ruff check .
@@ -194,7 +194,7 @@ git commit -s -m "feat: pydantic data model for projects, scenes and outputs"
 - Layout created on `create()`: `<workspace>/projects/<id>/{scenes,audio,captions,build,output,cache}/`.
 - `save()` is **atomic**: write `project.json.tmp` in the same directory, `os.replace` onto `project.json`. Never a partial file.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/unit/test_project.py`:
 
@@ -282,7 +282,7 @@ def test_scene_dir_is_created_on_demand(store):
     assert d.is_dir() and d.name == "s01"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement.
+- [x] **Step 2: Run tests to verify they fail**, then implement.
 
 Implementation notes:
 - `slugify`: NFKD-normalise, strip combining marks, lowercase, non-alphanumeric → `-`, collapse repeats, strip leading/trailing `-`, truncate to 60.
@@ -290,7 +290,7 @@ Implementation notes:
 - `lock()`: `fcntl.flock` on `<project>/.lock` (exclusive, blocking) inside a `@contextmanager`. On Linux this is sufficient; do not build a cross-platform abstraction.
 - `save()` must call `model_dump_json(indent=2)` so `project.json` stays diffable by hand.
 
-- [ ] **Step 3: Run tests, then commit**
+- [x] **Step 3: Run tests, then commit**
 
 ```bash
 git add src/videomaker/project.py tests/unit/test_project.py
@@ -314,7 +314,7 @@ git commit -s -m "feat: ProjectStore with atomic writes, slugs and per-project l
   - `stage_key(stage: str, unit: str = "all") -> str` → `f"{stage}:{unit}"`.
 - Consumed by Tasks 8–15.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/unit/test_cache.py`:
 
@@ -382,7 +382,10 @@ def test_response_cache_expires_with_ttl(tmp_path, monkeypatch):
     cache = ResponseCache(tmp_path, ttl_days=7)
     cache.put("k1", {"v": 1})
     assert cache.get("k1") == {"v": 1}
-    monkeypatch.setattr(time, "time", lambda: time.time() + 8 * 86400)
+    # Read the real clock BEFORE patching and close over it — a lambda whose body
+    # calls time.time() would resolve to itself once patched and recurse forever.
+    later = time.time() + 8 * 86400
+    monkeypatch.setattr(time, "time", lambda: later)
     assert cache.get("k1") is None
 
 
@@ -395,7 +398,7 @@ def test_response_cache_survives_corrupt_entry(tmp_path):
     assert cache.get("k1") is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement.
+- [x] **Step 2: Run tests to verify they fail**, then implement.
 
 Implementation notes for `hash_inputs`:
 
@@ -417,7 +420,7 @@ def hash_inputs(**parts: object) -> str:
 
 `ResponseCache` stores each entry as `<root>/<key[:2]>/<key>.json` containing `{"stored_at": <epoch>, "value": {...}}`. `get()` must catch `json.JSONDecodeError` and `OSError` and return `None` — a corrupt cache is a miss, never an error.
 
-- [ ] **Step 3: Run tests, then commit**
+- [x] **Step 3: Run tests, then commit**
 
 ```bash
 git add src/videomaker/cache.py tests/unit/test_cache.py
@@ -439,7 +442,7 @@ git commit -s -m "feat: content-hash stage cache and TTL response cache"
 
 Only `tech_explainer` is required in M1; M4 adds the other three plus `templates lint`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 import pytest
@@ -479,13 +482,13 @@ def test_invalid_template_yaml_is_rejected(tmp_path):
         load_template("broken", templates_dir=tmp_path)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement.
+- [x] **Step 2: Run tests to verify they fail**, then implement.
 
 `templates/tech_explainer.yaml` should set a system prompt that produces **original explanatory prose**, a `structure` of hook → context → mechanism → implication → close, `scene_count: [4, 10]`, and `visual_kind_order: [stock_video, stock_photo, ai_image]` (stock first keeps neuron spend near zero).
 
 `templates/_schema.md` documents every field for M4 contributors — this is the file that makes templates a no-Python contribution path.
 
-- [ ] **Step 3: Run tests, then commit**
+- [x] **Step 3: Run tests, then commit**
 
 ```bash
 git add src/videomaker/templates.py templates/ tests/unit/test_templates.py
@@ -514,7 +517,7 @@ git commit -s -m "feat: YAML niche templates with schema validation; tech_explai
 - Produces (registry): `@register(kind: str, name: str)` decorator, `get_provider(kind, name, settings) -> object`, `resolve_chain(kind, settings) -> list[str]`.
 - Config additions to `Settings`: `provider_chains: dict[str, list[str]]` defaulting to `{"llm": ["groq", "gemini"], "tts": ["kokoro"], "stt": ["fasterwhisper"], "stock": ["pexels"], "image": ["cloudflare"]}`, loadable from `config.yaml` under a `providers:` key.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 import pytest
@@ -565,11 +568,11 @@ def test_registering_same_name_twice_raises():
             def __init__(self, settings): ...
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement.
+- [x] **Step 2: Run tests to verify they fail**, then implement.
 
 The registry is a module-level `dict[tuple[str, str], type]`. `providers/__init__.py` imports every concrete provider module at the bottom of the file so decorators run on import — but wrap those imports so a missing optional dependency degrades to "provider unavailable", not an ImportError at CLI startup.
 
-- [ ] **Step 3: Run tests, then commit**
+- [x] **Step 3: Run tests, then commit**
 
 ```bash
 git add src/videomaker/providers/ src/videomaker/config.py tests/unit/test_provider_registry.py
@@ -591,7 +594,7 @@ git commit -s -m "feat: provider ABCs, decorator registry, error taxonomy, chain
 
 **Why neurons, not requests, for Cloudflare:** M0 finding 6 — Workers AI silently bills past the free cap. `record("cloudflare", units=58)` per 1024² Flux image; the tracker stops us before the cap rather than after.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 import pytest
@@ -665,7 +668,7 @@ def test_remaining_reports_headroom(tmp_path):
     assert q.remaining("groq", budget)["rpm"] == 7
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement, then commit.
+- [x] **Step 2: Run tests to verify they fail**, then implement, then commit.
 
 ```bash
 git commit -s -m "feat: quota tracker with sliding-window rpm and persisted daily budgets"
@@ -688,7 +691,7 @@ git commit -s -m "feat: quota tracker with sliding-window rpm and persisted dail
 
 **This task is load-bearing:** the golden-path test and `--providers mock` both depend on these being faithful enough that the real FFmpeg pipeline exercises the same code paths.
 
-- [ ] **Step 1: Generate the fixtures**
+- [x] **Step 1: Generate the fixtures**
 
 ```bash
 mkdir -p tests/fixtures
@@ -699,11 +702,11 @@ ls -lh tests/fixtures/
 
 Confirm both are under 100 KB; raise `-crf` if the clip is larger.
 
-- [ ] **Step 2: Write tests asserting the mocks satisfy the ABCs**
+- [x] **Step 2: Write tests asserting the mocks satisfy the ABCs**
 
 Assert: every mock is an instance of its ABC; `MockTTS` writes a file ffprobe reports with the expected duration (±0.05 s); `MockSTT` returns monotonically non-decreasing timings whose last `end_s` does not exceed the audio duration; `MockStock.search` returns exactly `per_page` results; `MockImage.generate_image` produces a readable JPEG with the requested aspect's dimensions.
 
-- [ ] **Step 3: Implement, run, commit**
+- [x] **Step 3: Implement, run, commit**
 
 ```bash
 git commit -s -m "feat: mock providers and test fixtures for offline pipeline runs"
@@ -725,7 +728,7 @@ git commit -s -m "feat: mock providers and test fixtures for offline pipeline ru
 
 **M0 findings 1 and 2 are the whole point of this task.** `GroqProvider._resolve_model()` fetches `/openai/v1/models`, intersects with `GROQ_MODEL_PREFERENCE` in order, and **raises `ProviderConfigError` naming both the preference list and what the account actually offers** when nothing matches. It must never pick an arbitrary id.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 import httpx
@@ -810,7 +813,7 @@ def test_daily_quota_exhaustion_maps_to_quota_exceeded():
 
 Write the mirror-image tests for `GeminiProvider` against `generativelanguage.googleapis.com`, including its `x-goog-api-key` header and its different error envelope.
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement.
+- [x] **Step 2: Run tests to verify they fail**, then implement.
 
 Notes:
 - Cache key: `hash_inputs(provider=..., model=..., system=..., user=..., temperature=..., schema=...)`. A cache hit returns `LLMResult(cached=True)` and **must not** touch the quota tracker.
@@ -818,7 +821,7 @@ Notes:
 - Distinguish 429-rate-limit (→ `TransientError` with `Retry-After`) from 429-daily-cap (→ `QuotaExceeded`) by inspecting the error body, since only the latter should advance the fallback chain.
 - Groq supports `response_format={"type": "json_object"}`; Gemini uses `generationConfig.responseMimeType`. Both are set when `json_schema` is passed.
 
-- [ ] **Step 3: Run tests, then commit**
+- [x] **Step 3: Run tests, then commit**
 
 ```bash
 git commit -s -m "feat: groq and gemini LLM providers with runtime model resolution"
@@ -845,7 +848,7 @@ git commit -s -m "feat: groq and gemini LLM providers with runtime model resolut
 - `insert` (heard word not in script): drop it.
 - The result must have exactly one entry per script token, in order, monotonically non-decreasing.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 from videomaker.align import snap_to_script
@@ -908,7 +911,7 @@ def test_empty_transcription_still_returns_one_slot_per_word():
     assert [x.word for x in out] == ["alpha", "beta"]
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement `align.py` and both providers.
+- [x] **Step 2: Run tests to verify they fail**, then implement `align.py` and both providers.
 
 The TTS/STT contract tests should be marked `@pytest.mark.slow` and skipped when the `ml` extra is absent, so CI (which installs without `ml`) stays green:
 
@@ -916,7 +919,7 @@ The TTS/STT contract tests should be marked `@pytest.mark.slow` and skipped when
 ml = pytest.importorskip("kokoro_onnx")
 ```
 
-- [ ] **Step 3: Run tests, then commit**
+- [x] **Step 3: Run tests, then commit**
 
 ```bash
 git commit -s -m "feat: kokoro TTS and faster-whisper STT providers with snap-to-script"
@@ -938,11 +941,11 @@ git commit -s -m "feat: kokoro TTS and faster-whisper STT providers with snap-to
 - `CloudflareImageProvider` pins `CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"` and `FLUX_STEPS = 4`, records `NEURONS_PER_IMAGE = 58` against the quota tracker (**M0 finding 6**), and appends composition guidance to the prompt (**M0 finding 5**) so the 1024² square survives a 16:9 crop — e.g. *"centred subject, generous headroom and margins, no text"*.
 - `AssetRef.attribution` must be populated for Pexels (`photographer`/`user.name`) — M5's attribution block depends on it and the Pexels terms require it.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Cover, with `httpx.MockTransport`: a video shorter than the scene is rejected; a sub-1080p video is rejected; photos below 1600px min-side are rejected; `per_page` results are returned in rank order; attribution is captured; a second identical search hits the cache and issues **zero** HTTP requests; a 429 becomes `TransientError`; Flux success writes a real JPEG and records 58 neurons; Flux 401/403 becomes `ProviderConfigError`; exhausted neuron budget raises `QuotaExceeded` **before** the HTTP call.
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement, then commit.
+- [x] **Step 2: Run tests to verify they fail**, then implement, then commit.
 
 ```bash
 git commit -s -m "feat: pexels stock and cloudflare flux image providers with budgets"
@@ -965,7 +968,7 @@ git commit -s -m "feat: pexels stock and cloudflare flux image providers with bu
 - **ASS colours are BGR, not RGB.** `ass_colour(255, 0, 0)` (red) must produce `&H000000FF`. Assert this directly.
 - **Zero-gap timings (M0 finding 3).** `chunk_words` must inset each chunk's end by 40 ms (never past the next chunk's start, never below a 200 ms minimum duration) or captions collide edge-to-edge.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 from videomaker.media.ass import STYLES, ass_colour, chunk_words, write_ass
@@ -1025,7 +1028,7 @@ def test_empty_word_list_writes_header_only(tmp_path):
 
 For `run_ffmpeg`, test with real trivial FFmpeg invocations (`-f lavfi -i color=...`): success, failure raising `FFmpegError` containing stderr, and `on_progress` receiving increasing values.
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement, then commit.
+- [x] **Step 2: Run tests to verify they fail**, then implement, then commit.
 
 ```bash
 git commit -s -m "feat: ffmpeg runner with progress parsing and ASS caption writer"
@@ -1041,7 +1044,7 @@ git commit -s -m "feat: ffmpeg runner with progress parsing and ASS caption writ
 
 **Interfaces:**
 - `pipeline/base.py`: `StageDeps` dataclass carrying `settings`, `store`, `stage_cache`, `response_cache`, `quota`, and a `provider(kind) -> object` callable that walks the configured chain and advances on `QuotaExceeded`/`ProviderConfigError`. Also `StageResult(changed: bool, skipped_units: int)`.
-- `script.py`: `run_script(project, deps) -> StageResult` — unit `all`. Builds the prompt from the template, calls the LLM with a JSON schema, pydantic-validates into scenes, **one repair retry** feeding the validation error back, then the next provider in the chain. Assigns stable ids `s01…`. Hash inputs: `topic`, `template name + version`, `target_minutes`, `language`, `model`.
+- `script.py`: `run_script(project, deps) -> StageResult` — unit `all`. Builds the prompt from the template, calls the LLM with a JSON schema, pydantic-validates into scenes, **one repair retry** feeding the validation error back, then the next provider in the chain. Assigns stable ids `s01…`. Hash inputs: `topic`, the template's **serialised content** (`template.model_dump_json()` — there is no `version` field, and hashing the content means editing a template's prompt correctly invalidates the script), `target_minutes`, `language`, `model`.
 - `voice.py`: `run_voice(project, deps) -> StageResult` — unit per scene. Hash: `narration`, `voice`, `speed`, `provider`. Writes `scenes/sNN/narration.wav`, sets `Scene.audio_path` (relative) and `Scene.duration_s` via `probe_duration`.
 - `align.py`: `run_align(project, deps) -> StageResult` — unit per scene. Hash: `narration`, `audio hash`, `stt provider`. Calls `transcribe_words(hint_text=narration)` then `snap_to_script`, writes `scenes/sNN/words.json`, sets `Scene.words`.
 
@@ -1060,9 +1063,9 @@ def test_editing_one_scene_invalidates_only_that_scene(tmp_path, mock_deps):
 
 Also test: a clean re-run makes **zero** provider calls; a malformed LLM response triggers exactly one repair retry then succeeds; a persistently malformed response advances to the next provider; a scene marked `locked=True` is never re-run even when stale.
 
-- [ ] **Step 1: Write the failing tests, using the mock providers from Task 7.**
-- [ ] **Step 2: Run to verify they fail, implement, run to verify they pass.**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Write the failing tests, using the mock providers from Task 7.**
+- [x] **Step 2: Run to verify they fail, implement, run to verify they pass.**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -s -m "feat: script, voice and align pipeline stages with per-scene caching"
@@ -1082,7 +1085,7 @@ git commit -s -m "feat: script, voice and align pipeline stages with per-scene c
 
 The offset arithmetic deserves an explicit test: scene 2's first word must start at exactly `scene 1 duration + inter-scene gap`, not at its within-scene time.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: visuals and captions pipeline stages"
@@ -1108,19 +1111,19 @@ The pure filter-graph tests keep this fast:
 
 ```python
 def test_still_pan_filter_prescales_before_cropping():
-    graph = build_scene_filter(_still_scene(duration=4.0), WIDE_SPEC, gap_s=0.3)
+    graph = build_scene_filter(_still_scene(duration=4.0), WIDE_SPEC, gap_s=SCENE_GAP_S)
     assert "scale=" in graph
     assert graph.index("scale=") < graph.index("crop=")   # never crop before scaling
 
 
 def test_video_scene_is_trimmed_and_looped_to_exact_duration():
-    graph = build_scene_filter(_video_scene(duration=4.0, asset_duration=2.0), WIDE_SPEC, gap_s=0.3)
+    graph = build_scene_filter(_video_scene(duration=4.0, asset_duration=2.0), WIDE_SPEC, gap_s=SCENE_GAP_S)
     assert "loop" in graph or "stream_loop" in graph
 ```
 
 `tests/integration/test_render_wide.py` runs the **real** FFmpeg over mock-provider artefacts and asserts with ffprobe: 1920×1080, 30 fps, h264 + aac, duration within 0.3 s of the sum of scene durations plus gaps, and a non-zero-size file.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: assemble and render stages producing final_wide.mp4"
@@ -1143,7 +1146,7 @@ git commit -s -m "feat: assemble and render stages producing final_wide.mp4"
 
 Status derivation deserves direct tests: a project whose `s02` narration changed after voicing reports `SCRIPT_READY`, not `VOICED`; approving a gate then editing an earlier stage clears the downstream approval.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: pipeline runner, derived status, and new/run/status/list commands"
@@ -1169,9 +1172,9 @@ The test, using `--providers mock` and **real FFmpeg**:
 
 CI changes: install FFmpeg explicitly (`sudo apt-get update && sudo apt-get install -y ffmpeg`) rather than relying on the runner image, keep `uv sync` **without** the `ml` extra, and run unit + integration tests. Contract tests against real providers stay skipped without keys.
 
-- [ ] **Step 1: Write the test and watch it fail for the right reason**, then make it pass.
-- [ ] **Step 2: Verify CI is green on a pushed branch before merging.**
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Write the test and watch it fail for the right reason**, then make it pass.
+- [x] **Step 2: Verify CI is green on a pushed branch before merging.**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -s -m "test: golden-path integration test with mock providers and real ffmpeg"
@@ -1184,7 +1187,7 @@ git commit -s -m "test: golden-path integration test with mock providers and rea
 **Files:**
 - Create: `docs/superpowers/spike-results-m1.md`
 
-- [ ] **Step 1: Run the real DoD battery** (real providers, not mocks)
+- [x] **Step 1: Run the real DoD battery** (real providers, not mocks)
 
 ```bash
 uv run videomaker new "how ssds work" -t tech_explainer
@@ -1197,9 +1200,9 @@ uv run videomaker doctor                    # expect: still all green
 
 Watch the MP4. Confirm: captions are readable and in sync, visuals change per scene, narration matches the script, no black frames at scene boundaries.
 
-- [ ] **Step 2: Record results** in `docs/superpowers/spike-results-m1.md`: wall time for a cold run and a warm run, quota actually consumed (Groq calls, Pexels requests, Cloudflare neurons), the resolved Groq model, per-stage timings, and every follow-up discovered for M2/M3.
+- [x] **Step 2: Record results** in `docs/superpowers/spike-results-m1.md`: wall time for a cold run and a warm run, quota actually consumed (Groq calls, Pexels requests, Cloudflare neurons), the resolved Groq model, per-stage timings, and every follow-up discovered for M2/M3.
 
-- [ ] **Step 3: Commit and push**
+- [x] **Step 3: Commit and push**
 
 ```bash
 git commit -s -m "docs: M1 complete — CLI happy path renders final_wide.mp4"
@@ -1212,5 +1215,6 @@ git commit -s -m "docs: M1 complete — CLI happy path renders final_wide.mp4"
 - **Spec coverage (M1 scope)**: ProjectStore ✓ (T2), hash engine ✓ (T3), providers + mocks ✓ (T5–T10), stages through render ✓ (T12–T14), golden-path CI test ✓ (T16). Deliberately out of scope per the spec: web UI (M2), vertical/karaoke/music/thumbnail/`clean` (M3), remaining templates + lint (M4), metadata + upload (M5), Docker (M6).
 - **M0 findings honoured**: runtime Groq model resolution + loud failure (T8), single `WhisperModel` (T9), caption inset for zero-gap timings (T11), explicit wav subtype (T9), Flux composition headroom + pinned model + neuron budget (T6, T10), per-scene narration timing (T12), relative subtitle paths under `cwd` (T14).
 - **Interface consistency**: `StageDeps` is constructed once in `runner.py` and threaded through every stage; `AssetRef.local_path` is relative everywhere so project folders stay movable; `Aspect`-keyed `outputs` means M3 adds vertical without touching M1's signatures.
+- **Known issue deferred to M6 (packaging):** `templates/` lives at the repo root and `[tool.hatch.build.targets.wheel]` packages only `src/videomaker`, so `DEFAULT_TEMPLATES_DIR` (`Path(__file__).parents[2] / "templates"`) resolves for the editable dev install and CI but would be absent from a built wheel. Fixing it properly means moving templates under the package and reading them via `importlib.resources`, which is a packaging decision M6 owns. M1's DoD runs from the repo, so this blocks nothing here.
 - **Riskiest task is T14** (FFmpeg filter graphs). It is deliberately split into pure string-builder unit tests plus one real-render integration test, so failures are diagnosable without reading FFmpeg stderr.
 - **Sequencing**: T1→T2→T3 are strictly ordered; T4–T7 are independent of each other and can run in parallel; T8–T10 depend on T5/T6 and are mutually independent; T11 is independent of T8–T10; T12→T13→T14 are strictly ordered; T15 needs all stages; T16 needs T15.
