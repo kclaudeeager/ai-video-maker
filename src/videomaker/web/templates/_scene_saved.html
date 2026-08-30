@@ -1,0 +1,10 @@
+{#
+  The reply to `POST /projects/{id}/scenes/{sid}`: the updated scene row, and the
+  gate card as an out-of-band swap.
+
+  The two must be *siblings at the top level* of the response — htmx looks for
+  `hx-swap-oob` among the response's own top-level elements, so nesting the gate
+  card inside the row would silently stop the approval news from arriving.
+#}
+{% include "_scene_row.html" %}
+{% include "_script_gate.html" %}

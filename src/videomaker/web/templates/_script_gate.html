@@ -1,0 +1,55 @@
+{#
+  The gate 1 card: its own approval state, the two gates downstream of it, and
+  the approve button.
+
+  Context: `project`, `gate`, `downstream`, `can_approve`, `cleared`, `oob`.
+
+  The downstream rows are here because of `clear_stale_approvals`: editing a
+  narration under a signed-off storyboard silently drops that approval, and a
+  page that only ever talked about gate 1 would never mention it. The save reply
+  re-renders this section with `hx-swap-oob`, so the news arrives without a
+  reload. `data-gate`/`data-approved` are kept adjacent, and named exactly as on
+  the dashboard, so the two pages cannot describe one approval differently.
+#}
+<section id="gate-state" class="card gate script-gate" data-gate="{{ gate.name }}" data-approved="{{ gate.marker }}"
+         {% if oob %}hx-swap-oob="true"{% endif %}>
+  <div class="row spread">
+    <strong>Gate 1 · {{ gate.title }}</strong>
+    <span class="status {{ gate.tone }}">{{ gate.state_label }}</span>
+  </div>
+
+  {% if gate.approved %}
+    <p class="muted flush">Approved {{ gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC. Editing a scene below will not un-approve it, but it will invalidate anything already built from it.</p>
+  {% else %}
+    <p class="muted flush">Nothing is voiced until this gate is stamped — that is the point of it.</p>
+  {% endif %}
+
+  {% if cleared %}
+    <p class="notice notice-warn" role="status">
+      That edit invalidated work a later gate had already approved, so those
+      approvals were cleared. You will be asked to review them again.
+    </p>
+  {% endif %}
+
+  <ul class="gate-downstream card-list">
+    {% for other in downstream %}
+      <li class="row spread" data-gate="{{ other.name }}" data-approved="{{ other.marker }}">
+        <span class="muted">{{ other.title }}</span>
+        <span class="status {{ other.tone }}">{{ other.state_label }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+
+  <form class="advance" method="post" action="/projects/{{ project.id }}/approve/script">
+    <button type="submit" class="primary" {% if not can_approve %}disabled{% endif %}>
+      {{ "Re-approve and continue" if gate.approved else "Approve script and continue" }}
+    </button>
+    <span class="muted">
+      {% if can_approve %}
+        Stamps gate 1 and starts a run that stops at the next unapproved gate.
+      {% else %}
+        There is no script to approve yet.
+      {% endif %}
+    </span>
+  </form>
+</section>

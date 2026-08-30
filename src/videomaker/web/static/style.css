@@ -383,3 +383,89 @@ code {
   display: inline-block;
   margin-top: 0.4rem;
 }
+
+/* Notices ----------------------------------------------------------------- */
+
+/* A page-level message. Bordered rather than filled, so it reads as part of the
+   document instead of a modal the eye has to dismiss before it can read on. */
+.notice {
+  margin: 0 0 var(--gap);
+  padding: 0.6rem 0.8rem;
+  border: 1px solid currentcolor;
+  border-radius: var(--radius);
+  font-size: 0.92rem;
+}
+
+.notice-warn {
+  color: var(--warn);
+}
+
+/* Gate 1: the script review page ------------------------------------------ */
+
+.script-gate {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.script-gate > p {
+  margin: 0;
+}
+
+.gate-downstream {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.gate-downstream li {
+  padding: 0.15rem 0;
+}
+
+.scene-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.scene {
+  padding: 0.9rem 1.1rem 1rem;
+}
+
+.scene-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.scene-form .field {
+  margin: 0;
+}
+
+.scene-head h3 {
+  font-size: 1rem;
+}
+
+.scene-id {
+  color: var(--ink-soft);
+  font-size: 0.85em;
+}
+
+/* The one element the autosave swaps: a save note beside the freshness pill. */
+.scene-state {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Five rows is a whole scene's narration at this measure without scrolling,
+   and short enough that four scenes still fit on a laptop screen. */
+.scene textarea {
+  min-height: 8rem;
+}
+
+.scene-meta {
+  font-size: 0.82rem;
+}

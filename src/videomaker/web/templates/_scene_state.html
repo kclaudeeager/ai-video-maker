@@ -1,0 +1,15 @@
+{#
+  The one element the autosave swaps: what just happened to this scene, and what
+  the runner currently thinks of its artefacts. Kept small on purpose — it is
+  replaced while the user is mid-sentence in the textarea beside it, which is
+  also why the autosave selects *this* out of the row rather than swapping the
+  whole card and throwing the caret to the end of the text.
+
+  Context: `row`.
+#}
+<span id="scene-{{ row.scene.id }}-state" class="scene-state">
+  {% if row.note %}
+    <span class="status {{ row.note_tone }}" data-scene-note="{{ row.note }}">{{ row.note }}</span>
+  {% endif %}
+  <span class="status {{ row.state_tone }}" data-scene-voice="{{ "true" if row.voice_current else "false" }}">{{ row.state_label }}</span>
+</span>

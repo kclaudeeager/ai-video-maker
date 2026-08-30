@@ -1,0 +1,50 @@
+{#
+  One scene's editor. Context: `row` (a SceneRow) and `autosave_delay_ms`.
+
+  The autosave targets `#scene-<id>-state` rather than the whole card, and pulls
+  it out of the returned row with `hx-select`. That is deliberate: swapping the
+  card would replace the textarea the user is still typing into and throw the
+  caret to the end of the text on every pause. The server still answers with the
+  whole row partial, so the same response works for any other target.
+#}
+<li id="scene-{{ row.scene.id }}" class="card scene" data-scene="{{ row.scene.id }}">
+  <form class="scene-form"
+        method="post"
+        action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}"
+        hx-post="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}"
+        hx-trigger="submit, input changed delay:{{ autosave_delay_ms }}ms"
+        hx-target="#scene-{{ row.scene.id }}-state"
+        hx-select="#scene-{{ row.scene.id }}-state"
+        hx-swap="outerHTML">
+    <div class="row spread scene-head">
+      <h3 class="flush">Scene {{ row.number }} <code class="scene-id">{{ row.scene.id }}</code></h3>
+      {% include "_scene_state.html" %}
+    </div>
+
+    <div class="field">
+      <label for="narration-{{ row.scene.id }}">Narration</label>
+      <textarea id="narration-{{ row.scene.id }}"
+                name="narration"
+                rows="5"
+                spellcheck="true"
+                aria-describedby="meta-{{ row.scene.id }}">{{ row.scene.narration }}</textarea>
+    </div>
+
+    <div class="field">
+      <label for="query-{{ row.scene.id }}">Visual search query</label>
+      <input type="text"
+             id="query-{{ row.scene.id }}"
+             name="query"
+             value="{{ row.scene.visual.query }}"
+             autocomplete="off">
+    </div>
+
+    <div class="row spread scene-foot">
+      <span class="muted scene-meta" id="meta-{{ row.scene.id }}">
+        {{ row.word_count }} words{% if row.scene.duration_s %} · {{ "%.1f"|format(row.scene.duration_s) }}s spoken{% endif %}
+        {% if not row.visual_current %} · visual not chosen yet{% endif %}
+      </span>
+      <button type="submit">Save scene</button>
+    </div>
+  </form>
+</li>
