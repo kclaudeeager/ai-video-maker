@@ -1,0 +1,5 @@
+# Copy to config.yaml and adjust. Secrets go in .env, never here.
+paths:
+  workspace_dir: ./workspace
+  models_dir: ~/.cache/ai-video-maker/models
+  music_dir: ./assets/music
