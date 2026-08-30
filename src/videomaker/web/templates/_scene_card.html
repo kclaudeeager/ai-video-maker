@@ -2,15 +2,22 @@
   Gate 2's two building blocks, as macros so one definition serves both the page
   and the partial replies.
 
-  * `scene_card(card)` — one scene: the chosen shot, the alternatives, motion and
-    re-voice. Context: a `SceneCard`.
+  * `scene_card(card)` — one scene: the chosen shot, the alternatives, the stock
+    search box, motion and re-voice. Context: a `SceneCard`.
   * `gate_card(gate)` — the gate 2 approval card. Context: a `GateView`.
+  * `quota_card(quota)` — remaining free-tier headroom. Context: a `QuotaView`.
 
-  `storyboard.html` imports both (`{% from "_scene_card.html" import ... %}`). A
-  reply from `choose` or `motion` renders this template *directly* instead, and
-  the body at the bottom is then the updated card followed by the gate card as an
-  out-of-band swap — guarded, because Jinja builds an imported module by running
-  that body too.
+  `storyboard.html` imports the first two (`{% from "_scene_card.html" import ... %}`).
+  A reply from `choose`, `motion` or `search` renders this template *directly*
+  instead, and the body at the bottom is then the updated card followed by the
+  gate card as an out-of-band swap — guarded, because Jinja builds an imported
+  module by running that body too.
+
+  `quota_card` is drawn *inside* `gate_card` rather than beside it. That is
+  deliberate: there is then one indicator on the page, and every reply already
+  swaps the gate card out of band, so the headroom a search just spent is redrawn
+  without a second out-of-band element to keep in step. `GET /projects/{id}/quota`
+  renders it alone, which is what its own `hx-get` refresh swaps in.
 
   The two must be **siblings at the top level** of that response: htmx looks for
   `hx-swap-oob` among the response's own top-level elements, so nesting the gate
@@ -121,11 +128,73 @@
 
     {# The query can be a paragraph — it comes from a model — so it is clipped to
        one line with the whole of it on the title. #}
-    <p class="muted candidates-head flush" title="{{ card.scene.visual.query }}">Alternatives found for “{{ card.scene.visual.query }}”</p>
+    <p class="muted candidates-head flush" title="{{ card.candidates_query }}">Alternatives found for “{{ card.candidates_query }}”</p>
+
+    {# A real form first, htmx second. `required` is the client-side half of
+       "an empty query is refused"; the handler refuses it again with a 422,
+       because nothing arriving over HTTP is ever client-side-validated. #}
+    <form class="field scene-search"
+          method="post"
+          action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/search"
+          hx-post="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/search"
+          hx-target="#scene-{{ card.scene.id }}"
+          hx-swap="outerHTML">
+      <label for="search-{{ card.scene.id }}">Search stock for this scene</label>
+      <span class="row search-row">
+        <input id="search-{{ card.scene.id }}" type="search" name="query" required
+               value="{{ card.candidates_query }}"
+               placeholder="concrete, filmable nouns"
+               autocomplete="off" spellcheck="false">
+        <button type="submit">Search</button>
+      </span>
+      <p class="muted hint flush">
+        Replaces the alternatives below; the shot in use stays as it is. A new
+        search costs one request against the stock free tier — repeating one you
+        have already run is served from the cache and is free.
+      </p>
+    </form>
+
+    {% if card.problem %}
+      <p class="notice notice-warn" role="status" data-scene-problem="true">
+        {{ card.problem }} Nothing was changed.
+      </p>
+    {% endif %}
+
     <ul class="candidates card-list">
       {% for candidate in card.candidates %}{{ candidate_tile(card, candidate) }}{% endfor %}
     </ul>
   </li>
+{% endmacro %}
+
+{% macro quota_card(quota) %}
+  {# Drawn before the spend, not after it: a review session that browses stock
+     hits Pexels' 190-an-hour soft budget quickly, and the whole reason this is
+     on the page is that the wall should be visible while there is still room to
+     stop. `data-quota`/`data-remaining` are the attribute pair the tests read;
+     keep them adjacent. #}
+  <section id="quota-state" class="card quota"
+           hx-get="/projects/{{ quota.project_id }}/quota"
+           hx-trigger="every 60s"
+           hx-swap="outerHTML">
+    <div class="row spread">
+      <strong>Free-tier headroom</strong>
+      <span class="muted">refills as the window slides</span>
+    </div>
+    <ul class="quota-list card-list">
+      {% for row in quota.rows %}
+        <li class="row spread" data-quota="{{ row.provider }}" data-remaining="{{ row.remaining }}" data-axis="{{ row.axis }}">
+          <span class="muted">{{ row.provider }}</span>
+          <span class="status {{ row.tone }}">
+            {{ row.remaining }} of {{ row.limit }} {{ row.unit }} left {{ row.window_label }}
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="muted hint flush">
+      A stock search spends one <code>{{ quota.search_provider }}</code> request.
+      Searching the same words twice is answered from the cache and costs nothing.
+    </p>
+  </section>
 {% endmacro %}
 
 {% macro gate_card(gate) %}
@@ -160,6 +229,8 @@
       {% endfor %}
     </ul>
 
+    {% if gate.quota %}{{ quota_card(gate.quota) }}{% endif %}
+
     <form class="advance" method="post" action="/projects/{{ gate.project_id }}/approve/storyboard">
       <button type="submit" class="primary" {% if not gate.can_approve %}disabled{% endif %}>
         {{ "Re-approve and continue" if gate.gate.approved else "Approve storyboard and continue" }}
@@ -176,15 +247,20 @@
 {% endmacro %}
 
 {#
-  Rendered directly only as the reply to `choose` or `motion`: the updated card,
-  then the gate card as a top-level out-of-band sibling.
+  Rendered directly as the reply to `choose`, `motion` or `search` — the updated
+  card, then the gate card as a top-level out-of-band sibling — or, for
+  `GET /projects/{id}/quota`, as the headroom indicator on its own.
 
   The guard is load-bearing, not defensive. Jinja builds an imported template's
   module by *executing its body*, so `storyboard.html`'s `{% from ... import %}`
-  runs these two lines with none of the reply's context — without the guard the
-  page itself would fail with `'card' is undefined`.
+  runs these lines with none of the reply's context — without the guard the page
+  itself would fail with `'card' is undefined`. The `elif` keeps that property:
+  the quota-only branch is reached only when a `quota` was passed and a `card`
+  was not.
 #}
 {% if card is defined %}
 {{ scene_card(card) }}
 {{ gate_card(gate) }}
+{% elif quota is defined %}
+{{ quota_card(quota) }}
 {% endif %}

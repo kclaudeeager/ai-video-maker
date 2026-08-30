@@ -730,3 +730,46 @@ code {
 .candidate-thumb video {
   position: relative;
 }
+
+/* --------------------------------------------------------------- stock search */
+
+/* The search box sits between the "alternatives found for …" line and the tiles
+   it replaces, so the input and its button share one row and the cost note runs
+   under both. `min-width` on the input rather than a fixed width: a narrow
+   window should wrap the button below the field, not clip the query. */
+.scene-search {
+  margin-top: 0.4rem;
+}
+
+.search-row {
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+}
+
+.search-row input[type="search"] {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* --------------------------------------------------- free-tier headroom */
+
+/* Inside the gate card, so it is one panel on the page and every out-of-band
+   gate swap redraws it. Flush against its host: a card within a card would read
+   as a second, unrelated thing. */
+.quota {
+  margin: var(--gap) 0 0;
+  padding: 0.7rem 0.85rem;
+  background: transparent;
+}
+
+.quota-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.quota-list li {
+  padding: 0.15rem 0;
+}

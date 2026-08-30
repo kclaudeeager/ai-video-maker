@@ -29,6 +29,23 @@ The download happens **outside the project lock** — it is network I/O, and
 decision is then re-taken inside the lock against a freshly read project, so a
 swap can never clobber what the worker thread did in between.
 
+**Searching does not rewrite `scene.visual.query`.** It replaces
+`visual.candidates` and nothing else, and that restraint is the only reason the
+button is safe to press: `query` is an input to M1's `visuals` fingerprint, so
+moving it would make the scene stale and the very next `run_pipeline` would
+re-fetch the scene, replacing both the alternatives just found and the shot
+picked from them. A search that undoes itself is worse than no search. The
+alternatives are review state; the query is pipeline state.
+
+**The quota indicator is not decoration.** Pexels' soft budget is 190 requests an
+hour and browsing a storyboard spends it fast, so the price of a search is
+printed next to the search box and the remaining headroom rides back inside the
+gate card on every reply. The thing that makes browsing affordable at all is
+M1's `ResponseCache`: an identical query is answered from disk, issues no HTTP
+request and therefore books nothing against the budget. `search` deliberately
+adds no caching of its own — it calls the same `stock.search` the visuals stage
+calls, so there is exactly one cache to reason about.
+
 Everything else is the shape gate 1 established: compare first and lock second so
 a no-op writes nothing; answer htmx with the card partial and a plain form post
 with a 303; carry the gate card back out of band so a cleared preview approval is
@@ -52,7 +69,7 @@ from fastapi.templating import Jinja2Templates
 
 from videomaker.cache import StageCache, stage_key
 from videomaker.config import Settings
-from videomaker.models import AssetRef, Motion, Project, Scene, VisualKind
+from videomaker.models import AssetRef, Motion, Project, Scene, StockResult, VisualKind
 from videomaker.pipeline.base import ADVANCE_ON, StageDeps, call_chain
 from videomaker.pipeline.visuals import (
     ASSET_STEM,
@@ -67,6 +84,7 @@ from videomaker.pipeline.visuals import (
 from videomaker.project import ProjectStore
 from videomaker.providers.base import StockProvider
 from videomaker.providers.errors import ProviderError
+from videomaker.providers.ratelimit import SOFT_BUDGETS, Budget, QuotaTracker
 from videomaker.runner import (
     GATE_BEFORE,
     STAGE_UNITS,
@@ -97,6 +115,26 @@ GATE = "storyboard"
 
 SAVED_NOTE = "updated"
 UNCHANGED_NOTE = "no change"
+
+#: How a failed search is worded in the card. The provider's own sentence is kept
+#: verbatim — `QuotaExceeded` already says which budget is spent, over which
+#: window, and inventing a friendlier paraphrase would only hide that.
+PROBLEM_NOTE = "That search did not run: {detail}"
+
+#: Which window each `Budget` axis measures, for the indicator's labels.
+WINDOW_LABELS: dict[str, str] = {
+    "rpm": "this minute",
+    "per_hour": "this hour",
+    "per_day": "today",
+}
+
+#: Cloudflare bills neurons, everyone else bills requests (M0 finding 6).
+UNIT_LABELS: dict[str, str] = {"cloudflare": "neurons"}
+DEFAULT_UNIT = "requests"
+
+#: Below this share of the budget the row goes amber: enough warning to finish
+#: reviewing the storyboard, not so early that it cries wolf all session.
+LOW_FRACTION = 0.2
 
 #: The motions the picker offers, in `Motion`'s own order so a value added to the
 #: enum appears here without a second list to remember.
@@ -190,6 +228,12 @@ class SceneCard:
     visual_current: bool
     #: Transient feedback from the action that just happened, if this is a reply.
     note: str = ""
+    #: Why the action that just happened did nothing — a spent budget, or a search
+    #: that found no footage. Transient, like `note`.
+    problem: str = ""
+    #: The words the alternatives below were found with, when this reply came from
+    #: a search. Not persisted: see the module docstring on `visual.query`.
+    search_query: str = ""
 
     @property
     def chosen(self) -> Candidate | None:
@@ -223,10 +267,57 @@ class SceneCard:
         return "status-ok" if self.note == SAVED_NOTE else ""
 
     @property
+    def candidates_query(self) -> str:
+        """What the alternatives below were actually found with."""
+        return self.search_query or self.scene.visual.query
+
+    @property
     def summary(self) -> str:
         """The narration, short enough to identify the scene without re-reading it."""
         words = self.scene.narration.split()
         return " ".join(words[:16]) + ("…" if len(words) > 16 else "")
+
+
+@dataclass(frozen=True)
+class QuotaRow:
+    """One provider's headroom on one window, as the indicator draws it."""
+
+    provider: str
+    axis: str
+    remaining: int
+    limit: int
+
+    @property
+    def window_label(self) -> str:
+        return WINDOW_LABELS.get(self.axis, self.axis)
+
+    @property
+    def unit(self) -> str:
+        return UNIT_LABELS.get(self.provider, DEFAULT_UNIT)
+
+    @property
+    def spent(self) -> bool:
+        return self.remaining == 0
+
+    @property
+    def low(self) -> bool:
+        return self.remaining <= self.limit * LOW_FRACTION
+
+    @property
+    def tone(self) -> str:
+        if self.spent:
+            return "status-failed"
+        return "status-waiting" if self.low else "status-ok"
+
+
+@dataclass(frozen=True)
+class QuotaView:
+    """Every soft budget's remaining headroom, plus what a search costs."""
+
+    project_id: str
+    rows: list[QuotaRow]
+    #: The provider a search would actually hit — the head of the stock chain.
+    search_provider: str
 
 
 @dataclass(frozen=True)
@@ -240,6 +331,10 @@ class GateView:
     #: the pipeline the whole UI is trying to explain.
     others: list[GateState]
     can_approve: bool
+    #: The headroom indicator, drawn inside this card so one gate card carries it
+    #: and every out-of-band reply refreshes it for free. `None` on the few
+    #: callers that have no settings to build a tracker from.
+    quota: QuotaView | None = None
     #: True only when this edit really did invalidate a later approval.
     cleared: bool = False
     #: The reply swaps this section out of band; the page renders it in place.
@@ -315,18 +410,57 @@ def gate_states(project: Project) -> list[GateState]:
     ]
 
 
-def gate_view(project: Project, *, cleared: bool = False, oob: bool = False) -> GateView:
+def gate_view(
+    project: Project,
+    *,
+    quota: QuotaView | None = None,
+    cleared: bool = False,
+    oob: bool = False,
+) -> GateView:
     states = gate_states(project)
     return GateView(
         project_id=project.id,
         gate=next(state for state in states if state.name == GATE),
         others=[state for state in states if state.name != GATE],
+        quota=quota,
         # Approving a storyboard with no chosen shot would send an unrenderable
         # project into `captions`; the button says why instead.
         can_approve=bool(project.scenes)
         and all(scene.visual.chosen is not None for scene in project.scenes),
         cleared=cleared,
         oob=oob,
+    )
+
+
+# ------------------------------------------------------------- quota headroom
+
+
+def quota_rows(tracker: QuotaTracker) -> list[QuotaRow]:
+    """Every soft budget's headroom, one row per limited axis.
+
+    A read and only a read: `QuotaTracker.remaining` books nothing, which is the
+    whole point of drawing this before the user spends rather than after.
+    """
+    rows: list[QuotaRow] = []
+    for provider in sorted(SOFT_BUDGETS):
+        budget: Budget = SOFT_BUDGETS[provider]
+        for axis, left in tracker.remaining(provider, budget).items():
+            limit = getattr(budget, axis)
+            # `None` is "unlimited on this axis": there is no headroom to report.
+            if left is None or limit is None:
+                continue
+            rows.append(QuotaRow(provider=provider, axis=axis, remaining=left, limit=limit))
+    return rows
+
+
+def quota_view(settings: Settings, project_id: str) -> QuotaView:
+    """The indicator's model. `build_deps` is what knows where the ledger lives."""
+    deps = build_deps(settings, project_id)
+    chain = deps.chain("stock")
+    return QuotaView(
+        project_id=project_id,
+        rows=quota_rows(deps.quota),
+        search_provider=chain[0] if chain else "no stock provider",
     )
 
 
@@ -348,7 +482,7 @@ def storyboard_page(request: Request, project_id: str):
         {
             "project": project,
             "cards": scene_cards(project, stage_cache, store.path_for(project_id)),
-            "gate": gate_view(project),
+            "gate": gate_view(project, quota=quota_view(request.app.state.settings, project_id)),
             "status": status,
             "status_label": status.value.replace("_", " "),
             "status_tone": _STATUS_TONES.get(status, ""),
@@ -372,8 +506,22 @@ def _scene_or_404(project: Project, scene_id: str) -> Scene:
         ) from missing
 
 
-def _reply(request: Request, project_id: str, scene_id: str, *, note: str, cleared: bool):
-    """The card partial plus an out-of-band gate card, or a 303 with no JavaScript."""
+def _reply(
+    request: Request,
+    project_id: str,
+    scene_id: str,
+    *,
+    note: str,
+    cleared: bool,
+    problem: str = "",
+    search_query: str = "",
+):
+    """The card partial plus an out-of-band gate card, or a 303 with no JavaScript.
+
+    The no-JavaScript path loses `problem`, because a fragment is not an answer to
+    a browser navigation. It is not silent: the redirect lands on the page, and the
+    headroom indicator there is exactly what a spent budget makes obvious.
+    """
     if not _is_htmx(request):
         return RedirectResponse(
             url=f"/projects/{project_id}/storyboard#scene-{scene_id}", status_code=303
@@ -391,8 +539,13 @@ def _reply(request: Request, project_id: str, scene_id: str, *, note: str, clear
         "_scene_card.html",
         {
             "project": project,
-            "card": replace(card, note=note),
-            "gate": gate_view(project, cleared=cleared, oob=True),
+            "card": replace(card, note=note, problem=problem, search_query=search_query),
+            "gate": gate_view(
+                project,
+                quota=quota_view(request.app.state.settings, project_id),
+                cleared=cleared,
+                oob=True,
+            ),
         },
     )
 
@@ -623,6 +776,175 @@ def revoice_scene(request: Request, project_id: str, scene_id: str):
         raise HTTPException(status_code=503, detail=str(full)) from full
     return RedirectResponse(
         url=f"/projects/{project_id}/storyboard#scene-{scene_id}", status_code=303
+    )
+
+
+# ------------------------------------------------------------ searching stock
+
+
+def _downloaded_paths(scene: Scene, root: Path) -> dict[str, str]:
+    """`source_id` -> project-relative path, for every shot already on disk.
+
+    A search that turns up a hit this scene has downloaded before hands the offer
+    its file back, so the tile shows a real thumbnail and picking it costs no
+    second download. Swapping back has to stay free.
+    """
+    refs = [*scene.visual.candidates]
+    if scene.visual.chosen is not None:
+        refs.append(scene.visual.chosen)
+    return {
+        ref.source_id: ref.local_path
+        for ref in refs
+        if ref.local_path and (root / ref.local_path).is_file()
+    }
+
+
+def _offer(result: StockResult, known: dict[str, str]) -> AssetRef:
+    """A hit that was found but not downloaded — `visuals._offer` plus the carry-over."""
+    return AssetRef(
+        provider=result.provider,
+        source_id=result.source_id,
+        source_url=result.source_url,
+        local_path=known.get(result.source_id, ""),
+        width=result.width,
+        height=result.height,
+        duration_s=result.duration_s,
+        attribution=result.attribution,
+        license=result.license,
+    )
+
+
+def _search_kind(
+    deps: StageDeps, scene: Scene, query: str, kind: VisualKind, known: dict[str, str]
+) -> list[AssetRef]:
+    """One kind, down the whole stock chain. Cheap on a repeat: see `ResponseCache`."""
+
+    def call(name: str, stock: StockProvider) -> list[AssetRef]:
+        results = stock.search(
+            query=query,
+            kind=kind,
+            # The same filter the visuals stage applies: an alternative too short
+            # to cover this scene is not an alternative.
+            min_duration_s=scene.duration_s or 0.0,
+            orientation=ORIENTATION,
+            per_page=MAX_CANDIDATES,
+        )[:MAX_CANDIDATES]
+        if not results:
+            raise NoResults(f"{name} has no {kind.value} for {query!r}")
+        return [_offer(result, known) for result in results]
+
+    return call_chain(deps, "stock", call, advance_on=(*ADVANCE_ON, NoResults))
+
+
+def _search_offers(
+    settings: Settings, project: Project, scene: Scene, query: str, root: Path
+) -> list[AssetRef]:
+    """The alternatives `query` turns up, in the scene's own kind order.
+
+    Nothing is downloaded: a search offers, and `choose` is what fetches. Raises
+    `ProviderError` — including a wrapped `QuotaExceeded` — which the handler
+    turns into a line in the card rather than a 500.
+    """
+    deps = build_deps(settings, project.id)
+    known = _downloaded_paths(scene, root)
+    kinds = [
+        kind
+        for kind in resolve_kinds(scene, load_template(project.template).visual_kind_order)
+        if PROVIDER_KIND[kind] == "stock"
+    ]
+    if not kinds:
+        raise ProviderError("this scene does not use stock footage, so there is nothing to search")
+
+    problems: list[str] = []
+    for kind in kinds:
+        try:
+            return _search_kind(deps, scene, query, kind, known)
+        except ProviderError as exc:
+            problems.append(f"{kind.value}: {exc}")
+    raise ProviderError("; ".join(problems))
+
+
+@router.post("/projects/{project_id}/scenes/{scene_id}/search")
+def search_stock(
+    request: Request,
+    project_id: str,
+    scene_id: str,
+    query: str = Form(""),
+):
+    """Search stock for this scene and offer what came back as the alternatives.
+
+    `Form("")` rather than `Form(...)`: FastAPI substitutes a `Form` default for
+    any empty value, so a blank box and an absent field are indistinguishable by
+    the time they arrive. Refusing both here with one message is the honest
+    reading of that — the alternative, a required field, answers a blank box with
+    "field required", which is not what happened. The `required` attribute on the
+    input stops it ever being sent.
+
+    The network call happens **outside the project lock** — `run_pipeline` may be
+    holding it for a whole render — and the comparison that decides whether there
+    is anything to write happens before the lock as well, so a repeated search
+    neither writes nor blocks.
+    """
+    store: ProjectStore = request.app.state.store
+    project = _load(request, project_id)
+    scene = _scene_or_404(project, scene_id)
+    wanted = query.strip()
+    if not wanted:
+        raise HTTPException(
+            status_code=422,
+            detail="a stock search needs a query; type what should be on screen",
+        )
+
+    root = store.path_for(project_id)
+    note = UNCHANGED_NOTE
+    problem = ""
+    cleared = False
+    try:
+        offers = _search_offers(request.app.state.settings, project, scene, wanted, root)
+    except ProviderError as exc:
+        # A spent free tier is the expected failure here, not an exceptional one.
+        # It belongs in the card, next to the headroom that explains it.
+        offers = None
+        note = ""
+        problem = PROBLEM_NOTE.format(detail=exc)
+
+    # Compare first, lock second. Re-searching the query the visuals stage already
+    # ran rebuilds exactly the offers already stored, and that must cost nothing.
+    if offers is not None and offers != scene.visual.candidates:
+        with store.lock(project_id):
+            project = _load(request, project_id)
+            scene = _scene_or_404(project, scene_id)
+            if offers != scene.visual.candidates:
+                scene.visual.candidates = offers
+                scene.error = None
+                # Replacing the alternatives moves no stage input, so this cannot
+                # clear anything today. It is called because *deciding* that is
+                # M1's job, not this module's.
+                cleared = clear_stale_approvals(project, stage_cache_for(store, project_id))
+                store.save(project)
+                note = SAVED_NOTE
+
+    return _reply(
+        request,
+        project_id,
+        scene_id,
+        note=note,
+        cleared=cleared,
+        problem=problem,
+        search_query=wanted,
+    )
+
+
+@router.get("/projects/{project_id}/quota")
+def quota_panel(request: Request, project_id: str):
+    """The headroom indicator on its own, so it can refresh as the window slides."""
+    # A 404 for an unknown project, so a stale tab does not poll a ghost forever.
+    _load(request, project_id)
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "_scene_card.html",
+        {"quota": quota_view(request.app.state.settings, project_id)},
     )
 
 
