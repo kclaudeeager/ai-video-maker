@@ -20,8 +20,8 @@ from pathlib import Path
 
 from videomaker.config import Settings
 from videomaker.models import Aspect, AssetRef, StockResult, VisualKind, WordTiming
-from videomaker.project import PROJECT_FILE
 from videomaker.providers import register
+from videomaker.providers.assets import project_relative
 from videomaker.providers.base import (
     ImageProvider,
     LLMProvider,
@@ -72,18 +72,6 @@ def _digest(*parts: object) -> str:
     return hashlib.sha256(joined.encode()).hexdigest()[:12]
 
 
-def _project_relative(out_path: Path) -> str:
-    """`AssetRef.local_path` is always relative to the project folder.
-
-    The project folder is the nearest ancestor holding a `project.json`. Outside a
-    project (unit tests writing into a bare tmp dir) fall back to the bare filename,
-    which is still a valid relative path.
-    """
-    path = Path(out_path).resolve()
-    for parent in path.parents:
-        if (parent / PROJECT_FILE).is_file():
-            return path.relative_to(parent).as_posix()
-    return path.name
 
 
 def _audio_duration_s(audio_path: Path) -> float:
@@ -308,7 +296,7 @@ class MockStock(StockProvider):
             provider=PROVIDER_NAME,
             source_id=result.source_id,
             source_url=result.source_url,
-            local_path=_project_relative(path),
+            local_path=project_relative(path),
             width=FIXTURE_WIDTH,
             height=FIXTURE_HEIGHT,
             duration_s=CLIP_DURATION_S if video else None,
@@ -365,7 +353,7 @@ class MockImage(ImageProvider):
             provider=PROVIDER_NAME,
             source_id=source_id,
             source_url=f"https://mock.invalid/image/{source_id}",
-            local_path=_project_relative(path),
+            local_path=project_relative(path),
             width=width,
             height=height,
             duration_s=None,

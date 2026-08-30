@@ -26,8 +26,8 @@ from videomaker.cache import ResponseCache, hash_inputs
 from videomaker.config import Settings
 from videomaker.downloads import download_file
 from videomaker.models import AssetRef, StockResult, VisualKind
-from videomaker.project import PROJECT_FILE
 from videomaker.providers import register
+from videomaker.providers.assets import project_relative
 from videomaker.providers.base import StockProvider
 from videomaker.providers.errors import (
     ProviderConfigError,
@@ -63,18 +63,6 @@ DOWNLOAD_TIMEOUT_S = 120.0
 _AUTH_STATUSES = frozenset({401, 403})
 
 
-def _project_relative(out_path: Path) -> str:
-    """`AssetRef.local_path` is always relative to the project folder.
-
-    The project folder is the nearest ancestor holding a `project.json`. Outside a
-    project (unit tests writing into a bare tmp dir) fall back to the bare filename,
-    which is still a valid relative path.
-    """
-    path = Path(out_path).resolve()
-    for parent in path.parents:
-        if (parent / PROJECT_FILE).is_file():
-            return path.relative_to(parent).as_posix()
-    return path.name
 
 
 def _wants_video(kind: VisualKind) -> bool:
@@ -299,7 +287,7 @@ class PexelsProvider(StockProvider):
             provider=PROVIDER_NAME,
             source_id=result.source_id,
             source_url=result.source_url,
-            local_path=_project_relative(path),
+            local_path=project_relative(path),
             width=result.width,
             height=result.height,
             duration_s=result.duration_s,

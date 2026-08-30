@@ -25,8 +25,8 @@ import httpx
 from videomaker.cache import hash_inputs
 from videomaker.config import Settings
 from videomaker.models import Aspect, AssetRef
-from videomaker.project import PROJECT_FILE
 from videomaker.providers import register
+from videomaker.providers.assets import project_relative
 from videomaker.providers.base import ImageProvider
 from videomaker.providers.errors import (
     ProviderConfigError,
@@ -55,18 +55,6 @@ JPEG_MAGIC = b"\xff\xd8\xff"
 _AUTH_STATUSES = frozenset({401, 403})
 
 
-def _project_relative(out_path: Path) -> str:
-    """`AssetRef.local_path` is always relative to the project folder.
-
-    The project folder is the nearest ancestor holding a `project.json`. Outside a
-    project (unit tests writing into a bare tmp dir) fall back to the bare filename,
-    which is still a valid relative path.
-    """
-    path = Path(out_path).resolve()
-    for parent in path.parents:
-        if (parent / PROJECT_FILE).is_file():
-            return path.relative_to(parent).as_posix()
-    return path.name
 
 
 def _retry_after_s(response: httpx.Response) -> float | None:
@@ -200,7 +188,7 @@ class CloudflareImageProvider(ImageProvider):
             # Deliberately not the request URL: that embeds the account id, and
             # `project.json` is a shareable artefact.
             source_url=f"cf-workers-ai:{CLOUDFLARE_IMAGE_MODEL}",
-            local_path=_project_relative(path),
+            local_path=project_relative(path),
             # Flux always returns a square (M0 finding 5); `aspect` is the caller's
             # crop target, not the image's shape.
             width=IMAGE_SIZE,
