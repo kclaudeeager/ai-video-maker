@@ -13,6 +13,7 @@ from videomaker import __version__
 from videomaker.config import Settings, load_settings
 from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
+from videomaker.web import media
 
 
 def create_app(settings: Settings | None = None, *, providers: str | None = None) -> FastAPI:
@@ -29,6 +30,8 @@ def create_app(settings: Settings | None = None, *, providers: str | None = None
     app = FastAPI(title="AI Video Maker", version=__version__)
     app.state.settings = settings
     app.state.store = ProjectStore(settings.workspace_dir)
+
+    app.include_router(media.router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
