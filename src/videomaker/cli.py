@@ -221,5 +221,66 @@ def list_projects() -> None:
     console.print(table)
 
 
+def _is_loopback(host: str) -> bool:
+    """True only for addresses that cannot be reached from another machine."""
+    import ipaddress
+
+    if host in {"localhost", "localhost."}:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        # A name we cannot resolve to a literal (or "" / "*") — assume exposed.
+        return False
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Address to bind. Keep it loopback."),
+    port: int = typer.Option(8000, "--port", help="Port to listen on."),
+    providers: str | None = typer.Option(
+        None, "--providers", help="Force every provider kind to this one (e.g. `mock`)."
+    ),
+    reload: bool = typer.Option(False, "--reload", help="Restart on code changes (development)."),
+) -> None:
+    """Serve the review web UI at http://HOST:PORT."""
+    import os
+
+    import uvicorn
+
+    from videomaker.web.app import PROVIDERS_ENV_VAR, create_app
+
+    if not _is_loopback(host):
+        console.print(
+            f"[bold red]WARNING[/bold red] binding {host}, which is NOT a loopback address: "
+            "this server is reachable from other machines on the network."
+        )
+        console.print(
+            "[bold red]WARNING[/bold red] there is NO authentication — "
+            "anyone who can reach this port can read and write any path your user account can, "
+            "and can run the pipeline (spending your provider quota)."
+        )
+        console.print(
+            "[bold red]WARNING[/bold red] only do this on a network you trust, "
+            "and stop the server when you are done."
+        )
+
+    console.print(f"serving the review UI on [bold]http://{host}:{port}[/bold] (Ctrl-C to stop)")
+    if reload:
+        # uvicorn's reloader re-imports the app in a child process, so it only
+        # accepts an import string; `--providers` travels in the environment.
+        if providers:
+            os.environ[PROVIDERS_ENV_VAR] = providers
+        uvicorn.run(
+            "videomaker.web.app:create_app_from_env",
+            host=host,
+            port=port,
+            factory=True,
+            reload=True,
+        )
+        return
+    uvicorn.run(create_app(providers=providers), host=host, port=port)
+
+
 def main() -> None:
     app()
