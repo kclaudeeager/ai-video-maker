@@ -50,6 +50,7 @@ from videomaker.runner import (
     stage_is_current,
 )
 from videomaker.templates import list_templates
+from videomaker.web.voices import available_voices
 from videomaker.web.worker import (
     BLOCKED,
     DONE,
@@ -138,6 +139,10 @@ def _render_index(
         {
             "rows": project_rows(request.app.state.store),
             "templates_available": names,
+            # Never raises, even with no `ml` extra and no model weights — see
+            # `web.voices`. A create form that 500s on a fresh clone is worse
+            # than one offering five voices.
+            "voices": available_voices(request.app.state.settings),
             "error": error,
             "form": form
             or {

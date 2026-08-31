@@ -22,9 +22,12 @@ from fastapi.testclient import TestClient
 from videomaker.config import Settings
 from videomaker.models import Status
 from videomaker.project import ProjectStore
+from videomaker.providers.errors import ProviderConfigError
+from videomaker.providers.mock import MockTTS
 from videomaker.runner import derive_status, run_pipeline, stage_cache_for
 from videomaker.templates import list_templates
 from videomaker.web.app import create_app
+from videomaker.web.voices import clear_voice_cache
 from videomaker.web.worker import JobQueueFull
 
 #: Same blunt no-CDN guard as `tests/unit/test_web_templates.py`, applied to a
@@ -55,6 +58,14 @@ def client(app) -> TestClient:
 @pytest.fixture
 def store(app) -> ProjectStore:
     return app.state.store
+
+
+@pytest.fixture(autouse=True)
+def _no_cached_voice_catalogue():
+    """`available_voices` memoises a working catalogue; keep that out of other tests."""
+    clear_voice_cache()
+    yield
+    clear_voice_cache()
 
 
 def _deps(app, project_id):
@@ -222,3 +233,61 @@ def test_a_full_queue_is_reported_rather_than_crashing(app, client, monkeypatch)
     assert response.status_code == 503
     # The project itself was still created, so the run can be started from its page.
     assert app.state.store.list_ids()
+
+
+# ----------------------------------------------------------------- the voice menu
+
+
+def test_the_voice_field_is_a_select_with_the_default_preselected(client):
+    """Kokoro's voice set is fixed and known, so nobody should have to type an id."""
+    body = client.get("/").text
+
+    assert '<select id="voice" name="voice">' in body
+    assert '<input type="text" id="voice"' not in body
+    assert '<optgroup label="American English">' in body
+    assert '<option value="af_heart" selected>Heart — female</option>' in body
+
+
+def test_the_voice_menu_is_grouped_by_language(client, monkeypatch):
+    """54 flat options is the thing being fixed; the grouping is the fix."""
+    monkeypatch.setattr(MockTTS, "voices", lambda self: ["bm_george", "af_heart", "jf_alpha"])
+    clear_voice_cache()
+
+    body = client.get("/").text
+
+    for label in ("American English", "British English", "Japanese"):
+        assert f'<optgroup label="{label}">' in body
+    assert '<option value="bm_george">George — male</option>' in body
+
+
+def test_the_form_still_renders_when_the_voice_list_cannot_be_read(client, monkeypatch):
+    """A fresh clone has no Kokoro weights. That is a short menu, not a 500."""
+
+    def no_weights(self):
+        raise ProviderConfigError("missing Kokoro model files; run `videomaker setup`")
+
+    monkeypatch.setattr(MockTTS, "voices", no_weights)
+    clear_voice_cache()
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert '<option value="af_heart" selected>Heart — female</option>' in response.text
+    assert "videomaker setup" in response.text
+
+
+def test_a_voice_the_menu_does_not_list_is_still_accepted(client, store):
+    """The server-side contract is unchanged: `voice` was never validated."""
+    response = _create(client, topic="how ssds work", voice="zz_experimental")
+
+    assert response.status_code == 303
+    project = store.load(response.headers["location"].rsplit("/", 1)[-1])
+    assert project.voice == "zz_experimental"
+
+
+def test_a_rejected_form_keeps_an_unlisted_voice_selected(client):
+    """Re-rendering at 422 must not silently swap the user's voice for the default."""
+    response = _create(client, topic="", voice="zz_experimental")
+
+    assert response.status_code == 422
+    assert '<option value="zz_experimental" selected>' in response.text

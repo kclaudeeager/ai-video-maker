@@ -42,7 +42,29 @@
       </div>
       <div class="field">
         <label for="voice">Voice</label>
-        <input type="text" id="voice" name="voice" value="{{ form.voice }}">
+        {# Kokoro's voice set is fixed and known, so this is a menu rather than a
+           free-text id nobody can remember. Grouped by language because 54 flat
+           options is not a menu. `voices` is `web.voices.available_voices`, which
+           falls back to a short static list rather than failing to render. #}
+        <select id="voice" name="voice">
+          {% if form.voice and form.voice not in voices.ids %}
+            {# A voice the catalogue does not list — an unreadable catalogue, or a
+               value typed by hand. The server accepts it, so the form keeps it. #}
+            <optgroup label="Submitted">
+              <option value="{{ form.voice }}" selected>{{ form.voice }}</option>
+            </optgroup>
+          {% endif %}
+          {% for group in voices.groups %}
+            <optgroup label="{{ group.language }}">
+              {% for voice in group.voices %}
+                <option value="{{ voice.id }}"{% if voice.id == form.voice %} selected{% endif %}>{{ voice.display_name }} — {{ voice.gender }}</option>
+              {% endfor %}
+            </optgroup>
+          {% endfor %}
+        </select>
+        {% if voices.note %}
+          <p class="muted">{{ voices.note }}</p>
+        {% endif %}
       </div>
       <button type="submit" class="primary">Create and write the script</button>
     </form>
