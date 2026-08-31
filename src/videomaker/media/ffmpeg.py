@@ -179,3 +179,20 @@ def probe_dimensions(path: Path) -> tuple[int, int]:
         if stream.get("codec_type") == "video":
             return int(stream["width"]), int(stream["height"])
     raise FFmpegError(f"ffprobe found no video stream in {path}")
+
+
+def extract_frame(video: str, *, at_s: float, dest: str, cwd: Path | None = None) -> None:
+    """Write a single frame of ``video`` at ``at_s`` seconds to ``dest``.
+
+    ``-ss`` before ``-i`` is the fast seek: ffmpeg jumps to the nearest keyframe
+    before decoding, which for a still is the difference between milliseconds and
+    decoding the whole timeline. ``-update 1`` tells the image muxer this is one
+    picture and not the first of a numbered sequence, which it otherwise warns about.
+
+    Paths are passed through untouched so the caller can keep the M0 relative-path
+    rule (see :mod:`videomaker.pipeline.render`) by pairing them with ``cwd``.
+    """
+    run_ffmpeg(
+        ["-ss", f"{at_s:.3f}", "-i", video, "-frames:v", "1", "-update", "1", dest],
+        cwd=cwd,
+    )

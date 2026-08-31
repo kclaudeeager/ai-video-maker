@@ -13,6 +13,10 @@ STAGE_ORDER: tuple[str, ...] = (
     "captions",
     "assemble",
     "render",
+    # Last, deliberately: `derive_status` returns the status of the last *current*
+    # stage, so appending here cannot lower any project's status. See
+    # `pipeline/thumbnail.py` for why that is what makes its unit `required`.
+    "thumbnail",
 )
 
 HASH_LEN = 16

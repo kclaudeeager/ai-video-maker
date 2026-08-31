@@ -212,6 +212,15 @@ class Project(BaseModel):
     music: MusicSelection = Field(default_factory=MusicSelection)
     scenes: list[Scene] = Field(default_factory=list)
     outputs: dict[Aspect, OutputSpec] = Field(default_factory=dict)
+    #: The headline drawn on the thumbnail. Empty means "use `topic`" — the same
+    #: "no opinion" convention `MusicSelection` uses, and the reason a project
+    #: written before M3 Task 15 loads unchanged. It feeds the `thumbnail` stage
+    #: and nothing else: no upstream fingerprint reads it, so retitling a
+    #: thumbnail can never restage `script` and replace `scenes` wholesale.
+    thumbnail_text: str = ""
+    #: Where the drawn thumbnail landed, relative to the project folder. `None`
+    #: until the stage has run, which is exactly what `Unit.produced` reads.
+    thumbnail_path: str | None = None
 
     @field_validator("folder")
     @classmethod

@@ -43,6 +43,7 @@ from videomaker.pipeline.base import SCENE_GAP_S, StageDeps, StageResult
 from videomaker.pipeline.captions import CAPTION_ASPECTS, aspect_hash, run_captions
 from videomaker.pipeline.render import RENDER_ASPECTS, run_render
 from videomaker.pipeline.script import run_script
+from videomaker.pipeline.thumbnail import THUMBNAIL_ASPECT, headline, run_thumbnail
 from videomaker.pipeline.visuals import run_visuals
 from videomaker.pipeline.voice import DEFAULT_SPEED, run_voice
 from videomaker.project import ProjectStore
@@ -71,6 +72,7 @@ STAGE_RUNNERS: dict[str, StageRunner] = {
     "captions": run_captions,
     "assemble": run_assemble,
     "render": run_render,
+    "thumbnail": run_thumbnail,
 }
 
 #: The status a project has reached once that stage is current. `voice` alone does
@@ -83,6 +85,9 @@ STATUS_AFTER: dict[str, Status] = {
     "captions": Status.STORYBOARD_READY,
     "assemble": Status.PREVIEW_READY,
     "render": Status.RENDERED,
+    # There is no status above `rendered`, and there should not be: a thumbnail is
+    # the last thing a finished video needs, not a new state of the project.
+    "thumbnail": Status.RENDERED,
 }
 
 #: stage -> the `Approvals` field that must be stamped before it may run.
@@ -330,6 +335,35 @@ def _render_units(project: Project) -> list[Unit]:
     return units
 
 
+def _thumbnail_units(project: Project) -> list[Unit]:
+    """One unit, and it is **required**.
+
+    Required because a thumbnail is a deliverable, and because it is free to say so:
+    `thumbnail` is last in `STAGE_ORDER`, so a rendered project with no thumbnail
+    still derives as `rendered` (`derive_status` returns the status of the last
+    *current* stage) and merely reports one stage pending. `required=False` was the
+    alternative and is strictly worse — `stage_is_current` returns `False` for a
+    stage with no required units, so the stage would be permanently stale and the
+    guidance panel could never say "finished" again for any project.
+
+    The fingerprint is the wide **assembly** plus the headline, because that is what
+    the picture is: a frame of that assembly with those words on it. Captions are
+    deliberately absent — the frame is cut from `build/video_wide.mp4`, which has
+    none burned in — and so is everything vertical, so re-cutting the Short does not
+    redraw the thumbnail.
+    """
+    return [
+        Unit(
+            "all",
+            hash_inputs(
+                assembled=_assemble_fingerprint(project, THUMBNAIL_ASPECT),
+                headline=headline(project),
+            ),
+            project.thumbnail_path is not None,
+        )
+    ]
+
+
 STAGE_UNITS: dict[str, Callable[[Project], list[Unit]]] = {
     "script": _script_units,
     "voice": _voice_units,
@@ -338,6 +372,7 @@ STAGE_UNITS: dict[str, Callable[[Project], list[Unit]]] = {
     "captions": _captions_units,
     "assemble": _assemble_units,
     "render": _render_units,
+    "thumbnail": _thumbnail_units,
 }
 
 

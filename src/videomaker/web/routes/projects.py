@@ -391,6 +391,7 @@ STAGE_LABELS: dict[str, tuple[str, str]] = {
     "captions": ("Captions", "subtitles from the alignment"),
     "assemble": ("Assemble", "scenes joined into one timeline"),
     "render": ("Render", "the final wide mp4"),
+    "thumbnail": ("Thumbnail", "a 1280x720 card from the opening shot"),
 }
 
 #: Gate name -> the human title of the screen that clears it.

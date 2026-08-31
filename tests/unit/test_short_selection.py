@@ -268,10 +268,19 @@ def test_no_unit_hash_moved_for_a_project_written_before_this_task():
     single changed hash anywhere in this table reads as "re-run everything from here"
     — and for `script:all` that means re-writing the narration those projects were
     built on.
+
+    Checked key by key rather than as one dict, because a later milestone may add a
+    *new* unit — M3 Task 15's `thumbnail:all` is the first — and that is not the same
+    event as an old one moving. The second assertion is what keeps the first honest:
+    nothing pinned may vanish, and every addition has to be named here deliberately.
     """
     project = Project.model_validate_json(_OLD_PROJECT.read_text())
 
-    assert _fingerprints(project) == _M2_FINGERPRINTS
+    found = _fingerprints(project)
+
+    assert set(_M2_FINGERPRINTS) <= set(found), "a pinned unit disappeared"
+    assert {key: found[key] for key in _M2_FINGERPRINTS} == _M2_FINGERPRINTS
+    assert set(found) - set(_M2_FINGERPRINTS) == {"thumbnail:all"}
 
 
 def test_short_beats_is_not_a_script_input():

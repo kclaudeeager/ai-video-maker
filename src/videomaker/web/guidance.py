@@ -61,6 +61,7 @@ STAGE_DOING: dict[str, str] = {
     "captions": "building the subtitles",
     "assemble": "joining the scenes into one timeline",
     "render": "encoding the finished videos",
+    "thumbnail": "drawing the thumbnail",
 }
 
 
@@ -160,7 +161,10 @@ def next_step(
     return NextStep(
         kind="done",
         where="Finished · all three gates signed",
-        ask="Both cuts are rendered. Download them, or edit a scene to build them again.",
+        ask=(
+            "Both cuts are rendered and the thumbnail is drawn. Download them, or "
+            "edit a scene to build them again."
+        ),
         action_label="Open the finished files",
         action_url=f"{project_url}/render",
         action_method="get",

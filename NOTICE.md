@@ -4,6 +4,10 @@
   packaging via kokoro-onnx (MIT).
 - **faster-whisper** — MIT; Whisper models by OpenAI (MIT).
 - **FFmpeg** — LGPL/GPL, invoked as a subprocess (not linked).
+- **Pillow** — MIT-CMU (HPND). Draws the thumbnail (M3 Task 15). Listed here,
+  unlike the other pure-Python runtime dependencies, because its wheels carry
+  compiled copies of libjpeg-turbo, zlib and libtiff, so installing it
+  redistributes those too; all three are permissive and AGPL-compatible.
 - **Pexels / Pixabay** media: free licenses including commercial use;
   attribution is appreciated and auto-generated per video (M5).
 - **Groq, Google Gemini, Cloudflare Workers AI**: bring-your-own-key;
