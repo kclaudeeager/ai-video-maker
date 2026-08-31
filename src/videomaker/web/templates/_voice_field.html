@@ -1,0 +1,45 @@
+{#
+  The voice field, on its own so the language filter can swap it.
+
+  **The voice is the only thing posted.** `Project.language` is derived from the
+  voice's Kokoro prefix in `ProjectStore.create`, so the language `<select>` next
+  door is a filter and nothing more — there is no second value to disagree with
+  this one (M3 Task 21).
+
+  Served whole by `GET /voice-options`, and included by `_new_project.html` on a
+  full page render, so the two can never drift apart. With JavaScript off htmx
+  never fires and this stays what it is: every offerable voice, grouped.
+
+  Context: `voices`, `form`.
+#}
+<div class="field" id="voice-field">
+  <label for="voice">Voice</label>
+  {# Kokoro's voice set is fixed and known, so this is a menu rather than a
+     free-text id nobody can remember. Grouped by language because 54 flat
+     options is not a menu. `voices` is `web.voices.available_voices`, which
+     falls back to a short static list rather than failing to render. #}
+  <select id="voice" name="voice">
+    {% if form.voice and form.voice not in voices.ids %}
+      {# A voice the catalogue does not list — an unreadable catalogue, or a
+         value typed by hand. The server accepts it, so the form keeps it. #}
+      <optgroup label="Submitted">
+        <option value="{{ form.voice }}" selected>{{ form.voice }}</option>
+      </optgroup>
+    {% endif %}
+    {% for group in voices.groups %}
+      <optgroup label="{{ group.language }}">
+        {% for voice in group.voices %}
+          <option value="{{ voice.id }}"{% if voice.id == form.voice %} selected{% endif %}>{{ voice.display_name }} — {{ voice.gender }}</option>
+        {% endfor %}
+      </optgroup>
+    {% endfor %}
+  </select>
+  {% if voices.note %}
+    <p class="hint flush">{{ voices.note }}</p>
+  {% endif %}
+  {% if voices.withheld_note %}
+    {# Deliberately not amber: nothing here is waiting for a human, it is a
+       limit of the stack. Amber is reserved for a stopped pipeline. #}
+    <p class="hint flush">{{ voices.withheld_note }}</p>
+  {% endif %}
+</div>

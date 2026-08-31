@@ -25,6 +25,13 @@
   Both families live in `src/videomaker/assets/fonts/` (inside the package, so
   the wheel carries them) with the full licence at `fonts/OFL.txt`. Re-verify
   after any update: `sha256sum src/videomaker/assets/fonts/*`.
+- **Caption fonts are not bundled.** Burned-in captions name `DejaVu Sans` and
+  rely on the system's own fonts through fontconfig, which libass falls back to
+  per glyph. No CJK or Devanagari font ships with this tool: the languages that
+  would need one are held back for TTS/STT reasons that a font cannot fix, and
+  Noto Sans CJK alone is 16-100+ MB against the ~930 KB of UI fonts above. The
+  decision and its measurements are in `docs/language-support.md`; `videomaker
+  doctor` reports what the local machine can actually draw.
 - **htmx** 2.0.4 — BSD-2-Clause (bigskysoftware/htmx). Vendored, not fetched
   from a CDN, so the review UI works offline and makes no third-party request:
   `src/videomaker/web/static/vendor/htmx.min.js`, 50917 bytes,

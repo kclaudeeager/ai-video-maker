@@ -249,13 +249,17 @@ def test_the_voice_field_is_a_select_with_the_default_preselected(client):
 
 
 def test_the_voice_menu_is_grouped_by_language(client, monkeypatch):
-    """54 flat options is the thing being fixed; the grouping is the fix."""
-    monkeypatch.setattr(MockTTS, "voices", lambda self: ["bm_george", "af_heart", "jf_alpha"])
+    """54 flat options is the thing being fixed; the grouping is the fix.
+
+    Japanese was in this list until M3 Task 21; it is now withheld, so the
+    grouping is shown with a language that survived both gates instead.
+    """
+    monkeypatch.setattr(MockTTS, "voices", lambda self: ["bm_george", "af_heart", "ef_dora"])
     clear_voice_cache()
 
     body = client.get("/").text
 
-    for label in ("American English", "British English", "Japanese"):
+    for label in ("American English", "British English", "Spanish"):
         assert f'<optgroup label="{label}">' in body
     assert '<option value="bm_george">George — male</option>' in body
 
@@ -277,17 +281,118 @@ def test_the_form_still_renders_when_the_voice_list_cannot_be_read(client, monke
 
 
 def test_a_voice_the_menu_does_not_list_is_still_accepted(client, store):
-    """The server-side contract is unchanged: `voice` was never validated."""
-    response = _create(client, topic="how ssds work", voice="zz_experimental")
+    """A voice id this build cannot read is still accepted.
+
+    M3 Task 21 narrowed this: a voice whose *language* was measured to come out
+    wrong is now refused (see the language tests below). An id outside Kokoro's
+    naming convention says nothing about its language, so nothing can be held
+    against it — Kokoro may ship a voice before these tables learn about it.
+    """
+    response = _create(client, topic="how ssds work", voice="qz_experimental")
 
     assert response.status_code == 303
     project = store.load(response.headers["location"].rsplit("/", 1)[-1])
-    assert project.voice == "zz_experimental"
+    assert project.voice == "qz_experimental"
+    assert project.language == "en", "an unreadable prefix keeps the default"
 
 
 def test_a_rejected_form_keeps_an_unlisted_voice_selected(client):
     """Re-rendering at 422 must not silently swap the user's voice for the default."""
-    response = _create(client, topic="", voice="zz_experimental")
+    response = _create(client, topic="", voice="qz_experimental")
 
     assert response.status_code == 422
-    assert '<option value="zz_experimental" selected>' in response.text
+    assert '<option value="qz_experimental" selected>' in response.text
+
+
+# ------------------------------------------------------- language and voice (M3 21)
+#
+# One choice, not two. The language `<select>` is a *filter*: htmx narrows the
+# voice menu with it and the create handler never reads it, so the two controls
+# cannot disagree. `Project.language` comes from the voice prefix and nothing
+# else. See `docs/language-support.md` for what "offered" was measured to mean.
+
+
+def test_the_language_field_filters_the_voice_menu_over_htmx(client):
+    body = client.get("/").text
+
+    assert '<select id="language" name="language"' in body
+    assert 'hx-get="/voice-options"' in body
+    assert 'hx-target="#voice-field"' in body
+    assert 'id="voice-field"' in body
+
+
+def test_the_language_menu_only_lists_languages_that_were_measured_to_work(
+    client, monkeypatch
+):
+    monkeypatch.setattr(MockTTS, "voices", lambda self: ["af_heart", "ef_dora", "jf_alpha"])
+    clear_voice_cache()
+
+    body = client.get("/").text
+
+    assert '<option value="Spanish">Spanish</option>' in body
+    assert ">Japanese<" not in body
+    assert "language-support" in body
+
+
+def test_the_created_project_speaks_the_language_of_its_voice(client, store):
+    response = _create(client, topic="como funcionan los ssd", voice="ef_dora")
+
+    assert response.status_code == 303
+    project = store.load(response.headers["location"].rsplit("/", 1)[-1])
+    assert project.voice == "ef_dora"
+    assert project.language == "es"
+
+
+def test_the_language_field_cannot_contradict_the_voice(client, store):
+    """The mismatch this task exists to make impossible, posted on purpose."""
+    response = _create(client, topic="how ssds work", voice="af_heart", language="Japanese")
+
+    assert response.status_code == 303
+    project = store.load(response.headers["location"].rsplit("/", 1)[-1])
+    assert project.language == "en"
+
+
+def test_a_voice_in_a_language_the_chain_gets_wrong_is_refused(client, store):
+    """Not offerable in the menu, and not creatable by hand either."""
+    response = _create(client, topic="how ssds work", voice="jf_alpha")
+
+    assert response.status_code == 422
+    assert "Japanese" in response.text
+    assert not store.list_ids(), "no project may be written for a refused voice"
+
+
+def test_the_refusal_says_what_was_measured_rather_than_just_no(client):
+    response = _create(client, topic="how ssds work", voice="zf_xiaoxiao")
+
+    assert response.status_code == 422
+    assert "Chinese" in response.text
+    assert "docs/language-support.md" in response.text
+
+
+def test_the_voice_options_fragment_narrows_the_menu_to_one_language(client, monkeypatch):
+    monkeypatch.setattr(MockTTS, "voices", lambda self: ["af_heart", "ef_dora", "em_alex"])
+    clear_voice_cache()
+
+    body = client.get("/voice-options", params={"language": "Spanish"}).text
+
+    assert '<select id="voice" name="voice">' in body
+    assert '<optgroup label="Spanish">' in body
+    assert "American English" not in body
+    assert 'value="ef_dora"' in body
+
+
+def test_the_voice_options_fragment_with_no_language_offers_everything(client, monkeypatch):
+    monkeypatch.setattr(MockTTS, "voices", lambda self: ["af_heart", "ef_dora"])
+    clear_voice_cache()
+
+    body = client.get("/voice-options").text
+
+    assert '<optgroup label="American English">' in body
+    assert '<optgroup label="Spanish">' in body
+
+
+def test_an_unknown_filter_value_offers_everything_rather_than_nothing(client):
+    """A stale htmx request must not leave the form with an empty voice menu."""
+    body = client.get("/voice-options", params={"language": "Klingon"}).text
+
+    assert '<optgroup label="American English">' in body

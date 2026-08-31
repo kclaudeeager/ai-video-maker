@@ -74,3 +74,86 @@ def test_no_hardware_encoder_still_warns(tmp_path):
     check = _by_name(run_checks(settings, caps), "hardware encoder")
     assert check.level == "warn"
     assert "libx264" in check.detail
+
+
+# ------------------------------------------------------- caption fonts (M3 21)
+
+
+def test_the_caption_font_check_names_the_file_libass_would_load(tmp_path, monkeypatch):
+    from videomaker.media import fonts
+
+    monkeypatch.setattr(
+        fonts, "resolve_family", lambda family: fonts.ResolvedFamily("DejaVu Sans", "/x.ttf", True)
+    )
+    monkeypatch.setattr(fonts, "fontconfig_charsets", lambda: "0-10ffff\n")
+    fonts.clear_font_cache()
+    settings = Settings(workspace_dir=tmp_path, models_dir=tmp_path / "models")
+
+    check = _by_name(run_checks(settings, GOOD_CAPS), "caption font")
+
+    assert check.level == "ok"
+    assert "/x.ttf" in check.detail
+    fonts.clear_font_cache()
+
+
+def test_a_substituted_caption_font_warns_rather_than_passing_quietly(tmp_path, monkeypatch):
+    """fontconfig never fails a match, so a missing family looks fine until this."""
+    from videomaker.media import fonts
+
+    monkeypatch.setattr(
+        fonts, "resolve_family", lambda family: fonts.ResolvedFamily("Noto Sans", "/n.ttf", False)
+    )
+    monkeypatch.setattr(fonts, "fontconfig_charsets", lambda: "0-10ffff\n")
+    fonts.clear_font_cache()
+    settings = Settings(workspace_dir=tmp_path, models_dir=tmp_path / "models")
+
+    check = _by_name(run_checks(settings, GOOD_CAPS), "caption font")
+
+    assert check.level == "warn"
+    assert "Noto Sans" in check.detail
+    assert check.fix
+    fonts.clear_font_cache()
+
+
+def test_a_script_no_installed_font_can_draw_fails_with_the_font_fix(tmp_path, monkeypatch):
+    """The tofu case: correct audio, unreadable captions, and nothing says so."""
+    from videomaker.media import fonts
+
+    monkeypatch.setattr(fonts, "fontconfig_charsets", lambda: "20-7e\n2010-2027\n")
+    fonts.clear_font_cache()
+    settings = Settings(workspace_dir=tmp_path, models_dir=tmp_path / "models")
+
+    check = _by_name(run_checks(settings, GOOD_CAPS), "caption script coverage")
+
+    assert check.level == "fail"
+    assert "Spanish" in check.detail
+    assert "apt install" in check.fix
+    fonts.clear_font_cache()
+
+
+def test_every_offered_script_drawable_passes(tmp_path, monkeypatch):
+    from videomaker.media import fonts
+
+    monkeypatch.setattr(fonts, "fontconfig_charsets", lambda: "0-10ffff\n")
+    fonts.clear_font_cache()
+    settings = Settings(workspace_dir=tmp_path, models_dir=tmp_path / "models")
+
+    check = _by_name(run_checks(settings, GOOD_CAPS), "caption script coverage")
+
+    assert check.level == "ok"
+    assert "English" in check.detail
+    fonts.clear_font_cache()
+
+
+def test_an_unprobeable_machine_warns_instead_of_claiming_coverage(tmp_path, monkeypatch):
+    from videomaker.media import fonts
+
+    monkeypatch.setattr(fonts, "fontconfig_charsets", lambda: None)
+    fonts.clear_font_cache()
+    settings = Settings(workspace_dir=tmp_path, models_dir=tmp_path / "models")
+
+    check = _by_name(run_checks(settings, GOOD_CAPS), "caption script coverage")
+
+    assert check.level == "warn"
+    assert "fontconfig" in check.detail
+    fonts.clear_font_cache()

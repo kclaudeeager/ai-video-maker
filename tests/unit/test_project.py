@@ -78,3 +78,36 @@ def test_scene_dir_is_created_on_demand(store):
     p = store.create("topic here", "tech_explainer")
     d = store.scene_dir(p, "s01")
     assert d.is_dir() and d.name == "s01"
+
+
+# ------------------------------------------------- the voice decides the language
+#
+# M3 Task 21. The store is the one place both front ends build a `Project` from a
+# voice id, so deriving here is what makes a voice/language mismatch impossible
+# on the CLI as well as in the web form — there is nowhere else to get it wrong.
+
+
+def test_create_derives_the_language_from_the_voice(store):
+    assert store.create("como funcionan", "tech_explainer", voice="ef_dora").language == "es"
+    assert store.create("comment ca marche", "tech_explainer", voice="ff_siwis").language == "fr"
+    assert store.create("how ssds work", "tech_explainer", voice="bm_george").language == "en"
+
+
+def test_create_keeps_the_default_language_for_an_unreadable_voice(store):
+    """A voice id outside Kokoro's convention says nothing about the language."""
+    project = store.create("how ssds work", "tech_explainer", voice="robot")
+
+    assert project.language == "en"
+
+
+def test_an_explicit_language_still_wins(store):
+    """The derivation is a default, not a lock: a caller that knows, knows."""
+    project = store.create("topic", "tech_explainer", voice="ef_dora", language="pt")
+
+    assert project.language == "pt"
+
+
+def test_the_derived_language_is_written_to_disk(store):
+    project = store.create("como funcionan", "tech_explainer", voice="ef_dora")
+
+    assert store.load(project.id).language == "es"

@@ -29,7 +29,7 @@ place that decision is made, and `tests/unit/test_web_dashboard.py` asserts both
 halves of it.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -52,7 +52,7 @@ from videomaker.runner import (
 from videomaker.templates import list_templates
 from videomaker.web.guidance import next_step
 from videomaker.web.onboarding import free_tier_rows, key_rows
-from videomaker.web.voices import available_voices
+from videomaker.web.voices import available_voices, refusal_for
 from videomaker.web.worker import (
     BLOCKED,
     DONE,
@@ -219,6 +219,31 @@ def index(request: Request):
     return _render_index(request)
 
 
+@router.get("/voice-options")
+def voice_options(request: Request, language: str = ""):
+    """The voice field, narrowed to one language. htmx swaps it in place.
+
+    The language `<select>` is a filter and this route is all it does: nothing
+    here writes anything, and the value never reaches `POST /projects`, which
+    derives the project's language from the chosen voice instead. That is the
+    whole of "one choice, not two" — there is no second value to disagree with.
+
+    An unknown or empty filter offers everything rather than nothing. A stale
+    request, or a language that has left the catalogue since the page loaded,
+    must not leave the form with an empty voice menu and no way back.
+    """
+    voices = available_voices(request.app.state.settings)
+    if language and language in voices.language_labels:
+        voices = replace(
+            voices, groups=[g for g in voices.groups if g.language == language]
+        )
+    first = voices.ids[0] if voices.ids else DEFAULT_VOICE
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request, "_voice_field.html", {"voices": voices, "form": {"voice": first}}
+    )
+
+
 @router.get("/guide")
 def guide(request: Request):
     """The onboarding screen on its own, for anyone who has projects already.
@@ -258,6 +283,15 @@ def create_project(
             form=submitted,
             status_code=422,
         )
+    # The menu cannot offer a voice whose language this stack was measured to get
+    # wrong, but a hand-rolled POST can still name one. Refusing here — rather
+    # than creating the project and letting `voice` and `align` produce a
+    # confidently wrong video — is the server-side half of that gate. Note the
+    # `language` form field is deliberately *not* read: it is a filter, and the
+    # project's language comes from the voice in `ProjectStore.create`.
+    refusal = refusal_for(voice.strip())
+    if refusal:
+        return _render_index(request, error=refusal, form=submitted, status_code=422)
 
     store: ProjectStore = request.app.state.store
     project = store.create(topic, template, target_minutes=minutes, voice=voice.strip())

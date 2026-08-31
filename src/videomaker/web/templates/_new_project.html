@@ -8,6 +8,9 @@
   when it is the only thing to do — and *below* the list afterwards, when the
   projects are what you came for. One copy, two positions.
 
+  The voice half lives in `_voice_field.html`, because the language filter
+  swaps exactly that fragment over htmx.
+
   Context: `first_run`, `form`, `error`, `templates_available`, `voices`.
 #}
   <h2 class="section-title">{% if first_run %}Your first project{% else %}New project{% endif %}</h2>
@@ -41,31 +44,26 @@
         <input type="number" id="minutes" name="minutes" min="0.1" step="0.1" value="{{ form.minutes }}">
       </div>
     </div>
-    <div class="field">
-      <label for="voice">Voice</label>
-      {# Kokoro's voice set is fixed and known, so this is a menu rather than a
-         free-text id nobody can remember. Grouped by language because 54 flat
-         options is not a menu. `voices` is `web.voices.available_voices`, which
-         falls back to a short static list rather than failing to render. #}
-      <select id="voice" name="voice">
-        {% if form.voice and form.voice not in voices.ids %}
-          {# A voice the catalogue does not list — an unreadable catalogue, or a
-             value typed by hand. The server accepts it, so the form keeps it. #}
-          <optgroup label="Submitted">
-            <option value="{{ form.voice }}" selected>{{ form.voice }}</option>
-          </optgroup>
-        {% endif %}
-        {% for group in voices.groups %}
-          <optgroup label="{{ group.language }}">
-            {% for voice in group.voices %}
-              <option value="{{ voice.id }}"{% if voice.id == form.voice %} selected{% endif %}>{{ voice.display_name }} — {{ voice.gender }}</option>
-            {% endfor %}
-          </optgroup>
-        {% endfor %}
-      </select>
-      {% if voices.note %}
-        <p class="hint flush">{{ voices.note }}</p>
-      {% endif %}
+    <div class="field-row">
+      <div class="field">
+        <label for="language">Language</label>
+        {# A **filter**, not an input. The create handler never reads it: the
+           project's language is derived from the voice's own Kokoro prefix, so
+           there is no second value that can contradict the first (M3 Task 21).
+           Its options are the voice menu's own `<optgroup>` labels, so it can
+           only ever name a language the menu actually has. #}
+        <select id="language" name="language"
+                hx-get="/voice-options"
+                hx-target="#voice-field"
+                hx-swap="outerHTML">
+          <option value="">Every language</option>
+          {% for label in voices.language_labels %}
+            <option value="{{ label }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="hint flush">Narrows the voice list. The voice decides the language.</p>
+      </div>
+      {% include "_voice_field.html" %}
     </div>
     <div class="form-foot">
       <button type="submit" class="primary">Create and write the script</button>

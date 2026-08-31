@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from videomaker.models import Project
+from videomaker.providers.tts.kokoro_onnx import describe_voice
 
 PROJECTS_DIRNAME = "projects"
 PROJECT_FILE = "project.json"
@@ -51,6 +52,17 @@ class ProjectStore:
         return f"{base}-{n}"
 
     def create(self, topic: str, template: str, **kw: Any) -> Project:
+        # M3 Task 21: the voice prefix *is* the language, so the two are never
+        # chosen independently. Deriving here rather than in the callers is what
+        # makes a mismatch impossible on the CLI as well as in the web form —
+        # this is the only place either of them builds a `Project` from a voice.
+        # An explicit `language=` still wins, and a voice this build cannot read
+        # leaves the model default alone rather than guessing English.
+        voice = kw.get("voice")
+        if "language" not in kw and isinstance(voice, str):
+            derived = describe_voice(voice).code
+            if derived:
+                kw["language"] = derived
         project = Project(
             id=self._allocate_id(topic),
             topic=topic,

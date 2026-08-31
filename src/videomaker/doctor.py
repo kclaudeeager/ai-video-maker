@@ -3,6 +3,8 @@ import sys
 from dataclasses import dataclass
 
 from videomaker.config import Settings
+from videomaker.languages import OFFERED_CODES
+from videomaker.media import fonts
 from videomaker.media.ffmpeg import FFmpegCaps
 
 FFMPEG_LIBASS_FIX = (
@@ -10,6 +12,10 @@ FFMPEG_LIBASS_FIX = (
     "macOS: 'brew reinstall ffmpeg' (standard bottles include the 'subtitles' filter)"
 )
 SETUP_FIX = "uv run videomaker setup"
+FONTCONFIG_FIX = (
+    "install fontconfig so libass can find fonts — Debian/Ubuntu: "
+    "'sudo apt install fontconfig'"
+)
 MODEL_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
 MIN_FREE_GB = 20
 
@@ -68,6 +74,62 @@ def _check_ffmpeg(caps: FFmpegCaps) -> list[CheckResult]:
     return results
 
 
+def _check_caption_font() -> CheckResult:
+    """Is the family the caption styles name actually installed?
+
+    fontconfig never fails a match: ask for a family nobody has and it hands back
+    its best substitute with no error and no log line, so a caption font can go
+    missing and every render still succeeds — looking different. `exact` is the
+    only way to tell the two apart, which is why this is a check and not a note.
+    """
+    resolved = fonts.resolve_family(fonts.CAPTION_FONT)
+    if resolved is None:
+        return CheckResult(
+            "caption font", "warn",
+            f"could not ask fontconfig for {fonts.CAPTION_FONT}",
+            fix=FONTCONFIG_FIX,
+        )
+    if resolved.exact:
+        return CheckResult(
+            "caption font", "ok", f"{resolved.family} -> {resolved.path}"
+        )
+    return CheckResult(
+        "caption font", "warn",
+        f"{fonts.CAPTION_FONT} is not installed; libass would substitute "
+        f"{resolved.family} ({resolved.path})",
+        fix=fonts.FONT_PACKAGE_FIX,
+    )
+
+
+def _check_caption_scripts() -> CheckResult:
+    """Can anything installed draw the scripts of the languages we offer?
+
+    libass falls back per glyph through fontconfig, so this asks about every
+    installed font rather than about the styled family alone — verified by
+    rendering a frame, see `docs/language-support.md`. A script nothing can draw
+    is the tofu case: correct audio, unreadable captions, no error anywhere.
+    """
+    checks = fonts.script_checks()
+    by_code = {check.code: check for check in checks}
+    wanted = [by_code[code] for code in OFFERED_CODES if code in by_code]
+    if not any(check.probed for check in checks):
+        return CheckResult(
+            "caption script coverage", "warn",
+            "no fontconfig to ask; caption glyph coverage is unverified",
+            fix=FONTCONFIG_FIX,
+        )
+    broken = [check for check in wanted if not check.renders]
+    if not broken:
+        names = ", ".join(check.name for check in wanted)
+        return CheckResult("caption script coverage", "ok", f"{names} all draw")
+    detail = "; ".join(f"{check.name} cannot draw {check.missing}" for check in broken)
+    return CheckResult(
+        "caption script coverage", "fail",
+        f"captions would burn in as tofu boxes — {detail}",
+        fix=fonts.FONT_PACKAGE_FIX,
+    )
+
+
 def _check_disk(settings: Settings) -> CheckResult:
     target = settings.workspace_dir if settings.workspace_dir.exists() else settings.workspace_dir.parent
     if not target.exists():
@@ -114,6 +176,8 @@ def _check_api_keys(settings: Settings) -> list[CheckResult]:
 def run_checks(settings: Settings, caps: FFmpegCaps) -> list[CheckResult]:
     results = [_check_python()]
     results.extend(_check_ffmpeg(caps))
+    results.append(_check_caption_font())
+    results.append(_check_caption_scripts())
     results.append(_check_disk(settings))
     results.append(_check_models(settings))
     results.extend(_check_api_keys(settings))

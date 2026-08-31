@@ -59,6 +59,31 @@ def test_new_honours_the_voice_option(workspace):
     assert saved["voice"] == "am_adam"
 
 
+def test_new_derives_the_language_from_the_voice(workspace):
+    """M3 Task 21: one choice, on the CLI too — there is no `--language`."""
+    _new("--voice", "ef_dora")
+
+    saved = json.loads((workspace / "projects" / PROJECT_ID / "project.json").read_text())
+    assert saved["language"] == "es"
+
+
+def test_new_warns_but_obeys_for_a_language_the_chain_gets_wrong(workspace):
+    """The web form refuses; the CLI is the deliberate escape hatch, out loud."""
+    result = _new("--voice", "jf_alpha")
+
+    assert result.exit_code == 0
+    assert "Japanese" in result.output
+    assert "language-support" in result.output
+    saved = json.loads((workspace / "projects" / PROJECT_ID / "project.json").read_text())
+    assert saved["voice"] == "jf_alpha"
+
+
+def test_new_says_nothing_extra_for_a_language_that_works(workspace):
+    result = _new("--voice", "ef_dora")
+
+    assert "not offered" not in result.output
+
+
 def test_new_rejects_an_unknown_template():
     result = runner.invoke(app, ["new", TOPIC, "-t", "no_such_template"])
 

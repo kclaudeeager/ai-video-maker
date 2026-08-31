@@ -107,6 +107,15 @@ def new(
     except ValueError as exc:
         _fail(str(exc))
 
+    # M3 Task 21: the web form refuses a voice whose language this stack was
+    # measured to get wrong. The CLI is the deliberate escape hatch — someone
+    # re-running the measurement needs to be able to make one — so it warns and
+    # obeys rather than refusing. What it must not do is stay silent.
+    from videomaker.web.voices import refusal_for
+
+    if refusal := refusal_for(voice):
+        console.print(f"[yellow]warning:[/yellow] {refusal}")
+
     store = ProjectStore(settings.workspace_dir)
     project = store.create(topic, template, target_minutes=minutes, voice=voice)
     console.print(f"created [bold]{project.id}[/bold] in {store.path_for(project.id)}")
