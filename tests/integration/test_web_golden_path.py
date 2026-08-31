@@ -71,9 +71,9 @@ from videomaker.media.ffmpeg import probe_duration, probe_json
 from videomaker.models import Aspect, AssetRef
 from videomaker.pipeline import assemble as assemble_module
 from videomaker.pipeline import render as render_module
-from videomaker.pipeline.assemble import WIDE_SPEC, segment_relpath
+from videomaker.pipeline.assemble import ASSEMBLE_ASPECTS, WIDE_SPEC, segment_relpath
 from videomaker.pipeline.base import SCENE_GAP_S
-from videomaker.pipeline.render import output_relpath
+from videomaker.pipeline.render import RENDER_ASPECTS, output_relpath
 from videomaker.preview import preview_relpath
 from videomaker.project import ProjectStore
 from videomaker.providers import mock as mock_module
@@ -606,7 +606,9 @@ def test_swapping_one_shot_at_gate_two_re_encodes_only_that_scene(journey):
 
     # The re-run is that segment, the join and the narration bed. Nothing more:
     # the render is behind gate 3, which the swap has just un-approved.
-    assert len(journey.swapped.ffmpeg_calls) == 3
+    # Segment, join and narration bed — once per aspect: the Short re-cuts the
+    # same swapped shot rather than inheriting the wide segment.
+    assert len(journey.swapped.ffmpeg_calls) == 3 * len(ASSEMBLE_ASPECTS)
     assert journey.swapped.final_mtime == journey.rendered.final_mtime
 
 
@@ -646,7 +648,7 @@ def test_re_approving_gate_three_re_renders_the_final_video_and_nothing_else(jou
     assert journey.codes["reapprove:preview"] == 303
 
     assert journey.rerendered.segment_encodes == []
-    assert len(journey.rerendered.ffmpeg_calls) == 1
+    assert len(journey.rerendered.ffmpeg_calls) == len(RENDER_ASPECTS)  # one final encode each
     assert journey.rerendered.provider_calls == Counter()
     assert journey.rerendered.final_mtime != journey.rendered.final_mtime
 

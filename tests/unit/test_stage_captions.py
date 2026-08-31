@@ -16,6 +16,7 @@ from videomaker.media.ass import STYLES, format_timestamp
 from videomaker.models import Aspect, Scene, SceneVisual, WordTiming
 from videomaker.pipeline.base import SCENE_GAP_S, StageDeps
 from videomaker.pipeline.captions import (
+    CAPTION_ASPECTS,
     caption_relpath,
     run_captions,
     timeline_words,
@@ -165,7 +166,8 @@ def test_clean_rerun_rewrites_nothing(deps):
     result = run_captions(project, deps)
 
     assert result.changed is False
-    assert result.skipped_units == 1
+    # One skipped unit per aspect: this stage writes an `.ass` for each.
+    assert result.skipped_units == len(CAPTION_ASPECTS)
     assert path.stat().st_mtime_ns == mtime
 
 
@@ -210,7 +212,7 @@ def test_captions_skips_a_project_with_nothing_aligned(deps):
     result = run_captions(project, deps)
 
     assert result.changed is False
-    assert result.skipped_units == 1
+    assert result.skipped_units == len(CAPTION_ASPECTS)
     assert not _ass_path(deps, project).exists()
 
 
@@ -219,8 +221,10 @@ def test_captions_marks_its_unit_per_aspect(deps):
     run_captions(project, deps)
 
     persisted = StageCache(deps.stage_cache.path)
-    assert persisted.is_stale(stage_key("captions", Aspect.WIDE.value), "not-the-real-hash") is True
-    assert run_captions(project, deps).skipped_units == 1
+    for aspect in CAPTION_ASPECTS:
+        key = stage_key("captions", aspect.value)
+        assert persisted.is_stale(key, "not-the-real-hash") is True
+    assert run_captions(project, deps).skipped_units == len(CAPTION_ASPECTS)
 
 
 def _ass_seconds(stamp: str) -> float:

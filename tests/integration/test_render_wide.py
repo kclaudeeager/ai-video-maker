@@ -21,6 +21,7 @@ from videomaker.media.ffmpeg import probe_duration, probe_json
 from videomaker.models import Aspect, Scene, SceneVisual, VisualKind
 from videomaker.pipeline.align import run_align
 from videomaker.pipeline.assemble import (
+    ASSEMBLE_ASPECTS,
     WIDE_SPEC,
     concat_relpath,
     narration_relpath,
@@ -32,7 +33,12 @@ from videomaker.pipeline.assemble import (
 )
 from videomaker.pipeline.base import SCENE_GAP_S, StageDeps
 from videomaker.pipeline.captions import caption_relpath, run_captions
-from videomaker.pipeline.render import output_relpath, run_render, subtitles_filter
+from videomaker.pipeline.render import (
+    RENDER_ASPECTS,
+    output_relpath,
+    run_render,
+    subtitles_filter,
+)
 from videomaker.pipeline.visuals import run_visuals
 from videomaker.pipeline.voice import run_voice
 from videomaker.project import ProjectStore
@@ -265,9 +271,11 @@ def test_a_clean_rerun_re_encodes_nothing(rendered):
     render = run_render(project, deps)
 
     assert assemble.changed is False
-    assert assemble.skipped_units == len(SCENES) + 1  # every segment, plus the join
+    # Every segment plus the join, once per aspect: this project's Short is the whole
+    # of it, so wide and vertical each have a segment for every scene.
+    assert assemble.skipped_units == (len(SCENES) + 1) * len(ASSEMBLE_ASPECTS)
     assert render.changed is False
-    assert render.skipped_units == 1
+    assert render.skipped_units == len(RENDER_ASPECTS)
     assert _mtimes(root, project) == before
     assert (root / output_relpath(Aspect.WIDE)).stat().st_mtime_ns == final
 

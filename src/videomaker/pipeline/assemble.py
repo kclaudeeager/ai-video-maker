@@ -73,10 +73,10 @@ ZOOM_RATE = 0.15
 #: repeat a shorter window of the same clip instead.
 MAX_LOOP_FRAMES = 120
 
-#: Which aspects this stage actually *encodes*. Vertical joins it once it can crop
-#: from source (Task 4); until then vertical exists as a spec and a timeline only,
-#: and is never a scaled copy of the wide render.
-ASSEMBLE_ASPECTS: tuple[Aspect, ...] = (Aspect.WIDE,)
+#: Which aspects this stage actually *encodes*. Both, now that `reframe_filter` can
+#: cut a 9:16 window out of each scene's own source: vertical is never a scaled copy
+#: of the wide render, and its cut is the `in_short` subset, not the whole project.
+ASSEMBLE_ASPECTS: tuple[Aspect, ...] = (Aspect.WIDE, Aspect.VERTICAL)
 
 #: The longest a Short may run. YouTube Shorts, Reels and TikTok all accept three
 #: minutes; anything longer is not a Short at all, so `in_short` has to give way.
@@ -110,9 +110,10 @@ WIDE_SPEC = SPECS[Aspect.WIDE]
 VERTICAL_SPEC = SPECS[Aspect.VERTICAL]
 
 #: Every aspect the tool authors a frame for. The per-stage tuples above and in
-#: `captions`/`render` are the subsets each stage can currently *produce*; they grow
-#: towards this one as the vertical tasks land. Status listing walks this tuple, so a
-#: vertical unit is visible — and visibly not current — before it can be built.
+#: `captions`/`render` are the subsets each stage can *produce*; they have now grown
+#: to meet this one, so a listed unit and a required unit are the same thing again.
+#: They stay separate because that is what let vertical be listed while it was being
+#: built, and it is what a third aspect would need in turn.
 ALL_ASPECTS: tuple[Aspect, ...] = tuple(SPECS)
 
 

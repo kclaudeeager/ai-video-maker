@@ -54,7 +54,7 @@ from videomaker.config import Settings
 from videomaker.models import Aspect, AssetRef, Motion
 from videomaker.pipeline import assemble as assemble_module
 from videomaker.pipeline import render as render_module
-from videomaker.pipeline.assemble import segment_relpath
+from videomaker.pipeline.assemble import ASSEMBLE_ASPECTS, segment_relpath
 from videomaker.pipeline.render import output_relpath
 from videomaker.project import PROJECT_FILE, ProjectStore
 from videomaker.providers import mock as mock_module
@@ -808,8 +808,9 @@ def test_swapping_one_visual_re_encodes_only_that_scene(swap):
         else:
             assert swap.second.segments[scene_id] == mtime
 
-    # The re-run is the segment, the join, the narration bed and the render. Nothing more.
-    assert len(swap.second.ffmpeg_calls) == 4
+    # The re-run is the segment, the join, the narration bed and the render — once per
+    # aspect, because the Short is re-cut from the very same swapped shot. Nothing more.
+    assert len(swap.second.ffmpeg_calls) == 4 * len(ASSEMBLE_ASPECTS)
     assert swap.second.final_mtime != swap.first.final_mtime
 
     # And the new shot was fetched exactly once, by the web handler, not by a stage.

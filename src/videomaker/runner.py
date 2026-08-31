@@ -162,13 +162,17 @@ def build_deps(settings: Settings, project_id: str, *, cache_dir: Path | None = 
 class Unit:
     """One cache unit as the status view sees it: its inputs, and whether it ran.
 
-    `required` is what keeps a *listed* unit from being a *blocking* one. The vertical
-    aspect has a spec, a timeline and a fingerprint before any stage can build it, so
-    its units are listed — a caller can see the Short is not made yet — but they do not
-    hold `derive_status` back. Without that, adding the aspect would have made every
-    finished project, the owner's included, report itself unfinished forever. A unit
-    becomes required the moment its stage's aspect tuple learns to produce it, so this
-    unblocks itself as Tasks 3, 4 and 6 land; nothing has to be remembered and flipped.
+    `required` is what keeps a *listed* unit from being a *blocking* one. While the
+    vertical aspect had a spec, a timeline and a fingerprint but no stage that could
+    build it, its units were listed — a caller could see the Short was not made yet —
+    without holding `derive_status` back.
+
+    That derivation has now paid out in the other direction: with vertical in all
+    three aspect tuples, the vertical units are required, and a project that has only
+    ever rendered wide **stops** deriving as `rendered` until it builds its Short.
+    That is the honest answer — the project genuinely has no `final_vertical.mp4` —
+    and it is deliberately not switchable: a second flag saying "required after all"
+    is the thing that would drift from what the pipeline actually produces.
     """
 
     unit: str

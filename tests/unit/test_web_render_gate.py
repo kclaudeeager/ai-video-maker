@@ -41,7 +41,7 @@ from videomaker.config import Settings
 from videomaker.media.ffmpeg import FFmpegError
 from videomaker.models import Aspect
 from videomaker.pipeline import render as render_module
-from videomaker.pipeline.render import output_relpath
+from videomaker.pipeline.render import RENDER_ASPECTS, output_relpath
 from videomaker.preview import build_preview, preview_relpath
 from videomaker.project import ProjectStore
 from videomaker.runner import build_deps, run_pipeline
@@ -379,6 +379,22 @@ def test_the_substitution_is_undone_even_when_the_encode_raises(monkeypatch):
     assert render_module.run_ffmpeg is stub_ffmpeg
 
 
+def _ascending_runs(values: list[float]) -> list[list[float]]:
+    """Split `values` at every point the bar goes backwards.
+
+    `run_render` encodes one aspect after another and `encode_reporter` measures each
+    from the same floor, so the bar climbs, rewinds once, and climbs again. Each run
+    is what has to be monotonic; the seam between them is the second aspect starting,
+    and smoothing it over belongs to the render page rather than to the pipeline.
+    """
+    runs: list[list[float]] = [[]]
+    for value in values:
+        if runs[-1] and value < runs[-1][-1]:
+            runs.append([])
+        runs[-1].append(value)
+    return runs
+
+
 def test_progress_moves_while_the_encode_runs_not_only_between_stages(
     app, store, progress_updates
 ):
@@ -402,7 +418,9 @@ def test_progress_moves_while_the_encode_runs_not_only_between_stages(
     # own slice of the bar — that is exactly the movement `on_stage` alone cannot
     # produce, since it ticks once at the end of the stage and lands on 1.0.
     assert len(set(encode)) >= 3, encode
-    assert encode == sorted(encode)
+    runs = _ascending_runs(encode)
+    assert len(runs) == len(RENDER_ASPECTS), encode  # one climb per aspect encoded
+    assert all(run == sorted(run) for run in runs), encode
     assert all(ENCODE_FLOOR <= value <= 1.0 for value in encode), encode
     assert any(ENCODE_FLOOR < value < 1.0 for value in encode), encode
 
@@ -433,9 +451,10 @@ def test_the_encode_fraction_is_mapped_onto_the_bar_exactly(app, store, monkeypa
         if stage == "render" and value is not None and (message or "").startswith(ENCODE_NOTE)
     ]
     span = 1.0 - ENCODE_FLOOR
-    assert encode == pytest.approx(
-        [ENCODE_FLOOR + span * encode_fraction(seconds, total) for seconds in reported]
-    )
+    one_encode = [ENCODE_FLOOR + span * encode_fraction(seconds, total) for seconds in reported]
+    # The same sweep once per aspect: `run_render` calls the instrumented `run_ffmpeg`
+    # for the Short as well, and both are measured against the wide timeline.
+    assert encode == pytest.approx(one_encode * len(RENDER_ASPECTS))
 
 
 # --------------------------------------------------------------- render page
@@ -534,3 +553,24 @@ def test_a_failed_render_shows_the_ffmpeg_stderr_tail_rather_than_a_500(
     assert response.status_code == 200
     assert "height not divisible by 2" in response.text
     assert "Conversion failed!" in response.text
+
+
+def test_the_download_name_identifies_the_project():
+    """Every project renders to `final_wide.mp4`, so the bare name is ambiguous.
+
+    Downloading three projects would give `final_wide.mp4`, `final_wide(1).mp4`
+    and `final_wide(2).mp4` with no way to tell them apart in a Downloads folder.
+    """
+    from pathlib import Path
+
+    from videomaker.web.routes.render import ArtefactView
+
+    view = ArtefactView(
+        project_id="how-ssds-work",
+        relpath=output_relpath(Aspect.WIDE),
+        path=Path("/tmp/how-ssds-work") / output_relpath(Aspect.WIDE),
+        exists=True,
+        fresh=True,
+    )
+    assert view.download_name == "how-ssds-work-final_wide.mp4"
+    assert view.url == "/media/how-ssds-work/output/final_wide.mp4"

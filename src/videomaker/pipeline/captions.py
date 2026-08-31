@@ -31,9 +31,11 @@ from videomaker.pipeline.base import SCENE_GAP_S, StageDeps, StageResult, projec
 STAGE = "captions"
 CAPTIONS_DIRNAME = "captions"
 
-#: Which aspects this stage actually writes an `.ass` file for. Vertical joins it
-#: once its style is authored (Task 3) — never by scaling the wide layout.
-CAPTION_ASPECTS: tuple[Aspect, ...] = (Aspect.WIDE,)
+#: Which aspects this stage actually writes an `.ass` file for. Both, now that the
+#: vertical layout is authored in `media.ass.STYLES` — 96 px type, three words a
+#: chunk, its own margin. Each aspect is written from its **own** style and its own
+#: `PLAY_RES`; neither is ever scaled from the other (spec 4.5).
+CAPTION_ASPECTS: tuple[Aspect, ...] = (Aspect.WIDE, Aspect.VERTICAL)
 
 #: Timeline resolution the ASS coordinates are authored against, taken from the frame
 #: `assemble` actually encodes. Authoring captions against a different resolution than
@@ -132,7 +134,14 @@ def aspect_hash(project: Project, aspect: Aspect) -> str:
 
 
 def run_captions(project: Project, deps: StageDeps) -> StageResult:
-    """Write one `.ass` file per aspect. One unit per aspect: `captions:wide`."""
+    """Write one `.ass` file per aspect: `captions:wide` and `captions:vertical`.
+
+    Each is written from `STYLES[aspect]` and `PLAY_RES[aspect]` — its own layout,
+    authored for its own frame. Reaching for the wide style or the wide play
+    resolution here is the one bug this stage can have that still produces a
+    perfectly playable video, so `tests/integration/test_render_vertical.py` reads
+    the type size and the chunk length back out of the written file.
+    """
     changed = False
     skipped = 0
 

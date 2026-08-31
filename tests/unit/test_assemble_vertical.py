@@ -294,7 +294,10 @@ def test_building_vertical_leaves_every_wide_segment_untouched(monkeypatch, tmp_
     deps = _deps(tmp_path)
     project = _project(deps)
     root = deps.store.path_for(project.id)
-    run_assemble(project, deps)  # wide alone, as the stage ships today
+    # Wide alone first: the stage ships building both, so the "before" state a Short
+    # is added to has to be re-created rather than assumed.
+    monkeypatch.setattr(assemble_module, "ASSEMBLE_ASPECTS", (Aspect.WIDE,))
+    run_assemble(project, deps)
     before = _mtimes(root, project, Aspect.WIDE)
     recorder.clear()
 

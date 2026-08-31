@@ -7,10 +7,12 @@ only because the *wide* fingerprints in `cache/stages.json` still match what
 hashes are pinned here as literals captured from the pre-vertical code, so recomputing
 them with the new code can never make the assertion vacuous.
 
-The second thing under test is deliberately negative: vertical units exist, are listed,
-and report **not current**, but they are marked `required=False` while no stage
-executes them, so a finished project still derives as `rendered`. See
-`test_a_fully_rendered_wide_project_still_derives_as_rendered`.
+The second thing under test is the `required` derivation. While no stage executed
+vertical, its units were listed and **not** required, so a finished wide project still
+derived as `rendered`. Task 6 put vertical into all three stage tuples, and the same
+derivation now makes those units required — so a project that has only ever rendered
+wide honestly stops being `rendered` until it builds its Short, and becomes `rendered`
+again the moment it has one. Both halves are asserted below.
 """
 
 from datetime import UTC, datetime
@@ -218,24 +220,59 @@ def test_every_per_aspect_stage_lists_a_vertical_unit(stage):
 
 
 @pytest.mark.parametrize("stage", PER_ASPECT_STAGES)
-def test_a_vertical_unit_is_not_required_while_no_stage_executes_it(stage):
+def test_a_vertical_unit_is_required_exactly_when_its_stage_executes_it(stage):
+    """`required` is derived, never declared — which is how Task 6 unblocked it."""
     executed = {"captions": CAPTION_ASPECTS, "assemble": ASSEMBLE_ASPECTS, "render": RENDER_ASPECTS}
     project = _project()
     assert _unit(stage, project, Aspect.WIDE).required is True
     vertical = _unit(stage, project, Aspect.VERTICAL)
     assert vertical.required is (Aspect.VERTICAL in executed[stage])
-    assert vertical.produced is False
+    # ...and every stage executes it now, so every vertical unit blocks.
+    assert vertical.required is True
+
+
+def test_a_project_that_has_never_built_a_short_reports_its_vertical_work_undone():
+    """`produced` reads the artefacts, so it stays False until the Short exists."""
+    project = _project()  # a wide `OutputSpec` and nothing else
+    assert _unit("assemble", project, Aspect.VERTICAL).produced is False
+    assert _unit("render", project, Aspect.VERTICAL).produced is False
 
 
 # ------------------------------------------------------------------- derived status
 
 
-def test_a_fully_rendered_wide_project_still_derives_as_rendered(tmp_path):
-    """The dashboard must not call every finished project unfinished (the trap)."""
-    project = _project()
+def _stamped(project: Project, tmp_path) -> StageCache:
+    """Every approval given and every produced unit fingerprinted — a finished run."""
     now = datetime.now(UTC)
     project.approvals = Approvals(script=now, storyboard=now, preview=now)
     cache = StageCache(tmp_path / "stages.json")
     for stage in STAGE_ORDER:
         stamp_stage(project, cache, stage)
-    assert derive_status(project, cache) is Status.RENDERED
+    return cache
+
+
+def test_a_wide_only_project_stops_being_rendered_once_the_short_is_required(tmp_path):
+    """The deliberate cost of Task 6, asserted rather than discovered.
+
+    A project rendered before vertical shipped has no `final_vertical.mp4`, and with
+    the vertical units now required it says so instead of claiming to be finished.
+    It falls back to `storyboard_ready` — the last status whose stages are all
+    current — and one `videomaker run` builds the Short and restores `rendered`.
+    Nothing wide is re-encoded on the way: the wide fingerprints are unchanged (see
+    `test_wide_unit_hashes_are_unchanged_by_vertical`).
+    """
+    project = _project()
+    assert derive_status(project, _stamped(project, tmp_path)) is Status.STORYBOARD_READY
+
+
+def test_the_same_project_derives_as_rendered_once_it_has_a_short(tmp_path):
+    """...and this is the half that makes the drop temporary rather than permanent."""
+    project = _project()
+    project.outputs[Aspect.VERTICAL] = OutputSpec(
+        aspect=Aspect.VERTICAL,
+        width=VERTICAL_SPEC.width,
+        height=VERTICAL_SPEC.height,
+        scene_ids=["s01", "s02", "s04"],
+        video_path="output/final_vertical.mp4",
+    )
+    assert derive_status(project, _stamped(project, tmp_path)) is Status.RENDERED
