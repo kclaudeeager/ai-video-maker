@@ -324,6 +324,10 @@ def test_download_streams_and_returns_a_project_relative_asset_ref(tmp_path):
     assert "Kelly Stock" in ref.attribution
     assert (ref.width, ref.height) == (1920, 1080)
     assert ref.duration_s == 20.0
+    # Carried through, not discarded: the storyboard draws un-downloaded
+    # alternatives from this, and Task 13's re-rank reads it too.
+    assert result.preview_url
+    assert ref.preview_url == result.preview_url
 
 
 # ----------------------------------------------------------------------- cloudflare
@@ -359,6 +363,9 @@ def test_flux_success_writes_a_real_jpeg_and_records_58_neurons(tmp_path):
     assert (ref.width, ref.height) == (IMAGE_SIZE, IMAGE_SIZE)
     assert ref.provider == "cloudflare"
     assert ref.local_path == "scene1.jpg"  # relative: no project.json above tmp_path
+    # A generated image has no remote thumbnail to point at — the file on disk is
+    # the only copy that exists — so the field stays empty rather than guessing.
+    assert ref.preview_url == ""
 
     budget = SOFT_BUDGETS["cloudflare"]
     assert provider.quota.remaining("cloudflare", budget)["per_day"] == (

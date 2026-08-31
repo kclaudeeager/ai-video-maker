@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -80,3 +81,57 @@ def _wide(p):
 def test_crop_focus_is_bounded():
     with pytest.raises(ValueError):
         SceneVisual(query="x", crop_focus_x=1.5)
+
+
+# --------------------------------------------------- AssetRef.preview_url (M3 Task 2)
+
+#: A `project.json` written before `AssetRef.preview_url` existed — a trimmed copy of
+#: the owner's real finished project, kept byte-for-byte in the pre-change shape.
+_PRE_PREVIEW_URL = Path(__file__).parent.parent / "fixtures" / "project_pre_preview_url.json"
+
+
+def test_asset_ref_preview_url_defaults_to_empty():
+    ref = AssetRef(
+        provider="pexels", source_id="123", source_url="https://x/1",
+        local_path="", width=1920, height=1080,
+    )
+    assert ref.preview_url == ""
+
+
+def test_a_project_json_written_before_preview_url_still_loads():
+    """The real backward-compatibility guarantee: old projects must not stop opening.
+
+    The fixture is a real pre-change file, so this fails the moment the field is
+    made required — a default that only *looks* optional would not survive it.
+    """
+    blob = _PRE_PREVIEW_URL.read_text()
+    assert "preview_url" not in blob, "the fixture must hold the PRE-change shape"
+
+    project = Project.model_validate_json(blob)
+
+    assert project.id == "how-ssds-work"
+    assert project.approvals.preview is not None
+    assert project.outputs[Aspect.WIDE].video_path == "output/final_wide.mp4"
+    refs = [
+        ref
+        for scene in project.scenes
+        for ref in [*scene.visual.candidates, scene.visual.chosen]
+        if ref is not None
+    ]
+    assert refs, "the fixture must actually carry assets"
+    assert all(ref.preview_url == "" for ref in refs)
+
+
+def test_preview_url_survives_a_json_round_trip():
+    p = _project()
+    p.scenes[0].visual.candidates = [
+        AssetRef(
+            provider="pexels", source_id="123", source_url="https://x/1",
+            local_path="", width=1920, height=1080, duration_s=6.0,
+            preview_url="https://images.pexels.com/videos/123/thumb.jpeg",
+        )
+    ]
+    restored = Project.model_validate_json(p.model_dump_json())
+    assert restored.scenes[0].visual.candidates[0].preview_url == (
+        "https://images.pexels.com/videos/123/thumb.jpeg"
+    )

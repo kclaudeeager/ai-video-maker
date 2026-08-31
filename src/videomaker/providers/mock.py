@@ -297,6 +297,7 @@ class MockStock(StockProvider):
             source_id=result.source_id,
             source_url=result.source_url,
             local_path=project_relative(path),
+            preview_url=result.preview_url,
             width=FIXTURE_WIDTH,
             height=FIXTURE_HEIGHT,
             duration_s=CLIP_DURATION_S if video else None,
@@ -354,6 +355,8 @@ class MockImage(ImageProvider):
             source_id=source_id,
             source_url=f"https://mock.invalid/image/{source_id}",
             local_path=project_relative(path),
+            # Generated here, so the file on disk is the only copy: no remote preview.
+            preview_url="",
             width=width,
             height=height,
             duration_s=None,

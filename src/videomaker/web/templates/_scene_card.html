@@ -41,7 +41,8 @@
       <button type="submit" class="candidate-pick"
               {% if candidate.chosen %}aria-current="true"{% endif %}
               title="{{ candidate.ref.provider }} · {{ candidate.ref.source_id }}">
-        <span class="candidate-thumb {% if candidate.downloaded and candidate.is_video %}is-clip{% endif %}">
+        {# The ▶ marker rides over a picture; the placeholder already says "clip". #}
+        <span class="candidate-thumb {% if candidate.is_video and (candidate.downloaded or candidate.preview_url) %}is-clip{% endif %}">
           {% if candidate.downloaded %}
             {% if candidate.is_video %}
               <video src="{{ candidate.media_url }}#t=0.1" preload="metadata" muted playsinline></video>
@@ -50,9 +51,16 @@
                    alt="Option {{ candidate.index + 1 }} for scene {{ card.scene.id }}"
                    loading="lazy">
             {% endif %}
-          {% else %}
+          {% elif candidate.preview_url %}
             {# The usual state of an alternative: the visuals stage downloads only
-               the hit it picked, and `AssetRef` keeps no remote preview to show. #}
+               the hit it picked, so the provider's own thumbnail is the picture.
+               `referrerpolicy` keeps the project id out of the provider's logs. #}
+            <img src="{{ candidate.preview_url }}"
+                 alt="Option {{ candidate.index + 1 }} for scene {{ card.scene.id }}"
+                 loading="lazy" referrerpolicy="no-referrer">
+          {% else %}
+            {# Neither a file nor a thumbnail: a ref written before `preview_url`
+               existed, or one from a generator with no hosted copy. #}
             <span class="candidate-blank" aria-hidden="true">{{ candidate.kind_label }}</span>
           {% endif %}
         </span>

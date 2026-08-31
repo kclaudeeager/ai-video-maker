@@ -189,6 +189,9 @@ class CloudflareImageProvider(ImageProvider):
             # `project.json` is a shareable artefact.
             source_url=f"cf-workers-ai:{CLOUDFLARE_IMAGE_MODEL}",
             local_path=project_relative(path),
+            # Generated here, so the file on disk is the only copy of it that exists;
+            # there is no provider-hosted thumbnail to point the storyboard at.
+            preview_url="",
             # Flux always returns a square (M0 finding 5); `aspect` is the caller's
             # crop target, not the image's shape.
             width=IMAGE_SIZE,

@@ -120,6 +120,22 @@ def test_candidates_are_capped_and_chosen_is_the_first(mock_deps):
         assert all(ref.local_path == "" for ref in visual.candidates[1:])
 
 
+def test_offered_candidates_keep_the_provider_thumbnail(mock_deps):
+    """An offer has no file, so its remote preview is the only picture of it."""
+    project = _project(mock_deps)
+
+    run_visuals(project, mock_deps)
+
+    for scene_id in QUERIES:
+        visual = project.scene_by_id(scene_id).visual
+        offers = [ref for ref in visual.candidates if not ref.local_path]
+        assert offers, "the fixture must actually offer un-downloaded alternatives"
+        assert all(ref.preview_url.startswith("https://") for ref in offers)
+        # Distinct hits get distinct thumbnails: one shared URL would draw the
+        # same picture on every tile.
+        assert len({ref.preview_url for ref in offers}) == len(offers)
+
+
 def test_clean_rerun_of_visuals_makes_zero_provider_calls(mock_deps):
     project = _project(mock_deps)
     run_visuals(project, mock_deps)

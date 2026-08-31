@@ -181,10 +181,10 @@ class Candidate:
     """One shot the visuals stage found, as a tile on the page.
 
     `media_url` is empty for the common case — a hit that was offered but never
-    downloaded — and the template draws a labelled placeholder instead. There is
-    nothing better to draw: `AssetRef` keeps no remote preview, and fetching one
-    would mean a network round trip on every page render for a picture the user
-    may never look at.
+    downloaded — and the tile then falls back to `preview_url`, the provider's own
+    thumbnail, loaded straight from the provider. Only a ref old enough to predate
+    `AssetRef.preview_url`, or one from a generator with no hosted copy, has
+    neither; that is what the labelled placeholder is for.
     """
 
     index: int
@@ -203,6 +203,11 @@ class Candidate:
     @property
     def downloaded(self) -> bool:
         return bool(self.media_url)
+
+    @property
+    def preview_url(self) -> str:
+        """The provider's thumbnail — the only picture of a shot with no local file."""
+        return self.ref.preview_url
 
     @property
     def kind_label(self) -> str:
@@ -806,6 +811,7 @@ def _offer(result: StockResult, known: dict[str, str]) -> AssetRef:
         source_id=result.source_id,
         source_url=result.source_url,
         local_path=known.get(result.source_id, ""),
+        preview_url=result.preview_url,
         width=result.width,
         height=result.height,
         duration_s=result.duration_s,

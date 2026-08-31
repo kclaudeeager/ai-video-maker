@@ -42,6 +42,11 @@ class AssetRef(BaseModel):
     source_id: str
     source_url: str
     local_path: str  # always relative to the project folder
+    #: The provider's own thumbnail, carried over from `StockResult`. It is the only
+    #: picture of a candidate that was offered but never downloaded (`local_path`
+    #: empty), which is what the storyboard draws. Empty for a generated image, and
+    #: for every `project.json` written before this field existed — hence the default.
+    preview_url: str = ""
     width: int
     height: int
     duration_s: float | None = None

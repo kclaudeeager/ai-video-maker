@@ -285,6 +285,22 @@ def test_the_new_alternatives_are_all_offered(app, client, store):
     ]
 
 
+def test_a_searched_offer_carries_the_provider_thumbnail(app, client, store):
+    """The offers a search writes must be drawable, same as the visuals stage's."""
+    project = _storyboarded(app, store)
+
+    client.post(
+        f"/projects/{project.id}/scenes/{SCENE}/search",
+        data={"query": "polar bear on sea ice"},
+        headers=_HX,
+    )
+
+    saved = store.load(project.id).scene_by_id(SCENE)
+    offers = [ref for ref in saved.visual.candidates if not ref.local_path]
+    assert offers, "the search must actually offer un-downloaded alternatives"
+    assert all(ref.preview_url.startswith("https://") for ref in offers)
+
+
 def test_searching_leaves_the_shot_in_use_alone(app, client, store):
     """A search offers; it does not choose. The rendered video must not move."""
     project = _storyboarded(app, store)

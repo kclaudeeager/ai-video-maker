@@ -288,6 +288,7 @@ class PexelsProvider(StockProvider):
             source_id=result.source_id,
             source_url=result.source_url,
             local_path=project_relative(path),
+            preview_url=result.preview_url,
             width=result.width,
             height=result.height,
             duration_s=result.duration_s,

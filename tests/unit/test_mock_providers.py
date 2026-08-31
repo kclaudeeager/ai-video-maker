@@ -221,6 +221,8 @@ def test_stock_download_copies_the_video_fixture(settings, project_dir):
     assert ref.duration_s == pytest.approx(_duration_s(out), abs=0.05)
     assert ref.provider == "mock"
     assert ref.source_id == result.source_id
+    assert result.preview_url
+    assert ref.preview_url == result.preview_url
 
 
 def test_stock_download_of_a_photo_copies_the_photo_fixture(settings, project_dir):

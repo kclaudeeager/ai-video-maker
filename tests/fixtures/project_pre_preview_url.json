@@ -1,0 +1,238 @@
+{
+  "id": "how-ssds-work",
+  "topic": "how ssds work",
+  "template": "tech_explainer",
+  "language": "en",
+  "voice": "af_heart",
+  "target_minutes": 2.0,
+  "created_at": "2026-08-30T19:27:00.368215Z",
+  "approvals": {
+    "script": "2026-08-30T19:27:32.033702Z",
+    "storyboard": "2026-08-30T19:52:34.319319Z",
+    "preview": "2026-08-30T19:52:34.482751Z"
+  },
+  "scenes": [
+    {
+      "id": "s01",
+      "narration": "When you hit save, the file appears almost instantly, as if the computer whispered the data into existence. The screen lights up, and the operating system reports completion in a fraction of a second.",
+      "visual": {
+        "query": "keyboard, monitor, save button",
+        "kind": "auto",
+        "chosen": {
+          "provider": "pexels",
+          "source_id": "8888432",
+          "source_url": "https://www.pexels.com/video/a-person-typing-on-the-keyboard-8888432/",
+          "local_path": "scenes/s01/asset.mp4",
+          "width": 2048,
+          "height": 1080,
+          "duration_s": 19.0,
+          "attribution": "MART  PRODUCTION",
+          "license": "Pexels License (https://www.pexels.com/license/)"
+        },
+        "candidates": [
+          {
+            "provider": "pexels",
+            "source_id": "8888432",
+            "source_url": "https://www.pexels.com/video/a-person-typing-on-the-keyboard-8888432/",
+            "local_path": "scenes/s01/asset.mp4",
+            "width": 2048,
+            "height": 1080,
+            "duration_s": 19.0,
+            "attribution": "MART  PRODUCTION",
+            "license": "Pexels License (https://www.pexels.com/license/)"
+          },
+          {
+            "provider": "pexels",
+            "source_id": "18382358",
+            "source_url": "https://www.pexels.com/video/software-developer-18382358/",
+            "local_path": "",
+            "width": 1920,
+            "height": 1080,
+            "duration_s": 16.0,
+            "attribution": "Milos Jevtic",
+            "license": "Pexels License (https://www.pexels.com/license/)"
+          },
+          {
+            "provider": "pexels",
+            "source_id": "8879932",
+            "source_url": "https://www.pexels.com/video/a-woman-working-on-a-desk-computer-8879932/",
+            "local_path": "",
+            "width": 2048,
+            "height": 1080,
+            "duration_s": 22.0,
+            "attribution": "cottonbro studio",
+            "license": "Pexels License (https://www.pexels.com/license/)"
+          },
+          {
+            "provider": "pexels",
+            "source_id": "5647322",
+            "source_url": "https://www.pexels.com/video/close-up-view-of-a-white-apply-keyboard-5647322/",
+            "local_path": "",
+            "width": 1920,
+            "height": 1080,
+            "duration_s": 20.0,
+            "attribution": "Tima Miroshnichenko",
+            "license": "Pexels License (https://www.pexels.com/license/)"
+          }
+        ],
+        "motion": "pan",
+        "crop_focus_x": 0.5,
+        "trim_start_s": 0.0
+      },
+      "audio_path": "scenes/s01/narration.wav",
+      "duration_s": 12.032,
+      "words": [
+        {
+          "word": "When",
+          "start_s": 0.0,
+          "end_s": 0.1
+        },
+        {
+          "word": "you",
+          "start_s": 0.1,
+          "end_s": 0.22
+        },
+        {
+          "word": "hit",
+          "start_s": 0.22,
+          "end_s": 0.4
+        },
+        {
+          "word": "save,",
+          "start_s": 0.4,
+          "end_s": 0.7
+        },
+        {
+          "word": "the",
+          "start_s": 1.22,
+          "end_s": 1.3
+        },
+        {
+          "word": "file",
+          "start_s": 1.3,
+          "end_s": 1.62
+        }
+      ],
+      "in_short": true,
+      "locked": false,
+      "error": null
+    },
+    {
+      "id": "s02",
+      "narration": "A solid\u2011state drive can read a megabyte in under a millisecond, while a traditional hard disk needs several milliseconds, a delay you can feel as a brief pause.",
+      "visual": {
+        "query": "SSD drive, HDD platter, speedometer gauge",
+        "kind": "auto",
+        "chosen": {
+          "provider": "pexels",
+          "source_id": "19285752",
+          "source_url": "https://www.pexels.com/video/hard-disk-drive-19285752/",
+          "local_path": "scenes/s02/asset.mp4",
+          "width": 1920,
+          "height": 1080,
+          "duration_s": 24.0,
+          "attribution": "Lech Piercha\u0142a",
+          "license": "Pexels License (https://www.pexels.com/license/)"
+        },
+        "candidates": [
+          {
+            "provider": "pexels",
+            "source_id": "19285752",
+            "source_url": "https://www.pexels.com/video/hard-disk-drive-19285752/",
+            "local_path": "scenes/s02/asset.mp4",
+            "width": 1920,
+            "height": 1080,
+            "duration_s": 24.0,
+            "attribution": "Lech Piercha\u0142a",
+            "license": "Pexels License (https://www.pexels.com/license/)"
+          },
+          {
+            "provider": "pexels",
+            "source_id": "7841655",
+            "source_url": "https://www.pexels.com/video/close-up-shot-of-a-hard-drive-7841655/",
+            "local_path": "",
+            "width": 1920,
+            "height": 1080,
+            "duration_s": 31.0,
+            "attribution": "Mario Aranda",
+            "license": "Pexels License (https://www.pexels.com/license/)"
+          },
+          {
+            "provider": "pexels",
+            "source_id": "3289569",
+            "source_url": "https://www.pexels.com/video/a-computer-component-in-operation-3289569/",
+            "local_path": "",
+            "width": 1920,
+            "height": 1080,
+            "duration_s": 50.0,
+            "attribution": "Paice Street",
+            "license": "Pexels License (https://www.pexels.com/license/)"
+          },
+          {
+            "provider": "pexels",
+            "source_id": "3289546",
+            "source_url": "https://www.pexels.com/video/a-computer-hard-drive-part-spinning-in-operation-3289546/",
+            "local_path": "",
+            "width": 1920,
+            "height": 1080,
+            "duration_s": 61.0,
+            "attribution": "Paice Street",
+            "license": "Pexels License (https://www.pexels.com/license/)"
+          }
+        ],
+        "motion": "pan",
+        "crop_focus_x": 0.5,
+        "trim_start_s": 0.0
+      },
+      "audio_path": "scenes/s02/narration.wav",
+      "duration_s": 9.472,
+      "words": [
+        {
+          "word": "A",
+          "start_s": 0.0,
+          "end_s": 0.1
+        },
+        {
+          "word": "solid\u2011state",
+          "start_s": 0.1,
+          "end_s": 0.78
+        },
+        {
+          "word": "drive",
+          "start_s": 0.78,
+          "end_s": 1.16
+        },
+        {
+          "word": "can",
+          "start_s": 1.16,
+          "end_s": 1.46
+        },
+        {
+          "word": "read",
+          "start_s": 1.46,
+          "end_s": 1.66
+        },
+        {
+          "word": "a",
+          "start_s": 1.66,
+          "end_s": 1.8
+        }
+      ],
+      "in_short": true,
+      "locked": false,
+      "error": null
+    }
+  ],
+  "outputs": {
+    "wide": {
+      "aspect": "wide",
+      "width": 1920,
+      "height": 1080,
+      "scene_ids": [
+        "s01",
+        "s02"
+      ],
+      "video_path": "output/final_wide.mp4"
+    }
+  }
+}

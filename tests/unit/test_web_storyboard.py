@@ -62,8 +62,11 @@ from videomaker.providers.assets import project_relative
 from videomaker.runner import build_deps, run_pipeline
 from videomaker.web.app import create_app
 
-#: The same blunt no-CDN guard the other page tests use.
-_ABSOLUTE_URL = re.compile(r"https?://", re.IGNORECASE)
+#: Every absolute URL the page emits, and the subset of them that would be a
+#: no-CDN violation. Candidate thumbnails are remote by necessity (M3 Task 2), so
+#: the guard here is "no external *code or styles*", checked against the values.
+_ABSOLUTE_URL_VALUE = re.compile(r'https?://[^"\s<>]+', re.IGNORECASE)
+_EXTERNAL_CODE = re.compile(r"<(?:script|link)\b[^>]*https?://", re.IGNORECASE)
 
 #: One card per scene, and one tile per candidate inside it. The two data
 #: attributes of a tile are kept adjacent in the template so this can read them.
@@ -295,13 +298,65 @@ def test_a_project_with_no_visuals_yet_still_renders(client, store):
     assert "No storyboard yet" in response.text
 
 
-def test_the_page_has_no_external_asset_reference(app, client, store):
+def test_an_offered_candidate_shows_the_providers_thumbnail(app, client, store):
+    """The grey `clip · 1920×1080 · 25s` placeholder is the fallback, not the norm.
+
+    Only the chosen hit is downloaded, so every other tile has no local file. It
+    still has the provider's thumbnail, and that is what the tile must draw.
+    """
+    project = _storyboarded(app, store)
+    scene = store.load(project.id).scene_by_id(SWAPPED_SCENE)
+    offers = [ref for ref in scene.visual.candidates if not ref.local_path]
+    assert offers, "the fixture must actually offer un-downloaded alternatives"
+
+    card = _card_html(client.get(f"/projects/{project.id}/storyboard").text, SWAPPED_SCENE)
+
+    for ref in offers:
+        assert f'src="{ref.preview_url}"' in card
+    # Nothing is left showing the placeholder: every tile now has a picture.
+    assert "candidate-blank" not in card
+
+
+def test_a_candidate_with_no_thumbnail_still_falls_back_to_the_placeholder(app, client, store):
+    """The pre-`preview_url` projects on disk have neither a file nor a thumbnail."""
+    project = _storyboarded(app, store)
+    saved = store.load(project.id)
+    scene = saved.scene_by_id(SWAPPED_SCENE)
+    scene.visual.candidates = [
+        ref.model_copy(update={"preview_url": "", "local_path": ""})
+        for ref in scene.visual.candidates
+    ]
+    store.save(saved)
+
+    card = _card_html(client.get(f"/projects/{project.id}/storyboard").text, SWAPPED_SCENE)
+
+    assert "candidate-blank" in card
+    assert "<img" not in card
+
+
+def test_the_page_loads_no_external_code_or_styles(app, client, store):
+    """The no-CDN guard, narrowed by M3 Task 2.
+
+    Provider thumbnails are now drawn from their remote URLs — there is no local
+    copy of an un-downloaded alternative to serve instead — so the guard names
+    what may be external (a candidate's `preview_url`, nothing else) rather than
+    banning every absolute URL.
+    """
     project = _storyboarded(app, store)
 
     response = client.get(f"/projects/{project.id}/storyboard")
 
     assert response.status_code == 200
-    assert not _ABSOLUTE_URL.search(response.text)
+    body = response.text
+    assert not _EXTERNAL_CODE.search(body), "no script or stylesheet may come from off-box"
+    previews = {
+        ref.preview_url
+        for scene in store.load(project.id).scenes
+        for ref in scene.visual.candidates
+        if ref.preview_url
+    }
+    assert previews, "the fixture must actually carry remote thumbnails"
+    assert set(_ABSOLUTE_URL_VALUE.findall(body)) <= previews
 
 
 # ------------------------------------------------------- POST a chosen candidate
