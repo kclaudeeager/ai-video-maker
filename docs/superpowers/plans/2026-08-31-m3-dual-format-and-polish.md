@@ -567,3 +567,57 @@ French, Italian, Portuguese — all Latin script) and **four are blocked on a fo
 **Test:** a project created in each offered language renders captions whose glyphs
 are actually drawn (not `.notdef`); an unsupported language is not offerable; a
 voice/language mismatch cannot be constructed through the UI.
+
+---
+
+### Task 22: Make the Short actually short
+
+> **Sequencing: after Task 7** (which built the `in_short` toggle and the running
+> duration readout). Owner observation: the first rendered Short came out the same
+> 1:55 as the wide cut.
+
+**Files:** `models.py` or `pipeline/script.py` (the `in_short` default),
+`templates/tech_explainer.yaml`, `templates.py`, `pipeline/assemble.py`
+(`SHORT_TARGET_S`), `web/routes/storyboard.py`; tests as needed
+
+**The problem, measured.** `Scene.in_short` defaults to `True`, so every scene
+joins the Short and the vertical cut is the wide cut re-cropped — 111 s of
+narration in both. `MAX_SHORT_S = 180.0` is the **platform limit**, and the
+pipeline currently has no opinion about a good **target**.
+
+**Where engagement actually peaks** (2026):
+
+| platform | maximum | engagement peak |
+|---|---|---|
+| YouTube Shorts | 3 min | **30–45 s** |
+| TikTok | 10 min recorded | **21–34 s** |
+| Instagram Reels | 3 min (over 3 min is **not recommended to new audiences**) | **under 30 s** |
+
+A 1:55 Short is legal on all three and competitive on none. "The whole video,
+cropped" is exactly the low-effort repurposing platforms suppress — the same
+failure mode the three gates exist to prevent, arriving through a default value.
+
+**The fix, and why it needs no model call.** Templates already declare
+`structure: [hook, context, mechanism, implication, close]` — an editorial map.
+A strong ~35 s Short is roughly **hook + one mechanism beat + close**. So:
+
+1. **`in_short` defaults from the beat, not to `True`.** Add `short_beats` to the
+   template schema (default `[hook, mechanism, close]`); the script stage sets
+   `in_short` per scene from the beat it was written for. Deterministic, free, and
+   it makes the Short a *selection* rather than a copy.
+2. **Add `SHORT_TARGET_S = 45.0` alongside `MAX_SHORT_S = 180.0`** and say which is
+   which everywhere they appear. The target advises; only the limit refuses.
+3. **The storyboard readout gains a third state.** It already reports `ok` /
+   `over` / `empty` against the limit; add "over the target" — a nudge naming the
+   longest scenes to drop, not an error. Never block on the target.
+4. **The template's `system_prompt` should know.** A scene destined for the Short
+   wants to stand alone; the beat prompt can say so without changing the schema.
+
+**Test:** a fresh project's `in_short` subset lands near `SHORT_TARGET_S` rather
+than equalling the wide duration; a template with no `short_beats` keeps today's
+behaviour (backward compatible); the storyboard distinguishes over-target from
+over-limit; a hand-toggled scene is never overwritten by the default on re-run —
+**the human's choice always wins over the template's guess.**
+
+**Do not** auto-trim to a duration. Cutting to a clock ends a Short mid-sentence;
+the selection is per scene, which is why scenes exist.
