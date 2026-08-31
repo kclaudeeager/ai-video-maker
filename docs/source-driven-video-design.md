@@ -39,6 +39,51 @@ positioning than topic→script, because the words are genuinely the creator's o
 
 ---
 
+## Idea 1b — Bring your own footage (`VisualKind.UPLOAD`) — small, M4
+
+The visual twin of Idea 1, and the same size. **Additive: stock stays the
+default and nothing about the current path changes.**
+
+**Why it is needed.** The pipeline sources every visual from Pexels or Flux.
+That is right for explainer content, and it is useless for anything where the
+video *is* a screen — an Office tutorial, a software walkthrough, a demo of this
+very app. Pexels has no clip of the Excel ribbon, and narrating "click Formulas,
+then Insert Function" over stock footage of a generic office is worse than no
+video. See `docs/series-computer-literacy.md`, where the series is split in two
+precisely along this line.
+
+**Why it is small.** `VisualKind` is already `AUTO | STOCK_VIDEO | STOCK_PHOTO |
+AI_IMAGE`, and `_KIND_PROVIDER` maps each to a provider kind. Adding `UPLOAD`
+means one more member whose asset comes from the user rather than a provider —
+everything downstream is unchanged, because `assemble` already consumes whatever
+`visual.chosen` points at. The re-crop, the motion, the per-aspect caching, the
+captions and both renders all work already.
+
+**What it needs:**
+- `VisualKind.UPLOAD`, resolved by `visuals` to "the file the user supplied" and
+  never overwritten by a stock search. A scene set to `UPLOAD` with no file yet is
+  *pending*, not an error — that is how a user records footage between gates.
+- An upload route at gate 2, on the scene card beside the candidate picker. Same
+  compare-first-then-lock contract as every other storyboard write.
+- **Validate before accepting.** ffprobe it: a real video or image stream, sane
+  dimensions, a duration at least the scene's. Reject with a message that says
+  which check failed. An unplayable "video" that reaches `assemble` fails deep in
+  an FFmpeg filter graph, which is the worst place to learn about it.
+- Store it under `scenes/sNN/` beside the downloaded assets so `clean` and the
+  project folder's shape stay uniform.
+- `AssetRef` gets `provider="upload"` and `attribution=""` — the user owns it.
+  **M5's attribution block must skip these rather than crediting Pexels.**
+- Template `visual_kind_order` can put `upload` first, which is what an
+  `office_explainer` template would do.
+
+**One judgment call to make deliberately:** whether an uploaded clip is trimmed to
+the scene's narration or the narration is timed to the clip. Stock is trimmed to
+the scene today. For a demonstration the footage is the truth and the narration
+should follow it — so at minimum, warn when an upload is shorter than its scene
+rather than silently looping a screen recording, which looks broken.
+
+---
+
 ## Idea 2 — Book → episodes, via an LLM-maintained wiki
 
 Reference: Karpathy's **LLM Wiki** pattern —
