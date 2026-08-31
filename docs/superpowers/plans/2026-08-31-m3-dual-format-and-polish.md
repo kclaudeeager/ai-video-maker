@@ -133,7 +133,7 @@ git commit -s -m "feat: vertical caption style and karaoke word-pop captions"
 
 **Guard:** vertical segments must have their own cache unit — re-cropping scene 3 for vertical must not invalidate scene 3's wide segment. Prove it by counting `run_ffmpeg` calls, the way M1 and M2 did.
 
-- [ ] **Step 1–3: TDD, mutation-test the per-aspect cache scoping, then commit**
+- [x] **Step 1–3: TDD, mutation-test the per-aspect cache scoping, then commit**
 
 ```bash
 git commit -s -m "feat: vertical assembly re-cropping each scene from its source asset"
@@ -149,7 +149,7 @@ The vertical voice track is a **separate concatenation of the same per-scene wav
 
 Captions offsets for vertical must be computed from the vertical timeline, not the wide one. This is the same class of bug M2 Task 12 hit with the render progress bar: a duration measured against the wrong timeline. Test that scene N's vertical caption offset equals the sum of *preceding in_short scenes* plus gaps.
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: vertical narration track over the in_short subset"
@@ -482,6 +482,22 @@ Three distinct requirements, and they need different work:
 ```bash
 git commit -s -m "feat(web): visual design pass — identity, typography, clearer gate flow"
 ```
+
+**Also in scope (owner request, see `docs/guidance-and-chat-design.md`):**
+
+- **A deterministic next-step panel.** `derive_status` already knows exactly which
+  stage is pending and which gate is unapproved, and `GATE_REVIEW` already carries
+  a sentence about what each gate asks the human to judge. Surface that as one
+  prominent line — where you are, what you are being asked to judge, one primary
+  button — on the dashboard and atop each gate page. **Zero LLM tokens, zero
+  latency, and it cannot be wrong**, because it reads the same source of truth the
+  pipeline runs on. This answers most of what a chat would otherwise be asked.
+- **A first-run onboarding screen**, shown when `list_ids()` is empty and
+  reachable from the nav afterwards. Four sentences and a diagram: what it makes
+  (a long video *and* a Short from one project), the three gates and that
+  **nothing publishes without you**, what it costs (nothing — show the live
+  free-tier headroom), what it needs (keys; link to `doctor`). One screen someone
+  reads once — not a multi-step wizard.
 
 **Judgment call to make deliberately and state:** whether to commit to one
 direction or offer the owner a choice. One coherent direction applied well is
