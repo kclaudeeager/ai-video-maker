@@ -122,3 +122,21 @@ def test_chunk_words_never_returns_a_chunk_below_the_display_floor():
     words = [w(f"w{i}", 0.0, 0.0) for i in range(7)] + [w("so", 2.08, 2.7)]
     for chunk in chunk_words(words, 5):
         assert chunk[-1].end_s - chunk[0].start_s >= MIN_DISPLAY_DURATION_S
+
+
+def test_karaoke_defaults_off_so_the_wide_output_is_byte_identical(tmp_path):
+    """The wide `.ass` is fingerprinted in every rendered project's stage cache."""
+    words = [w("hello", 0.0, 0.5), w("world", 0.5, 1.0), w("again", 1.0, 1.6)]
+    plain = write_ass(words, STYLES[Aspect.WIDE], tmp_path / "a.ass", play_res=(1920, 1080))
+    explicit = write_ass(words, STYLES[Aspect.WIDE], tmp_path / "b.ass",
+                         play_res=(1920, 1080), karaoke=False)
+    assert plain.read_text() == explicit.read_text()
+
+
+def test_karaoke_on_wide_still_never_emits_a_zero_duration_event(tmp_path):
+    out = write_ass(DEGENERATE, STYLES[Aspect.WIDE], tmp_path / "k.ass",
+                    play_res=(1920, 1080), karaoke=True)
+    spans = _dialogue_spans(out.read_text())
+    assert spans
+    for start, end in spans:
+        assert end > start, f"non-displaying Dialogue line {start} -> {end}"
