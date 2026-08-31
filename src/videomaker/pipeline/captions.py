@@ -11,6 +11,12 @@ The offset uses the **measured** `duration_s` (plus the gap), never the last wor
 end, because that is exactly the length `assemble` gives each scene's video segment.
 The unit is the aspect, not the scene: one `.ass` file covers the whole video, so any
 scene's words changing rewrites it.
+
+The running offset is also **per aspect**. Vertical plays only the `in_short` subset
+(spec 4.5), so its offsets are the sum of the *preceding in_short* scenes and their
+gaps — never the wide running total. Both are built by walking `assemble.aspect_scenes`
+for the aspect in hand, which is the same list `assemble.scene_timeline` walks, so
+caption group *n* and video segment *n* start at the same second by construction.
 """
 
 from dataclasses import asdict
@@ -49,35 +55,28 @@ def caption_path(deps: StageDeps, project: Project, aspect: Aspect) -> Path:
     return project_root(deps, project) / caption_relpath(aspect)
 
 
-def timeline_words(project: Project) -> list[WordTiming]:
-    """Every scene's words, shifted onto the finished video's timeline.
+def timeline_word_groups(
+    project: Project, aspect: Aspect = Aspect.WIDE
+) -> list[list[WordTiming]]:
+    """Each scene's words shifted onto **this aspect's** timeline, kept split per scene.
+
+    The scene list is `aspect_scenes`, never `project.scenes`. That is the whole
+    correctness argument for the Short: vertical plays only the `in_short` subset, so
+    a scene dropped from the middle of the long cut must not reserve any time in the
+    vertical timeline. Offsetting by the wide running total instead would leave the
+    Short's first scene looking perfect and put every caption after the dropped scene
+    late by that scene's duration plus a gap — the same "measured against the wrong
+    timeline" fault M2's render progress bar hit.
 
     Scenes with no measured duration are skipped outright rather than counted as
     zero-length: `assemble` cannot build a segment for a scene it has no audio for,
-    so reserving time for one would shift every later caption off its narration.
+    so reserving time for one would shift every later caption off its narration. That
+    is exactly `assemble.is_assemblable`, so group *n* starts where segment *n* does —
+    asserted directly in `tests/unit/test_assemble_vertical.py`.
     """
-    words: list[WordTiming] = []
-    offset = 0.0
-    for scene in project.scenes:
-        if scene.duration_s is None:
-            continue
-        words.extend(
-            word.model_copy(
-                update={"start_s": word.start_s + offset, "end_s": word.end_s + offset}
-            )
-            for word in scene.words
-        )
-        # Exactly the segment length `assemble` builds for this scene. The two must
-        # agree: see `SCENE_GAP_S`.
-        offset += scene.duration_s + SCENE_GAP_S
-    return words
-
-
-def timeline_word_groups(project: Project) -> list[list[WordTiming]]:
-    """`timeline_words`, but kept split per scene so captions respect scene cuts."""
     groups: list[list[WordTiming]] = []
     offset = 0.0
-    for scene in project.scenes:
+    for scene in aspect_scenes(project, aspect):
         if scene.duration_s is None:
             continue
         groups.append(
@@ -88,8 +87,20 @@ def timeline_word_groups(project: Project) -> list[list[WordTiming]]:
                 for word in scene.words
             ]
         )
+        # Exactly the segment length `assemble` builds for this scene. The two must
+        # agree: see `SCENE_GAP_S`.
         offset += scene.duration_s + SCENE_GAP_S
     return groups
+
+
+def timeline_words(project: Project, aspect: Aspect = Aspect.WIDE) -> list[WordTiming]:
+    """`timeline_word_groups` flattened: this aspect's words, in playback order.
+
+    Derived from the groups rather than re-walking the scenes, so the two can never
+    disagree about an offset — one of them being fixed and the other not is precisely
+    how a caption drift survives a green test suite.
+    """
+    return [word for group in timeline_word_groups(project, aspect) for word in group]
 
 
 def aspect_hash(project: Project, aspect: Aspect) -> str:
@@ -129,7 +140,7 @@ def run_captions(project: Project, deps: StageDeps) -> StageResult:
         key = stage_key(STAGE, aspect.value)
         current = aspect_hash(project, aspect)
         path = caption_path(deps, project, aspect)
-        words = timeline_words(project)
+        words = timeline_words(project, aspect)
         if not words:
             # Nothing aligned yet: the runner aligns before it captions, so this is a
             # no-op, never an error — and an empty file would only mislead `render`.
@@ -144,7 +155,7 @@ def run_captions(project: Project, deps: StageDeps) -> StageResult:
             STYLES[aspect],
             path,
             play_res=PLAY_RES[aspect],
-            groups=timeline_word_groups(project),
+            groups=timeline_word_groups(project, aspect),
         )
         deps.stage_cache.mark(key, current)
         changed = True

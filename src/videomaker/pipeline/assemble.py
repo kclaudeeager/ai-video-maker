@@ -520,6 +520,13 @@ def _build_narration(
 
     Padded rather than cut: the gap is silence after the words, which is exactly the
     room `captions` leaves before the next scene's first caption.
+
+    The bed is built from `segments`, so each aspect gets its own: vertical is a
+    **re-concatenation of the very same per-scene wavs** over the `in_short` subset
+    (spec 4.5), never a re-synthesis. Nothing here reaches for a TTS provider, and
+    nothing here may — a Short that re-voiced its scenes would cost a second run of
+    the most expensive stage and, worse, drift from the takes the long cut used.
+    `tests/unit/test_assemble_vertical.py` asserts the zero TTS calls directly.
     """
     args: list[str] = []
     chains: list[str] = []
