@@ -71,9 +71,9 @@ Phase A alone satisfies the owner's stated MVP bar. Phases B–D are ordered by 
 
 **The trap:** M1's `_captions_units`/`_assemble_units`/`_render_units` hard-code wide. Adding vertical must not change any **wide** hash — otherwise every existing project re-renders from scratch on upgrade. Assert that explicitly: build a project, record every wide unit hash before and after the change, and require them byte-identical.
 
-- [ ] **Step 1: Write the failing tests** (including the wide-hash-stability test above)
-- [ ] **Step 2: Run to confirm fail, implement, confirm pass**
-- [ ] **Step 3: Mutation-test the hash stability, then commit**
+- [x] **Step 1: Write the failing tests** (including the wide-hash-stability test above)
+- [x] **Step 2: Run to confirm fail, implement, confirm pass**
+- [x] **Step 3: Mutation-test the hash stability, then commit**
 
 ```bash
 git commit -s -m "feat: vertical video spec, per-aspect stage units, in_short subset"
@@ -414,3 +414,77 @@ git commit -s -m "docs: M3 complete — dual format, audio, better visuals, poli
 - **The riskiest task is T1**, not the render work: adding vertical units to `STAGE_UNITS` could silently change every **wide** hash and re-render every existing project on upgrade. It carries an explicit before/after hash-stability test.
 - **Phase A is independently shippable** and is the owner's stated MVP bar. B, C and D are ordered by value, not dependency — except T13, which needs T2, and T14, which measures T12–T13.
 - **Two lessons from M1/M2 are written into the tasks rather than left to memory**: a duck asserted by grepping the filter string proves nothing (T9 measures it), and a relevance improvement asserted without a baseline is a vibe (T14 measures it).
+
+---
+
+### Task 20: Visual design pass across the whole UI
+
+> **Sequencing: run this AFTER Task 7**, not at the end of M3. Task 7 adds the
+> crop slider and `in_short` toggle to gate 2; restyling before those exist means
+> bolting unstyled controls onto a finished design. It belongs to **Phase A** in
+> priority even though it is numbered last — the owner considers it MVP-blocking.
+
+**Files:** `web/static/style.css`, all `web/templates/*.html`, possibly a small
+`web/static/app.js`; a bundled display font under `assets/fonts/` (shared with
+Task 15's thumbnails — coordinate, and record it in `NOTICE.md` once)
+
+**REQUIRED: load the `frontend-design` skill before writing any CSS.** This task
+is about aesthetic direction and typography, not about making the existing
+stylesheet bigger. Establish the direction first, then apply it.
+
+**The owner's brief, verbatim:** *"there is still more work in UI/UX it has to be
+simple to use and easy to understand the steps, should look appealing and also
+how it looks should tell the user that they are on the right website"*
+
+Three distinct requirements, and they need different work:
+
+1. **Simple to use, steps easy to understand.** The pipeline is a seven-stage
+   state machine behind three human gates, and the UI currently exposes that
+   almost literally. A first-time user should understand *where they are*, *what
+   they are being asked to judge*, and *what happens when they approve* — without
+   reading the spec. Gate 2 is a very long scroll at five scenes and will be
+   worse at ten; progressive disclosure matters more than more chrome.
+2. **Appealing.** Real typography (not the system stack), a considered palette,
+   deliberate spacing rhythm, and states that feel responsive. htmx swaps
+   currently land with no transition, so the page appears to twitch.
+3. **Identity — "tells the user they are on the right website."** A name, a mark,
+   and a colour that are *this* product. It should read as a focused craftsman's
+   tool for one creator, not enterprise SaaS and not a generic dashboard
+   template. The tool is local-first and human-in-the-loop; the design should
+   feel calm and confident rather than busy.
+
+**Constraints that do not move:**
+- **No npm, no build step, no CDN** — the same rule htmx was vendored under.
+  Any font is committed to the repo with its licence recorded in `NOTICE.md`.
+- Keep every route, form field name, `data-*` attribute and `hx-*` binding
+  working. M2's tests assert on `data-gate`/`data-approved`, `hx-trigger`
+  presence at non-terminal states, `select[name=voice]`, and the scene-row
+  contract. **A redesign that breaks those is a regression, not a redesign** —
+  the suite passing is the definition of "did not break it".
+- Accessible by default: real labels, visible focus rings, adequate contrast
+  (check it, do not eyeball it), and it must still work with JavaScript off.
+
+**Method:**
+
+- [ ] **Step 1: Direction before pixels.** Load `frontend-design`. Write a short
+  direction note (name/mark, palette with contrast ratios, type scale, spacing
+  rhythm, component inventory) into `docs/ui-design.md`. Commit that first, so
+  the reasoning is reviewable separately from 800 lines of CSS.
+- [ ] **Step 2: Apply it** across all five pages plus every partial.
+- [ ] **Step 3: Prove nothing broke.** `uv run pytest -q` green — with special
+  attention to `test_web_*`, which assert on markup contracts.
+- [ ] **Step 4: Look at it.** Screenshot all five pages in a real browser at
+  1280px **and at a narrow width**, and read the screenshots. Report console
+  errors and contrast failures. The owner will judge from these, so capture real
+  content, not empty states.
+- [ ] **Step 5: Commit**
+
+```bash
+git commit -s -m "feat(web): visual design pass — identity, typography, clearer gate flow"
+```
+
+**Judgment call to make deliberately and state:** whether to commit to one
+direction or offer the owner a choice. One coherent direction applied well is
+usually more useful than three half-applied ones — but say which you chose and
+why, and make the palette and type scale easy to retune from tokens at the top of
+the stylesheet, because taste is the owner's call and iterating should be cheap.
