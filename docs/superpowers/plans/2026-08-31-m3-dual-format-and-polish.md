@@ -621,3 +621,50 @@ over-limit; a hand-toggled scene is never overwritten by the default on re-run �
 
 **Do not** auto-trim to a duration. Cutting to a clock ends a Short mid-sentence;
 the selection is per scene, which is why scenes exist.
+
+---
+
+### Task 23: Folders for organising projects
+
+> **Sequencing: after Phase B.** Owner request — with ten projects the flat list
+> is already awkward, and a series of eight wants to sit together.
+
+**Files:** `models.py` (`Project.folder`), `project.py`, `web/routes/projects.py`,
+`web/templates/index.html`, `web/static/style.css`, `cli.py`; tests as needed
+
+**The folder is a label, not a location.** `Project.folder: str = ""` holds a
+path-shaped string like `tech/office-basics`. **Do not nest the workspace
+directories.** The reasons are concrete:
+
+- All 24 routes take `{project_id}`. Nesting makes that a path and adds traversal
+  surface to `web/media.py`, which is the one security-critical module in the app
+  (M2 Task 2 found `project_id` was separately attacker-controlled).
+- Project ids are the basis of every cache key; nesting risks ambiguity.
+- A project holds **1–3 GB** of intermediates (M1 measured). Moving one between
+  folders should be editing a string, not moving gigabytes.
+- A project folder is a build directory, not a document. The organising belongs
+  in the app.
+
+**What to build:**
+- `Project.folder: str = ""` — empty means the root. Validate it as a relative,
+  normalised, `/`-separated label: reject leading `/`, `..`, empty segments and
+  backslashes, so it can never be mistaken for a filesystem path if some later
+  code is careless with it.
+- The project list groups by folder, as a collapsible tree. **Match Longhand**
+  (`docs/ui-design.md`): folders are chrome, so grotesque; nothing warm unless a
+  project inside needs a human.
+- Move a project: a select or a small form on the project page and in the list.
+  Same compare-first-then-lock contract as every other write — a no-op move must
+  not take the `flock`.
+- Creating a folder is just typing a new label; there is no folder object to
+  create or delete. A folder with no projects left simply stops being rendered.
+  **Say that in the UI** so nobody hunts for a delete button.
+- CLI: `videomaker list --folder tech/office-basics`, and `--folder` on `new`.
+- **Backward compatible**: existing `project.json` files have no `folder`, load
+  unchanged, and appear at the root. Fixture-test it, and — per M3 Task 22's
+  finding — **make sure `folder` feeds no stage fingerprint.** It changes nothing
+  rendered, and staling `script:all` would destroy scenes on the next run.
+
+**Test:** a project with no `folder` loads and lists at the root; the tree nests
+several levels; `../` and absolute labels are rejected; moving a project changes
+no unit hash and re-renders nothing; a no-op move takes no lock.
