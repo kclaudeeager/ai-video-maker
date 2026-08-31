@@ -18,3 +18,12 @@ audio:
   sfx_enabled: true
   # Just the whooshes on scene cuts, leaving the beat accents in place.
   transition_sfx_enabled: true
+
+# Stock search. See docs/visual-search-design.md.
+visuals:
+  # Score the candidate thumbnails with Gemini Flash when the metadata ranking has
+  # not actually decided the scene — the top two within a third of a point, or a
+  # field that matched under half the query. Off by default: it spends the same
+  # 240-requests-a-day Gemini budget the script stage falls back on, and only the
+  # ambiguous scenes of a run are worth that. Needs GEMINI_API_KEY.
+  rerank_enabled: false

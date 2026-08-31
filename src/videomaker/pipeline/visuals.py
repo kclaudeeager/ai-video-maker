@@ -5,6 +5,11 @@ can serve the scene. That order is not an aesthetic preference: Workers AI bills
 automatically once the free neuron cap is passed rather than failing (M0 finding 6),
 so every scene real footage can cover is a scene that costs nothing.
 
+The optional vision re-rank (`_rerank`) is the one thing here that can spend a
+*daily* budget, and it is off unless `visual_rerank_enabled` says otherwise. Even
+on, it fires only for a scene whose metadata ranking did not actually decide
+anything — see `pipeline.ranking.is_ambiguous`.
+
 `VisualKind.AUTO` is resolved through the template's `visual_kind_order` on every
 run and is deliberately **not** written back to the scene: the stage hash covers the
 scene's declared kind, so persisting the resolved one would make the very next run
@@ -23,8 +28,14 @@ from videomaker.pipeline.base import (
     call_chain,
     project_root,
 )
-from videomaker.pipeline.ranking import drop_cliches, query_ladder, rank_candidates
-from videomaker.providers.base import ImageProvider, StockProvider
+from videomaker.pipeline.ranking import (
+    drop_cliches,
+    is_ambiguous,
+    query_ladder,
+    rank_candidates,
+    scores_for,
+)
+from videomaker.providers.base import ImageProvider, StockProvider, VisionProvider
 from videomaker.providers.errors import ProviderConfigError, ProviderError
 from videomaker.templates import load_template
 
@@ -70,6 +81,27 @@ def resolve_kinds(scene: Scene, kind_order: list[VisualKind]) -> list[VisualKind
     if scene.visual.kind is not VisualKind.AUTO:
         return [scene.visual.kind]
     return [kind for kind in kind_order if kind is not VisualKind.AUTO]
+
+
+def vision_names(deps: StageDeps) -> list[str]:
+    """`["vision:<name>"]` when the re-rank could actually run, else nothing.
+
+    Appended to the same `provider` list `scene_hash` already digests, which is what
+    keeps this task off ten finished projects on disk. With the switch off — the
+    default — the list is empty and every `visuals:sNN` hash is byte-for-byte what it
+    was before Task 13 existed. Turning it on stales the visuals of each scene, and
+    only those: a different chosen shot genuinely is a different visual.
+
+    A configured-but-unbuildable chain also contributes nothing, and that is right
+    rather than lax — a re-rank that cannot run changes no output, so it must not
+    invalidate one either.
+    """
+    if not deps.settings.visual_rerank_enabled:
+        return []
+    try:
+        return [f"vision:{deps.leading_name('vision')}"]
+    except ProviderConfigError:
+        return []
 
 
 def provider_names(deps: StageDeps, kinds: list[VisualKind]) -> list[str]:
@@ -180,13 +212,57 @@ def _search_ladder(
     return best[:MAX_CANDIDATES]
 
 
+def _rerank(deps: StageDeps, scene: Scene, results: list[StockResult]) -> list[StockResult]:
+    """A second opinion on the ranked field, from the pictures rather than the tags.
+
+    Three things have to be true before this spends anything, and all three are
+    cheap to check: the feature is switched on, `pipeline.ranking.is_ambiguous` says
+    metadata did not actually decide the order, and every candidate has a thumbnail
+    to show. `preview_url` is the only picture of a candidate that was never
+    downloaded, so a field missing one is a field there is nothing to look at.
+
+    Everything after that is best effort. No key, a spent quota, a dead thumbnail, an
+    answer of the wrong length, a bug — the metadata order is a perfectly good answer
+    and the scene keeps it. An optional quality tweak must never be able to fail a
+    render, which is why the `except` here is as wide as it is.
+    """
+    if not deps.settings.visual_rerank_enabled or len(results) < 2:
+        return results
+    previews = [result.preview_url for result in results]
+    if not all(previews):
+        return results
+    scores = scores_for(
+        results,
+        query=scene.visual.query,
+        narration=scene.narration,
+        min_duration_s=scene.duration_s or 0.0,
+    )
+    if not is_ambiguous(scores):
+        return results
+
+    def call(_name: str, vision: VisionProvider) -> list[float]:
+        return vision.score_images(
+            image_urls=previews, query=scene.visual.query, narration=scene.narration
+        )
+
+    try:
+        verdict = call_chain(deps, "vision", call)
+    except Exception:  # noqa: BLE001 - see the docstring: never raise into the pipeline
+        return results
+    if len(verdict) != len(results):
+        return results
+    # Stable: where the model has no preference the metadata order survives.
+    order = sorted(range(len(results)), key=lambda index: verdict[index], reverse=True)
+    return [results[index] for index in order]
+
+
 def _fetch_stock(
     deps: StageDeps, project: Project, scene: Scene, kind: VisualKind
 ) -> list[AssetRef]:
     scene_dir = deps.store.scene_dir(project, scene.id)
 
     def call(name: str, stock: StockProvider) -> list[AssetRef]:
-        results = _search_ladder(stock, scene, kind)
+        results = _rerank(deps, scene, _search_ladder(stock, scene, kind))
         if not results:
             raise NoResults(f"{name} has no {kind.value} for {scene.visual.query!r}")
         # Search and download share one provider instance: a `StockResult` is only
@@ -251,7 +327,7 @@ def run_visuals(project: Project, deps: StageDeps) -> StageResult:
 
         kinds = resolve_kinds(scene, kind_order)
         key = stage_key(STAGE, scene.id)
-        current = scene_hash(scene, kinds, provider_names(deps, kinds))
+        current = scene_hash(scene, kinds, provider_names(deps, kinds) + vision_names(deps))
         if _is_fresh(deps, project, scene, key, current):
             skipped += 1
             continue

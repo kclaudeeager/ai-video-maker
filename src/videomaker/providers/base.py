@@ -103,6 +103,31 @@ class StockProvider(ABC):
     ) -> AssetRef: ...
 
 
+class VisionProvider(ABC):
+    """Scoring pictures against words — the one signal metadata ranking cannot give.
+
+    `pipeline.ranking` reads tags, duration and pixels; none of those is the picture,
+    which is why a query like "capacity sticker" can match a warehouse shelf
+    perfectly. This is the optional second opinion (`docs/visual-search-design.md`
+    item 4), and it is the only provider in the project that costs a **shared daily**
+    budget rather than a per-hour one — so the caller gates it and it stays off by
+    default.
+
+    Contract: one score in `0.0-1.0` per URL, in the same order, same length. Any
+    failure raises a `ProviderError`; callers fall back to the metadata order rather
+    than failing the scene.
+    """
+
+    @abstractmethod
+    def score_images(
+        self,
+        *,
+        image_urls: list[str],
+        query: str,
+        narration: str,
+    ) -> list[float]: ...
+
+
 class Uploader(ABC):
     """Publishing target. Declared in M1, implemented in M5.
 

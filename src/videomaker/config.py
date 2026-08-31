@@ -14,6 +14,11 @@ AUDIO_LEVELS = frozenset({"music_volume_db", "duck_amount_db"})
 #: `float("false")` is a crash, and a config file must not be able to cause one.
 AUDIO_TOGGLES = frozenset({"sfx_enabled", "transition_sfx_enabled"})
 
+#: The `visuals:` switches, mapped from the config file's key to the setting. The
+#: names differ because the section already says "visuals" and the setting has to
+#: say it for itself; anything not listed here is ignored, as in `audio:`.
+VISUALS_TOGGLES: dict[str, str] = {"rerank_enabled": "visual_rerank_enabled"}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -35,6 +40,13 @@ class Settings(BaseSettings):
     sfx_enabled: bool = True
     transition_sfx_enabled: bool = True
 
+    #: The Gemini Flash visual re-rank (`docs/visual-search-design.md` item 4).
+    #: **Off by default, deliberately.** It spends the same 240-a-day Gemini budget
+    #: the script stage's LLM fallback draws on, and a feature that quietly eats
+    #: someone's daily cap is worse than one that does nothing. M3 Task 14's harness
+    #: is what decides whether it earns its quota.
+    visual_rerank_enabled: bool = False
+
     groq_api_key: str = Field(default="", validation_alias=AliasChoices("GROQ_API_KEY"))
     gemini_api_key: str = Field(default="", validation_alias=AliasChoices("GEMINI_API_KEY"))
     pexels_api_key: str = Field(default="", validation_alias=AliasChoices("PEXELS_API_KEY"))
@@ -52,6 +64,9 @@ class Settings(BaseSettings):
             "stt": ["fasterwhisper"],
             "stock": ["pexels"],
             "image": ["cloudflare"],
+            # Only ever built when `visual_rerank_enabled` is on, so listing it
+            # costs a run that leaves the switch alone exactly nothing.
+            "vision": ["gemini"],
         }
     )
 
@@ -69,6 +84,10 @@ def load_settings(config_file: Path | None = None) -> Settings:
                 overrides[key] = float(value)
             elif key in AUDIO_TOGGLES:
                 overrides[key] = bool(value)
+        for key, value in (raw.get("visuals") or {}).items():
+            setting = VISUALS_TOGGLES.get(key)
+            if setting is not None:
+                overrides[setting] = bool(value)
         chains = {
             str(kind): [str(name) for name in names]
             for kind, names in (raw.get("providers") or {}).items()

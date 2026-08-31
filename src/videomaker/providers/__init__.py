@@ -12,6 +12,7 @@ from videomaker.providers.base import (
     TTSProvider,
     TTSResult,
     Uploader,
+    VisionProvider,
 )
 from videomaker.providers.errors import (
     ProviderConfigError,
@@ -35,6 +36,7 @@ __all__ = [
     "TTSResult",
     "TransientError",
     "Uploader",
+    "VisionProvider",
     "get_provider",
     "register",
     "resolve_chain",
@@ -96,6 +98,7 @@ _CONCRETE_MODULES: tuple[str, ...] = (
     "videomaker.providers.stt.fasterwhisper",
     "videomaker.providers.stock.pexels",
     "videomaker.providers.image.cloudflare",
+    "videomaker.providers.vision.gemini",
 )
 
 for _module in _CONCRETE_MODULES:  # pragma: no cover - grows from Task 7 onwards

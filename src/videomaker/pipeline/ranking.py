@@ -13,11 +13,13 @@ It is deliberately separate from `visuals.py`, which owns the network, the cache
 and the provider chain: the judgement is the part worth testing exhaustively, and
 it is only testable exhaustively while it stays free of all three.
 
-Three pieces, in the order the stage uses them:
+Four pieces, in the order the stage uses them:
 
 * `query_ladder` — what to ask, in order, capped.
 * `drop_cliches` — the answers Pexels gives when it has understood nothing.
 * `rank_candidates` — the order to offer the rest in.
+* `is_ambiguous` — whether that order was decided by anything, which is the only
+  question that can justify spending a vision request on the scene (item 4).
 """
 
 import re
@@ -241,3 +243,58 @@ def rank_candidates(
         ),
         reverse=True,
     )
+
+
+# ------------------------------------------------------------------- the re-rank gate
+
+#: Below this the metadata leader has not matched **half** the words the scene asked
+#: for. `QUERY_WEIGHT / 2` is that statement written in the ranker's own units, so it
+#: moves if the weights ever do rather than becoming a stale magic number.
+RERANK_SCORE_FLOOR = QUERY_WEIGHT / 2
+
+#: A lead smaller than one matching narration keyword — `NARRATION_WEIGHT /
+#: NARRATION_MATCH_CAP`, a third of a point — is not evidence. It is the resolution
+#: and headroom tie-breakers deciding, and neither of those says anything about what
+#: the clip *shows*. 0.35 is that one-tag step with a hair of slack for float noise;
+#: it is deliberately below two tags, because a two-tag lead is a real opinion.
+RERANK_MARGIN = 0.35
+
+
+def scores_for(
+    results: list[StockResult],
+    *,
+    query: str,
+    narration: str,
+    min_duration_s: float = 0.0,
+) -> list[float]:
+    """`score_candidate` over a whole field, in the field's own order."""
+    return [
+        score_candidate(result, query=query, narration=narration, min_duration_s=min_duration_s)
+        for result in results
+    ]
+
+
+def is_ambiguous(scores: list[float]) -> bool:
+    """True when metadata alone has not decided this scene — the only time vision is
+    worth a request.
+
+    Gemini's soft budget is 240 requests a day and the script stage's LLM fallback
+    spends from the same one, so "re-rank everything" is not a free default: ten
+    scenes a run would take a twenty-fourth of the day per video, for scenes where
+    the answer was already clear. Two conditions open the gate:
+
+    * **Low** — the leader is under `RERANK_SCORE_FLOOR`, so nothing in the field
+      matched much of what was asked for.
+    * **Ambiguous** — the top two are within `RERANK_MARGIN`, so the order came from
+      tie-breakers rather than from evidence about content.
+
+    What it deliberately does **not** catch is a confident wrong answer: M1's
+    warehouse shelf stencilled "LOAD CAPACITY PER SHELF 200 KG" scores *perfectly*
+    against the query "capacity sticker", and no gate reading those same metadata can
+    know better. Fixing that class of failure is item 1 of the design doc — a query
+    worth matching — not this one.
+    """
+    if len(scores) < 2:
+        return False
+    ranked = sorted(scores, reverse=True)
+    return ranked[0] < RERANK_SCORE_FLOOR or (ranked[0] - ranked[1]) < RERANK_MARGIN
