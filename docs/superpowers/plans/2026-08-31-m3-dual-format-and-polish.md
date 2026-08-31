@@ -91,7 +91,7 @@ git commit -s -m "feat: vertical video spec, per-aspect stage units, in_short su
 
 **Backward compatibility:** `project.json` files written before this change have no `preview_url`. Give it a default so existing projects load; assert that with a fixture of the pre-change shape.
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: carry preview_url onto AssetRef so candidates show real thumbnails"
@@ -111,7 +111,7 @@ git commit -s -m "feat: carry preview_url onto AssetRef so candidates show real 
 - **ASS colours are BGR.** `ass_colour` is correct and tested; any new colour constant must go through it. A karaoke highlight written as RGB will silently render the wrong colour.
 - **Whisper timings are zero-gap** and can be degenerate (`start == end == 0.0` — M1 shipped a zero-duration caption from exactly this). Karaoke multiplies the number of events, so re-check `merge_degenerate_chunks` still holds and no per-word event has `end <= start`.
 
-- [ ] **Step 1–3: TDD (assert BGR explicitly for the highlight colour), then commit**
+- [x] **Step 1–3: TDD (assert BGR explicitly for the highlight colour), then commit**
 
 ```bash
 git commit -s -m "feat: vertical caption style and karaoke word-pop captions"
@@ -488,3 +488,66 @@ direction or offer the owner a choice. One coherent direction applied well is
 usually more useful than three half-applied ones — but say which you chose and
 why, and make the palette and type scale easy to retune from tokens at the top of
 the stylesheet, because taste is the owner's call and iterating should be cheap.
+
+---
+
+### Task 21: Language selection, bounded by what the stack can actually do
+
+> **Sequencing: after Task 15** (which bundles fonts) — the caption font is the
+> binding constraint, not the models. Owner request.
+
+**Files:** `web/routes/projects.py`, `web/templates/index.html`,
+`providers/tts/kokoro_onnx.py`, `doctor.py`, `assets/fonts/`, `NOTICE.md`;
+tests as needed
+
+**`Project.language` already exists and is already wired** — it reaches the script
+prompt (`pipeline/script.py:86,178`), Kokoro (`pipeline/voice.py:46`) and Whisper
+(`pipeline/align.py:42`). Nothing selects it, and nothing checks that it agrees
+with the chosen voice.
+
+**The constraint chain, narrowest link last:**
+
+| layer | coverage |
+|---|---|
+| LLM script | most languages |
+| faster-whisper STT | ~99 languages, accuracy varies by language |
+| Kokoro TTS | **9 languages**, encoded in the voice prefix |
+| **Caption font** | **Latin/Cyrillic/Greek only — the real limit** |
+
+Measured on this machine with `fc-list`: DejaVu Sans covers **none** of Chinese,
+Japanese or Devanagari, and there are **zero** Chinese fonts installed at all.
+Burning Chinese captions today yields tofu boxes (□□□) with no error anywhere —
+correct audio, unreadable text.
+
+So of Kokoro's nine languages, **five work today** (English US/UK, Spanish,
+French, Italian, Portuguese — all Latin script) and **four are blocked on a font**
+(Hindi, Japanese, Chinese).
+
+**What to build:**
+
+1. **One choice, not two.** The voice prefix *is* the language (`af_heart` =
+   American English, `jf_alpha` = Japanese). Two independent dropdowns can
+   disagree, and the failure is silent and ugly: an English voice reading French
+   text, aligned by a Japanese Whisper model. Select **language first**, filter
+   the voice list to it, and derive `Project.language` from the chosen voice —
+   `describe_voice()` already returns the language.
+2. **Only offer what renders.** A language whose script the bundled caption font
+   cannot draw must not be selectable, or must be selectable only with an explicit
+   warning naming the missing font. Never silently produce tofu.
+3. **`doctor` gains a font-coverage check** — for each supported language, can the
+   configured caption font draw its script? Same shape as the existing
+   libass/ffprobe probes: detect, report, name the remediation.
+4. **Bundle a CJK/Devanagari-capable font** if the four blocked languages are
+   wanted — Noto Sans CJK and Noto Sans Devanagari are SIL OFL. **They are large**
+   (CJK is tens of MB), so this is a real packaging decision, not an afterthought:
+   ship them, make them an optional download, or document the limit and stop at
+   five languages. Decide deliberately and record the reasoning. Whatever ships
+   goes in `NOTICE.md` with its licence, as htmx and the Task 15 fonts do.
+5. **Do not claim STT quality you have not measured.** Whisper `base` is weaker
+   outside English, and alignment drives caption timing. If a language is offered,
+   spot-check it end to end and record the result — M1's snap-to-script exists
+   precisely because Whisper mishears.
+
+**Test:** a project created in each offered language renders captions whose glyphs
+are actually drawn (not `.notdef`); an unsupported language is not offerable; a
+voice/language mismatch cannot be constructed through the UI.
