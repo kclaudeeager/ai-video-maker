@@ -20,6 +20,12 @@ Motion is a treatment for **stills** only; footage already moves. The default,
 than `zoompan`. `Motion.ZOOM` is opt-in Ken Burns and pre-upscales 2×, because the M0
 spike showed visible jitter when `zoompan` computes its window on a 1× frame. Nothing
 ever crops before it scales — cropping first throws away the pixels the scale needs.
+
+The one exception is `reframe_filter`, which cuts an aspect's own window out of the
+source before anything else runs. That is what makes vertical a re-crop of the asset
+rather than a crop of the finished wide render (a global constraint of M3), and it is
+safe precisely because the pixels it discards are ones no frame of that aspect could
+show. Wide gets no reframe, so its graphs are byte-identical to M1's.
 """
 
 import json
@@ -260,6 +266,33 @@ def _pan_travel(scene: Scene) -> tuple[float, float]:
     return start, end
 
 
+def reframe_filter(spec: VideoSpec, focus: float) -> list[str]:
+    """Cut the spec's own window out of the *source*, at `focus`.
+
+    This is what makes vertical a genuine re-frame rather than a crop of the finished
+    wide render: the pixels come from the asset's own file, so a Short never inherits
+    the wide cut's burned-in captions or its 16:9 composition (spec 4.5).
+
+    `min(iw, ih*w/h)` keeps the window inside the source, so an asset already at or
+    narrower than the target ratio passes through untouched instead of being cropped
+    to nothing. `focus` slides it: 0.0 is the left edge, 1.0 the right, 0.5 centred.
+
+    Cropping before scaling is normally forbidden here — it throws away the pixels the
+    scale needs. This crop is the exception, and only because it discards pixels no
+    frame of this aspect could ever show; everything the later scale consumes is
+    inside the window. Landscape specs get nothing at all: `_cover_scale` already
+    frames a 16:9 output, and an empty list keeps M1's wide graphs byte-identical.
+
+    The expression is quoted because it contains a comma, which the filter-graph
+    parser would otherwise read as the end of the whole filter.
+    """
+    if spec.width >= spec.height:
+        return []
+    divisor = math.gcd(spec.width, spec.height)
+    ratio = f"{spec.width // divisor}/{spec.height // divisor}"
+    return [f"crop='min(iw,ih*{ratio})':ih:'(iw-ow)*{_clamp(focus):.3f}':0"]
+
+
 def _cover_scale(width: int, height: int) -> str:
     """Scale to cover `width`×`height`, keeping the source's aspect ratio.
 
@@ -348,6 +381,7 @@ def build_scene_filter(scene: Scene, spec: VideoSpec, *, gap_s: float) -> str:
     filters: list[str] = []
     if _is_video_asset(scene):
         filters += _source_filters(scene, spec, duration)
+    filters += reframe_filter(spec, scene.visual.crop_focus_x)
     filters += _motion_filters(scene, spec, duration)
     filters += [
         f"fps={spec.fps}",
