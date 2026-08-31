@@ -58,6 +58,14 @@ structure:
   - implication
   - close
 
+# Which beats the vertical Short is cut from. Not "all of them": a Short that is
+# the whole video re-cropped is the low-effort repurposing every platform
+# suppresses, and engagement peaks at 30-45 s. Hook, the heart, the landing.
+short_beats:
+  - hook
+  - mechanism
+  - close
+
 words_per_minute: 150
 scene_count: [4, 10]
 

@@ -26,6 +26,7 @@ names when a template is missing, malformed, or fails validation.
 | `display_name` | string | yes | — | Human-readable label for the CLI and the M2 web UI. |
 | `system_prompt` | string | yes | — | The system prompt handed to the LLM by the script stage. This is the template. See below. |
 | `structure` | list of strings | yes | — | Named beats, in order, at least one. The script stage walks them to shape the scene list. |
+| `short_beats` | list of strings | no | `[]` | Which of those beats the vertical Short is cut from. Empty means "no opinion": every scene stays in the Short, as before this field existed. Every entry must appear in `structure`. |
 | `words_per_minute` | integer > 0 | no | `150` | Assumed narration pace. Used to turn `--minutes` into a scene count and a word budget. |
 | `scene_count` | `[min, max]` integers | yes | — | Hard bounds on how many scenes a video may have. `1 <= min <= max`. |
 | `visual_kind_order` | list of visual kinds | yes | — | Preference order the visuals stage tries when a scene's kind is `auto`. At least one entry. |
@@ -59,6 +60,40 @@ The clamp is absolute: a 10-minute request against `scene_count: [4, 10]` still 
 10 scenes — longer scenes, not more of them. Pick bounds you would be happy to watch at
 both ends of the range, and write the prompt so each scene can breathe at the wide end.
 
+### `short_beats` and the Short
+
+Every project renders twice: a wide cut of all the scenes, and a vertical Short
+built from the scenes ticked `in_short`. `short_beats` decides which scenes start
+out ticked.
+
+**Do not leave it at every beat.** A Short that is the whole video re-cropped is
+exactly the low-effort repurposing the platforms suppress, and it is where the
+numbers are worst: engagement peaks at 30–45 s on YouTube Shorts, 21–34 s on
+TikTok and under 30 s on Reels, which does not recommend anything over three
+minutes to new audiences at all. Three minutes (`assemble.MAX_SHORT_S`) is only
+where the *upload* stops being accepted; `assemble.SHORT_TARGET_S` (45 s) is where
+a Short is actually competitive, and the storyboard nudges toward it without ever
+blocking on it.
+
+For a five-beat explainer, `[hook, mechanism, close]` — the opening, the heart and
+the landing — is the recommendation (`templates.RECOMMENDED_SHORT_BEATS`). Pick
+beats that survive on their own, and say so in `system_prompt`: a scene bound for
+the Short is played without its neighbours, so it must not open with "and" or lean
+on something an earlier scene established.
+
+Editing `short_beats` deliberately does **not** stale anything. It is excluded from
+`Template.script_fingerprint`, so retuning which beats make the Short cannot rewrite
+the narration of projects already written — and adding the field in the first place
+did not restage a single one. The consequence to know about: it applies when the
+script is written, so an existing project keeps the ticks it has. Change those on
+the storyboard, where you can see the running time.
+
+The selection is a **default**, not a rule. `script.assign_beats` maps the scenes
+the model returned onto `structure` positionally — the first scene takes the first
+beat, the last takes the last, the rest spread evenly between — so it is a good
+guess and not a certainty. The storyboard shows the ticks and a person can change
+any of them; once they do, the scene is pinned and no later run may move it back.
+
 ### Writing `system_prompt`
 
 This is where the quality of the channel lives. The whole point of this tool is
@@ -77,6 +112,8 @@ This is where the quality of the channel lives. The whole point of this tool is
 - Ask for a concrete, literal, filmable visual search query per scene — nouns and
   places, never abstractions like "innovation". Abstract queries return abstract
   stock, which is the fastest way to make a video look generic.
+- Say that the `short_beats` scenes are also cut together on their own, so each of
+  them has to stand up without the scenes around it.
 
 Keep it a *system* prompt: it describes how to write, not what this particular video
 is about. The topic, target duration and scene count are supplied separately by the
@@ -90,6 +127,7 @@ display_name: My Template
 system_prompt: |
   You are ...
 structure: [hook, body, close]
+short_beats: [hook, close]
 scene_count: [4, 8]
 visual_kind_order: [stock_video, stock_photo, ai_image]
 ```
@@ -100,4 +138,6 @@ visual_kind_order: [stock_video, stock_photo, ai_image]
 - [ ] `uv run python -c "from videomaker.templates import load_template; print(load_template('my_template').display_name)"` succeeds.
 - [ ] `videomaker new "some topic" -t my_template` then `videomaker run <id>` produces a script you would publish.
 - [ ] The prompt names the beats in `structure`, and the generated script actually hits them.
+- [ ] `short_beats` is a *subset* of `structure`, and the scenes it selects read as a
+      complete Short on their own — near 45 s, not the whole video re-cropped.
 - [ ] Visual queries came back concrete enough that the stock search found real footage.

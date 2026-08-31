@@ -9,6 +9,7 @@ cannot follow a schema twice will not follow it a third time.
 """
 
 import json
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -154,14 +155,94 @@ def _draft(
         ) from second
 
 
-def _to_scenes(draft: DraftScript) -> list[Scene]:
+def assign_beats(structure: Sequence[str], count: int) -> list[str]:
+    """Which of the template's beats each of `count` scenes was written for.
+
+    The script stage asks the model to follow `structure` **in order**, so the beat
+    a scene belongs to can be read off its position — no second model call, no extra
+    field in the reply schema, nothing to disagree with itself.
+
+    The mapping is not a bare `floor(i * beats / count)`. That has a real failure
+    mode: with fewer scenes than beats it runs off the end of the list before it
+    reaches the closing beat, so the scene the model wrote as the close is labelled
+    `implication` and drops out of the Short — the one scene a Short can least
+    afford to lose. Instead the **first** scene takes the opening beat, the **last**
+    takes the closing beat, and everything in between spreads evenly over the beats
+    between them. That also matches how these prompts are written: an opener and a
+    landing are one scene each, and the body is what expands.
+
+    Its remaining failure mode is honest and unavoidable: it is positional, so a
+    model that reorders or front-loads the beats gets a scene labelled wrongly.
+    That is why the label only ever produces a *default* the storyboard shows and a
+    person can override — see `apply_short_defaults`.
+    """
+    if count <= 0:
+        return []
+    beats = list(structure)
+    if count == 1 or len(beats) == 1:
+        return [beats[0]] * count
+    # With only two beats there is no "between", so the middles split across both.
+    middle = beats[1:-1] or beats
+    inner = count - 2
+    return [
+        beats[0],
+        *(middle[index * len(middle) // inner] for index in range(inner)),
+        beats[-1],
+    ]
+
+
+def apply_short_defaults(
+    scenes: Iterable[Scene],
+    template: Template,
+    *,
+    pinned: Mapping[str, bool] | None = None,
+) -> None:
+    """Set `in_short` from each scene's beat — unless a person has already decided.
+
+    Three deliberate no-ops, each of them a compatibility guarantee:
+
+    * `pinned` is applied **first and wins outright**. It carries the ticks a person
+      set on a previous script across a rewrite, by scene id, and re-marks them
+      pinned so the next run cannot undo them either. The narration under a carried
+      tick has changed, which is a real cost — but it is the smaller one. A tool
+      that silently re-ticks a scene the owner unticked is fighting them, and they
+      would only find out after publishing.
+    * A template with no `short_beats` has no opinion, so nothing moves. That is
+      exactly the pre-M3 behaviour, kept for every template that predates the field.
+    * A scene with no recorded `beat` — every scene in a `project.json` written
+      before M3 Task 22 — is left as it was found rather than re-selected on the
+      first run after an upgrade.
+    """
+    scenes = list(scenes)
+    if pinned:
+        for scene in scenes:
+            if scene.id in pinned:
+                scene.in_short = pinned[scene.id]
+                scene.short_pinned = True
+    if not template.short_beats:
+        return
+    wanted = set(template.short_beats)
+    for scene in scenes:
+        if scene.short_pinned or scene.beat is None:
+            continue
+        scene.in_short = scene.beat in wanted
+
+
+def pinned_short_choices(scenes: Iterable[Scene]) -> dict[str, bool]:
+    """The `in_short` ticks a person set, by scene id. The rest are the machine's."""
+    return {scene.id: scene.in_short for scene in scenes if scene.short_pinned}
+
+
+def _to_scenes(draft: DraftScript, template: Template) -> list[Scene]:
+    beats = assign_beats(template.structure, len(draft.scenes))
     return [
         Scene(
             id=SCENE_ID_FORMAT.format(index),
             narration=item.narration.strip(),
             visual=SceneVisual(query=item.visual_query.strip()),
+            beat=beat,
         )
-        for index, item in enumerate(draft.scenes, start=1)
+        for index, (item, beat) in enumerate(zip(draft.scenes, beats, strict=True), start=1)
     ]
 
 
@@ -173,7 +254,9 @@ def run_script(project: Project, deps: StageDeps) -> StageResult:
         topic=project.topic,
         # The template's *content*, not its name: editing a template's prompt has to
         # invalidate the scripts it wrote, and `Template` carries no version field.
-        template=template.model_dump_json(),
+        # Content the script is not a function of is excluded — see
+        # `Template.script_fingerprint`, which is also what `runner` hashes.
+        template=template.script_fingerprint(),
         target_minutes=project.target_minutes,
         language=project.language,
         model=deps.leading_name("llm"),
@@ -191,7 +274,11 @@ def run_script(project: Project, deps: StageDeps) -> StageResult:
         advance_on=_SCRIPT_ADVANCE_ON,
     )
 
-    project.scenes = _to_scenes(draft)
+    # Taken before the rewrite: these are the only decisions on the old scene list
+    # worth carrying, because they are the only ones a person made by hand.
+    pinned = pinned_short_choices(project.scenes)
+    project.scenes = _to_scenes(draft, template)
+    apply_short_defaults(project.scenes, template, pinned=pinned)
     deps.stage_cache.mark(key, current)
     deps.stage_cache.save()
     deps.store.save(project)

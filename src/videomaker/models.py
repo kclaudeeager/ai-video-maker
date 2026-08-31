@@ -84,7 +84,17 @@ class Scene(BaseModel):
     audio_path: str | None = None
     duration_s: float | None = None
     words: list[WordTiming] = Field(default_factory=list)
+    #: Which of the template's `structure` beats this scene was written for, as
+    #: `script.assign_beats` mapped it. `None` on projects written before M3 Task
+    #: 22 — and on those the Short selection is left exactly as it was found.
+    beat: str | None = None
+    #: On the vertical cut. The template's `short_beats` set this when the script
+    #: was written; a person can override it, and then `short_pinned` says so.
     in_short: bool = True
+    #: A human touched the `in_short` tick. Nothing in the pipeline may overwrite
+    #: it after that: the template's beat map is a *guess*, and a re-run that
+    #: silently re-ticked a scene would only be found out after publishing.
+    short_pinned: bool = False
     locked: bool = False
     error: str | None = None
 

@@ -186,9 +186,15 @@ def status_key(stage: str, unit: str = "all") -> str:
 
 
 def _template_fingerprint(name: str) -> str:
-    """The template's *content*, so editing its prompt shows up as a stale script."""
+    """The template's *script-shaping* content, so editing its prompt shows up as a
+    stale script — and adding a field that shapes nothing does not.
+
+    `Template.script_fingerprint` owns that distinction; this must never go back to
+    a bare `model_dump_json()`, or the next field added to `Template` restages every
+    project on disk.
+    """
     try:
-        return load_template(name).model_dump_json()
+        return load_template(name).script_fingerprint()
     except ValueError:
         # A missing or broken template is the run's problem to report, not the
         # status view's: fall back to the name so `status` and `list` still work.

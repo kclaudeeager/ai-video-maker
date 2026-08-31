@@ -1341,6 +1341,12 @@ video {
   accent-color: var(--bad);
 }
 
+/* Past the 45 s target but inside the three-minute limit: advice, not a fault,
+   so it takes the waiting colour rather than the failure one. */
+.short-meter[data-short-state="long"] progress {
+  accent-color: var(--warn);
+}
+
 /* A model-written search query can be a paragraph; one clipped line keeps the
    candidate grid where the eye expects it, and `title` still carries the whole. */
 .candidates-head {

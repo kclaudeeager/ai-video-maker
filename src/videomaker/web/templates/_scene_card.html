@@ -348,10 +348,14 @@
        out-of-band swap every reply already does keeps it in step with the
        toggles. `empty` is a state of its own: `short_fits` is a duration test,
        so nothing ticked "fits" at 0 s, and reporting that as a tick would hide
-       an unrenderable Short until gate 3 refused it. #}
+       an unrenderable Short until gate 3 refused it. `long` is a state of its
+       own for the opposite reason: it is past the 45 s target where Shorts hold
+       attention but well inside the three-minute limit, so it must read as a
+       nudge and must never disable the button below. #}
     {% if gate.short %}
       <div class="short-meter"
-           data-short-state="{{ gate.short.state }}" data-short-seconds="{{ "%.1f"|format(gate.short.duration_s) }}">
+           data-short-state="{{ gate.short.state }}" data-short-seconds="{{ "%.1f"|format(gate.short.duration_s) }}"
+           data-short-target="{{ "%.1f"|format(gate.short.target_s) }}">
         <div class="short-meter-head">
           <span class="eyebrow flush">The Short</span>
           <span class="status {{ gate.short.tone }}">{{ gate.short.duration_label }} of {{ gate.short.limit_label }}</span>
@@ -359,7 +363,7 @@
         <progress max="{{ gate.short.limit_s }}" value="{{ [gate.short.duration_s, gate.short.limit_s]|min }}"></progress>
         <p class="hint flush">
           {{ gate.short.summary }}
-          {% if gate.short.state == "over" %}
+          {% if gate.short.names_scenes_to_drop %}
             The longest scenes in it are
             {% for scene_id, seconds in gate.short.longest[:3] %}
               <code>{{ scene_id }}</code> ({{ "%.0f"|format(seconds) }}s){{ ", " if not loop.last else "." }}

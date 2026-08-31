@@ -83,7 +83,12 @@ _HX = {"HX-Request": "true"}
 #: Short enough that the two real renders in this file stay a few seconds.
 SHORT_NARRATION = "Scene {number} says a few short words."
 
-SWAPPED_SCENE = "s02"
+#: A scene the template's `short_beats` keep **in** the Short, so a swap here has
+#: to re-encode both aspects. `tech_explainer` labels four scenes hook / context /
+#: mechanism / close, and only the middle two beats are dropped from the vertical
+#: cut; picking a dropped scene would make the per-aspect counts below pass for
+#: the wrong reason.
+SWAPPED_SCENE = "s03"
 SWAPPED_INDEX = 1
 
 

@@ -95,7 +95,12 @@ SHORT_NARRATION = "Scene {number} says a few short words."
 #: is exercised by the journey rather than only by the unit tests.
 EDITED_QUERY = "close up nand flash package"
 
-SWAPPED_SCENE = "s02"
+#: A scene the template's `short_beats` keep **in** the Short, so a swap here has
+#: to re-encode both aspects. `tech_explainer` labels four scenes hook / context /
+#: mechanism / close, and only the middle two beats are dropped from the vertical
+#: cut; picking a dropped scene would make the per-aspect counts below pass for
+#: the wrong reason.
+SWAPPED_SCENE = "s03"
 SWAPPED_INDEX = 1
 
 #: How long a browser would be willing to sit on the polling page. Generous: this

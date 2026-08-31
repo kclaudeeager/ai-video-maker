@@ -22,6 +22,12 @@ never against a number typed into the test — and `short_fits` is a *duration*
 test, so a project with nothing ticked "fits" at 0 s. That vacuous pass is the
 one thing the readout must not repeat, hence `data-short-state` has three values
 and not two.
+
+Since M3 Task 22 the readout also separates the **target** from the **limit**.
+`SHORT_TARGET_S` (45 s) is where engagement peaks and it only ever advises;
+`MAX_SHORT_S` (180 s) is the platform limit and is the only one anything refuses
+on. `test_the_target_never_blocks_anything` is the mutation guard on that: make
+the target refuse and it fails.
 """
 
 import re
@@ -34,6 +40,7 @@ from videomaker.config import Settings
 from videomaker.models import Aspect
 from videomaker.pipeline.assemble import (
     MAX_SHORT_S,
+    SHORT_TARGET_S,
     VERTICAL_SPEC,
     reframe_filter,
     short_duration_s,
@@ -53,14 +60,19 @@ _CARD = re.compile(r'data-scene="(s\d+)"')
 _CROP = re.compile(r'data-crop-window="([\d.]+)" data-crop-focus="([\d.]+)"')
 _IN_SHORT = re.compile(r'data-in-short="(s\d+)" data-included="(true|false)"')
 
-#: The gate card's Short readout. Three states, not a bare boolean: an empty
-#: `in_short` set passes `short_fits` vacuously and must still read as a problem.
-_SHORT = re.compile(r'data-short-state="(ok|over|empty)" data-short-seconds="([\d.]+)"')
+#: The gate card's Short readout. Four states, not a bare boolean: an empty
+#: `in_short` set passes `short_fits` vacuously and must still read as a problem,
+#: and `long` (past `SHORT_TARGET_S`) is advice while `over` (past `MAX_SHORT_S`)
+#: is the platform limit that gate 3 will actually refuse.
+_SHORT = re.compile(r'data-short-state="(ok|over|long|empty)" data-short-seconds="([\d.]+)"')
 
 #: `min(iw,ih*9/16)':ih:'(iw-ow)*0.500` — the geometry the overlay must match.
 _CROP_FILTER = re.compile(r"crop='min\(iw,ih\*(\d+)/(\d+)\)':ih:'\(iw-ow\)\*([\d.]+)'")
 
-SCENE = "s02"
+#: A scene the template's `short_beats` put *in* the Short by default, so the
+#: toggle tests start from a ticked box. `_storyboarded` asks for 4 scenes, which
+#: `assign_beats` labels hook / context / mechanism / close.
+SCENE = "s03"
 
 
 @pytest.fixture
@@ -342,7 +354,11 @@ def test_each_card_offers_the_in_short_toggle(app, client, store):
 
     body = client.get(f"/projects/{project.id}/storyboard").text
 
-    assert _IN_SHORT.findall(body) == [(scene.id, "true") for scene in project.scenes]
+    assert _IN_SHORT.findall(body) == [
+        (scene.id, "true" if scene.in_short else "false") for scene in project.scenes
+    ]
+    # And the default really is a selection now, not "every scene, cropped".
+    assert not all(scene.in_short for scene in project.scenes)
     for scene in project.scenes:
         assert f'action="/projects/{project.id}/scenes/{scene.id}/in_short"' in body
 
@@ -408,7 +424,14 @@ def test_toggling_an_unknown_scene_is_a_404(app, client, store):
 
 
 def test_the_gate_card_shows_the_running_short_duration(app, client, store):
+    # The mock narrator speaks the same 43 words in every scene, so even the
+    # beat-selected Short lands past the 45 s target. Trimmed here on purpose:
+    # this test is about the number in the readout, not about which state it is.
     project = _storyboarded(app, store)
+    for scene in project.scenes:
+        scene.duration_s = 8.0
+    store.save(project)
+    project = store.load(project.id)
 
     gate = _gate_html(client.get(f"/projects/{project.id}/storyboard").text)
     state, seconds = _SHORT.findall(gate)[0]
@@ -437,6 +460,7 @@ def test_a_short_over_the_three_minute_limit_is_flagged_here_not_at_gate_three(
     project = _storyboarded(app, store)
     saved = store.load(project.id)
     saved.scene_by_id(SCENE).duration_s = MAX_SHORT_S + 30.0
+    assert saved.scene_by_id(SCENE).in_short is True
     store.save(saved)
 
     gate = _gate_html(client.get(f"/projects/{project.id}/storyboard").text)
@@ -445,7 +469,7 @@ def test_a_short_over_the_three_minute_limit_is_flagged_here_not_at_gate_three(
     assert state == "over"
     assert float(seconds) > MAX_SHORT_S
     # And it names the scene to untick, rather than only saying "too long".
-    assert SCENE in gate
+    assert f"<code>{SCENE}</code>" in gate
 
 
 def test_an_empty_short_reads_as_a_problem_not_as_ok(app, client, store):
@@ -464,3 +488,54 @@ def test_an_empty_short_reads_as_a_problem_not_as_ok(app, client, store):
 
     assert state == "empty"
     assert float(seconds) == 0.0
+
+
+# ------------------------------------------------- the target, which only advises
+
+
+def test_a_short_past_the_target_but_inside_the_limit_reads_as_a_nudge(app, client, store):
+    """`long`, not `over`: nothing is broken, the cut is simply longer than the
+    30-45 s where Shorts engagement actually peaks."""
+    project = _storyboarded(app, store)
+    saved = store.load(project.id)
+    ticked = [scene for scene in saved.scenes if scene.in_short]
+    ticked[0].duration_s = SHORT_TARGET_S + 20.0
+    store.save(saved)
+    duration = short_duration_s(store.load(project.id))
+    assert SHORT_TARGET_S < duration < MAX_SHORT_S, "the fixture must sit between the two"
+
+    gate = _gate_html(client.get(f"/projects/{project.id}/storyboard").text)
+    state, seconds = _SHORT.findall(gate)[0]
+
+    assert state == "long"
+    assert float(seconds) == pytest.approx(duration, abs=0.05)
+    # It names what to drop, exactly as the over-limit state does. Matched on the
+    # readout's own `<code>` markup: a bare `"s01" in gate` also matches the anchor
+    # the next-action link carries, and would pass with the nudge deleted.
+    assert f"<code>{ticked[0].id}</code>" in gate
+
+
+def test_the_target_never_blocks_anything(app, client, store):
+    """The mutation guard. Make `SHORT_TARGET_S` refuse instead of advise and this
+    fails: gate 2 is still approvable and the render gate still has no complaint."""
+    from videomaker.pipeline.render import check_short_limit
+
+    project = _storyboarded(app, store)
+    saved = store.load(project.id)
+    next(scene for scene in saved.scenes if scene.in_short).duration_s = SHORT_TARGET_S + 20.0
+    store.save(saved)
+
+    body = client.get(f"/projects/{project.id}/storyboard").text
+    gate = _gate_html(body)
+    assert 'data-short-state="long"' in gate
+    assert "<button type=\"submit\" class=\"primary\" disabled" not in gate
+
+    check_short_limit(store.load(project.id))  # raises only on the *limit*
+
+
+def test_the_readout_carries_the_target_alongside_the_limit(app, client, store):
+    project = _storyboarded(app, store)
+
+    gate = _gate_html(client.get(f"/projects/{project.id}/storyboard").text)
+
+    assert f'data-short-target="{SHORT_TARGET_S:.1f}"' in gate

@@ -78,9 +78,19 @@ MAX_LOOP_FRAMES = 120
 #: of the wide render, and its cut is the `in_short` subset, not the whole project.
 ASSEMBLE_ASPECTS: tuple[Aspect, ...] = (Aspect.WIDE, Aspect.VERTICAL)
 
-#: The longest a Short may run. YouTube Shorts, Reels and TikTok all accept three
-#: minutes; anything longer is not a Short at all, so `in_short` has to give way.
+#: **The platform limit — the only one anything refuses on.** The longest a Short
+#: may run: YouTube Shorts, Reels and TikTok all accept three minutes and no more,
+#: so `in_short` has to give way. `render.check_short_limit` raises on it.
 MAX_SHORT_S = 180.0
+
+#: **The editorial target — advice, never a refusal.** Where engagement actually
+#: peaks in 2026: 30-45 s on YouTube Shorts, 21-34 s on TikTok, under 30 s on
+#: Reels (which does not recommend anything over three minutes to new audiences at
+#: all). A cut between this and `MAX_SHORT_S` is legal everywhere and competitive
+#: nowhere, which is why the storyboard nudges about it — and why nothing in the
+#: pipeline, the CLI or the web gates ever blocks on it. Trimming to a clock would
+#: end a Short mid-sentence; the lever is the per-scene `in_short` tick.
+SHORT_TARGET_S = 45.0
 
 
 @dataclass(frozen=True)
@@ -232,11 +242,22 @@ def short_duration_s(project: Project) -> float:
 def short_fits(project: Project) -> bool:
     """Whether the `in_short` subset is short enough to publish as a Short.
 
-    A duration test only: a project with nothing marked `in_short` runs for 0 s and
-    so "fits" vacuously. Callers that need a Short to *exist* check the timeline is
-    non-empty; conflating the two here would hide an empty cut behind a green tick.
+    Measured against `MAX_SHORT_S`, the **limit**. A duration test only: a project
+    with nothing marked `in_short` runs for 0 s and so "fits" vacuously. Callers
+    that need a Short to *exist* check the timeline is non-empty; conflating the two
+    here would hide an empty cut behind a green tick.
     """
     return short_duration_s(project) <= MAX_SHORT_S
+
+
+def short_meets_target(project: Project) -> bool:
+    """Whether the `in_short` subset is as tight as `SHORT_TARGET_S` wants.
+
+    The **advisory** counterpart of `short_fits`. Nothing gates on this — it exists
+    so the storyboard can say "this is longer than the Shorts sweet spot" while the
+    Short stays perfectly renderable. Read it, report it, never raise on it.
+    """
+    return short_duration_s(project) <= SHORT_TARGET_S
 
 
 # ------------------------------------------------------------- the filter graph

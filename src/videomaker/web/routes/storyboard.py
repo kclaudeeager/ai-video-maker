@@ -65,8 +65,17 @@ The running Short duration is drawn *inside the gate card*, for the same reason
 the quota indicator is: every reply already swaps that card out of band, so one
 readout stays in step with every toggle without a second out-of-band element.
 `short_fits` is a duration test and nothing else, so a project with nothing
-ticked runs 0 s and "fits" vacuously — `ShortView.state` therefore has three
+ticked runs 0 s and "fits" vacuously — `ShortView.state` therefore has four
 values, and an empty Short reads as a problem rather than as a tick.
+
+The fourth is `long`, and the distinction it draws is the point of M3 Task 22.
+`MAX_SHORT_S` is the **platform limit** and gate 3 refuses on it; `SHORT_TARGET_S`
+is the **editorial target**, where Shorts engagement actually peaks, and nothing
+refuses on it anywhere. A cut between the two is legal on every platform and
+competitive on none, so the readout says so and names the longest scenes — advice
+with something to do attached. It never disables the approve button: trimming a
+Short to a clock ends it mid-sentence, which is why the lever is the per-scene
+tick and why the decision stays the owner's.
 
 Everything else is the shape gate 1 established: compare first and lock second so
 a no-op writes nothing; answer htmx with the card partial and a plain form post
@@ -94,6 +103,7 @@ from videomaker.config import Settings
 from videomaker.models import Aspect, AssetRef, Motion, Project, Scene, StockResult, VisualKind
 from videomaker.pipeline.assemble import (
     MAX_SHORT_S,
+    SHORT_TARGET_S,
     VERTICAL_SPEC,
     VideoSpec,
     short_duration_s,
@@ -467,9 +477,16 @@ def clock(seconds: float) -> str:
 
 @dataclass(frozen=True)
 class ShortView:
-    """The `in_short` subset measured against the three-minute Shorts limit.
+    """The `in_short` subset measured against **two** numbers that are not the same.
 
-    **Three states, not a boolean.** `assemble.short_fits` is a duration test and
+    * `limit_s` (`MAX_SHORT_S`, three minutes) is the **platform limit**. Gate 3
+      refuses to render past it. Over it the readout is an error: state `over`.
+    * `target_s` (`SHORT_TARGET_S`, 45 s) is the **editorial target** — where Shorts
+      engagement actually peaks. Nothing refuses on it, here or anywhere else. Over
+      it the readout is a nudge: state `long`, and it names the longest scenes so
+      the nudge comes with something to do.
+
+    **Four states, not a boolean.** `assemble.short_fits` is a duration test and
     says so: a project with nothing ticked runs for 0 s and passes it vacuously.
     Reporting that as a tick would hide an empty Short behind a green pill until
     gate 3 refused to render it, so `empty` is its own answer.
@@ -485,10 +502,18 @@ class ShortView:
     #: The longest scenes in the Short, longest first — what to untick when it
     #: overruns. Naming them is the difference between a complaint and an action.
     longest: list[tuple[str, float]]
+    #: Advisory only. See the class docstring: nothing may gate on this.
+    target_s: float = SHORT_TARGET_S
 
     @property
     def fits(self) -> bool:
+        """Against the **limit**. The one test anything downstream refuses on."""
         return self.duration_s <= self.limit_s
+
+    @property
+    def meets_target(self) -> bool:
+        """Against the **target**. Read for advice; never for permission."""
+        return self.duration_s <= self.target_s
 
     @property
     def empty(self) -> bool:
@@ -498,11 +523,21 @@ class ShortView:
     def state(self) -> str:
         if self.empty:
             return "empty"
-        return "ok" if self.fits else "over"
+        if not self.fits:
+            return "over"
+        return "ok" if self.meets_target else "long"
 
     @property
     def tone(self) -> str:
-        return "status-ok" if self.state == "ok" else "status-failed"
+        if self.state == "ok":
+            return "status-ok"
+        # `long` is advice, so it wears the waiting colour, not the failure one.
+        return "status-waiting" if self.state == "long" else "status-failed"
+
+    @property
+    def names_scenes_to_drop(self) -> bool:
+        """Both long states end in the same action: untick something."""
+        return self.state in {"over", "long"}
 
     @property
     def over_s(self) -> float:
@@ -517,6 +552,10 @@ class ShortView:
         return clock(self.limit_s)
 
     @property
+    def target_label(self) -> str:
+        return clock(self.target_s)
+
+    @property
     def over_label(self) -> str:
         return clock(self.over_s)
 
@@ -528,10 +567,17 @@ class ShortView:
             return "No scene is in the Short yet — tick at least one."
         if self.state == "over":
             return f"{self.over_label} over the {self.limit_label} limit. Untick a scene."
+        if self.state == "long":
+            return (
+                f"Past the {self.target_label} mark where Shorts hold attention. "
+                "Nothing is blocked — only the limit refuses — but a tighter cut travels further."
+            )
         return f"{self.duration_label} of {self.limit_label}."
 
 
-def short_view(project: Project, limit_s: float = MAX_SHORT_S) -> ShortView:
+def short_view(
+    project: Project, limit_s: float = MAX_SHORT_S, target_s: float = SHORT_TARGET_S
+) -> ShortView:
     """The Short's running time, straight from `assemble`'s own timeline.
 
     Measured with `short_duration_s` rather than by summing durations here: the
@@ -546,6 +592,7 @@ def short_view(project: Project, limit_s: float = MAX_SHORT_S) -> ShortView:
     return ShortView(
         duration_s=short_duration_s(project),
         limit_s=limit_s,
+        target_s=target_s,
         included=included,
         pending=[
             scene.id
