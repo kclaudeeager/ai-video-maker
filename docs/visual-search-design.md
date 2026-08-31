@@ -87,6 +87,13 @@ Record the baseline **first**, from the current pipeline, so the improvement is
 provable rather than asserted. M1's measured 6/10 is the starting point; state
 the target explicitly (8/10 strongly on topic is a reasonable bar).
 
+> **Measured — see `docs/visual-relevance-baseline.md`.** It is a miss: the shipped
+> default scores **3.4/10** against the 8/10 bar, and is indistinguishable from the
+> M1 path it replaced. M1's 6/10 turned out to be one project of ten, and the fleet
+> baseline is 3.6/10. The failure is a homonym problem this plan never touched, and
+> item 4's re-rank ships inert. That document, not this one, is the starting point
+> for the next attempt.
+
 ## What this does not change
 
 The storyboard gate stays exactly as it is. Better search reduces how often you

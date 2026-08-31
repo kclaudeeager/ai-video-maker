@@ -52,5 +52,5 @@ src = ["src", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "slow: needs the ml extra and downloaded model weights; skipped in CI",
+    "slow: needs the ml extra and downloaded model weights, or live provider quota; skipped in CI",
 ]
