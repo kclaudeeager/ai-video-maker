@@ -37,7 +37,11 @@ import httpx
 from videomaker.cache import hash_inputs
 from videomaker.providers import register
 from videomaker.providers.base import VisionProvider
-from videomaker.providers.errors import ProviderResponseError, TransientError
+from videomaker.providers.errors import (
+    ModelRetired,
+    ProviderResponseError,
+    TransientError,
+)
 from videomaker.providers.llm.gemini import (
     GEMINI_API_VERSION,
     GEMINI_BASE_URL,
@@ -55,8 +59,34 @@ PROVIDER_NAME = "gemini"
 MAX_THUMBNAIL_BYTES = 2_000_000
 THUMBNAIL_TIMEOUT_S = 20.0
 
-#: The answer is a short array of numbers. Anything longer is the model narrating.
-MAX_SCORE_TOKENS = 256
+#: The most thumbnails one scene can send. `pipeline.visuals.MAX_CANDIDATES` is the
+#: real bound; it is duplicated rather than imported so a provider never has to
+#: import a pipeline stage, and `test_the_token_ceiling_fits_the_worst_case_this_stage_can_send`
+#: pins the two together so the copy cannot drift.
+MAX_SCORED_IMAGES = 4
+#: `0.65, ` costs about four tokens; double it and nothing about the number's
+#: formatting can overrun.
+SCORE_TOKENS_PER_IMAGE = 8
+#: `{"scores": [` and `]}`, plus room for the model to name the key differently.
+SCORE_JSON_OVERHEAD_TOKENS = 16
+#: Everything the answer itself is not.
+#:
+#: `MAX_SCORE_TOKENS` was 256 and the reply came back cut mid-array — the observed
+#: body was literally `{"scores": [0.65` (M3 Task 14). The answer needs 48 tokens,
+#: so roughly 240 of that ceiling went somewhere else: Gemini 3.x bills its private
+#: reasoning against `maxOutputTokens`, and comparing four images against a
+#: narration is exactly the prompt that provokes a long one. Sized so the observed
+#: overrun would fit forty times over — output tokens are not what this project's
+#: budget is denominated in (requests are), so the headroom is free and running out
+#: of it costs a whole request.
+REASONING_HEADROOM_TOKENS = 2000
+MAX_SCORE_TOKENS = (
+    MAX_SCORED_IMAGES * SCORE_TOKENS_PER_IMAGE
+    + SCORE_JSON_OVERHEAD_TOKENS
+    + REASONING_HEADROOM_TOKENS
+)
+#: `finishReason` when the model was still writing when the ceiling arrived.
+TRUNCATED_FINISH_REASON = "MAX_TOKENS"
 #: A ranking should not change between two identical runs.
 SCORE_TEMPERATURE = 0.0
 
@@ -125,41 +155,51 @@ class GeminiVisionProvider(GeminiProvider, VisionProvider):
         if not image_urls:
             return []
         self._require_api_key()
-        model = self._resolve_model()
-        key = hash_inputs(
-            provider=self.provider_name,
-            model=model,
-            task="visual-rerank",
-            urls=list(image_urls),
-            query=query,
-            narration=narration,
-        )
-        if self.cache is not None:
-            cached = self._cached_scores(key, len(image_urls))
-            if cached is not None:
-                # A hit costs nothing, so the quota tracker is never touched.
-                return cached
 
-        if self.quota is not None:
-            # Checked before the thumbnails are even fetched: a spent budget must
-            # cost nothing, and downloading four images we can never send is a cost.
-            self.quota.check(self.provider_name, SOFT_BUDGETS[self.provider_name])
-        images = [self._thumbnail(url) for url in image_urls]
-        try:
-            body = self._generate(model=model, query=query, narration=narration, images=images)
-        finally:
-            # The request left the machine even if it came back 429 or 500, so book
-            # it either way. `record` only mutates memory and `build_deps` makes a
-            # fresh tracker per job, so without the `save` a *daily* budget could
-            # never be enforced across invocations (M2 finding).
+        def attempt(model: str) -> list[float]:
+            key = hash_inputs(
+                provider=self.provider_name,
+                model=model,
+                task="visual-rerank",
+                urls=list(image_urls),
+                query=query,
+                narration=narration,
+            )
+            if self.cache is not None:
+                cached = self._cached_scores(key, len(image_urls))
+                if cached is not None:
+                    # A hit costs nothing, so the quota tracker is never touched.
+                    return cached
+
             if self.quota is not None:
-                self.quota.record(self.provider_name)
-                self.quota.save()
+                # Checked before the thumbnails are even fetched: a spent budget must
+                # cost nothing, and downloading four images we can never send is a cost.
+                self.quota.check(self.provider_name, SOFT_BUDGETS[self.provider_name])
+            images = [self._thumbnail(url) for url in image_urls]
+            chargeable = True
+            try:
+                body = self._generate(
+                    model=model, query=query, narration=narration, images=images
+                )
+            except ModelRetired:
+                # A 404 on a listed-but-retired id never reached a model, so it is
+                # not spent capacity. Booking it anyway is how 240 requests that
+                # never happened emptied a day's shared Gemini budget (M3 Task 14).
+                # Everything else here is chargeable: a 429, a 500 or a truncated
+                # answer all left the machine and probably counted.
+                chargeable = False
+                raise
+            finally:
+                if chargeable:
+                    self._book_request()
 
-        scores = _parse_scores(self._first_text(body), len(image_urls))
-        if self.cache is not None:
-            self.cache.put(key, {"scores": scores})
-        return scores
+            _reject_truncated(body)
+            scores = _parse_scores(self._first_text(body), len(image_urls))
+            if self.cache is not None:
+                self.cache.put(key, {"scores": scores})
+            return scores
+
+        return self._with_model_fallback(attempt)
 
     def _cached_scores(self, key: str, count: int) -> list[float] | None:
         entry = self.cache.get(key) if self.cache is not None else None
@@ -206,6 +246,31 @@ class GeminiVisionProvider(GeminiProvider, VisionProvider):
         )
         self._raise_for_status(response)
         return self._json(response)
+
+
+def _reject_truncated(body: dict[str, Any]) -> None:
+    """Refuse an answer the model had not finished writing.
+
+    Checked on `finishReason`, not on whether the text happens to parse. A reply cut
+    mid-array (`{"scores": [0.65`) fails `json.loads` by luck; a reply cut *after* a
+    comma-free number is valid JSON holding a short list, and `_parse_scores` would
+    then report "1 score for 4 thumbnails" — true, but it names the wrong defect and
+    sends whoever reads it looking at the prompt instead of at the ceiling. Worse, a
+    future caller tempted to accept a short list would be accepting a sentence the
+    model never finished.
+
+    This is the detection half of M3 Task 14 defect 2. `MAX_SCORE_TOKENS` makes the
+    truncation unlikely; this makes it *loud* if it happens anyway.
+    """
+    candidates = body.get("candidates")
+    first = candidates[0] if isinstance(candidates, list) and candidates else None
+    reason = first.get("finishReason") if isinstance(first, dict) else None
+    if reason == TRUNCATED_FINISH_REASON:
+        raise ProviderResponseError(
+            f"gemini vision truncated its answer at {MAX_SCORE_TOKENS} output tokens "
+            f"(finishReason={reason}); the scores it did emit are an unfinished list, "
+            "not a short one"
+        )
 
 
 def _parse_scores(text: str, count: int) -> list[float]:

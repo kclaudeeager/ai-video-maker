@@ -16,6 +16,7 @@ scene's declared kind, so persisting the resolved one would make the very next r
 see a changed input and re-fetch everything it just fetched.
 """
 
+import warnings
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -70,6 +71,16 @@ PROVIDER_KIND: dict[VisualKind, str] = {
 
 class NoResults(ProviderError):
     """This provider works, it just has nothing for this query — try the next one."""
+
+
+class RerankUnavailable(UserWarning):
+    """A vision re-rank was attempted, could not answer, and was fallen back from.
+
+    Not an error: the scene has a perfectly good metadata order and keeps it. It is
+    a warning because a re-rank that *never* answers is indistinguishable from one
+    that agrees with the metadata every time — and for the length of M3 Task 14's
+    evaluation run, on 79 gated scenes, that is exactly what it looked like.
+    """
 
 
 #: An empty-handed provider advances the chain like an unusable one does.
@@ -212,7 +223,16 @@ def _search_ladder(
     return best[:MAX_CANDIDATES]
 
 
-def _rerank(deps: StageDeps, scene: Scene, results: list[StockResult]) -> list[StockResult]:
+def _note_rerank_fallback(notes: list[str], scene: Scene, reason: str) -> None:
+    """Record one fallback, both ways. See `_rerank` for why there are two."""
+    note = f"visual re-rank fell back to the metadata order on {scene.id}: {reason}"
+    notes.append(note)
+    warnings.warn(note, RerankUnavailable, stacklevel=3)
+
+
+def _rerank(
+    deps: StageDeps, scene: Scene, results: list[StockResult], notes: list[str]
+) -> list[StockResult]:
     """A second opinion on the ranked field, from the pictures rather than the tags.
 
     Three things have to be true before this spends anything, and all three are
@@ -225,6 +245,21 @@ def _rerank(deps: StageDeps, scene: Scene, results: list[StockResult]) -> list[S
     answer of the wrong length, a bug — the metadata order is a perfectly good answer
     and the scene keeps it. An optional quality tweak must never be able to fail a
     render, which is why the `except` here is as wide as it is.
+
+    **What it may not be is silent.** The policy above is right and unchanged; what
+    M3 Task 14 found is that a completely non-functional provider looked exactly like
+    a working one that happened to agree, for a hundred scenes and a whole day's
+    shared Gemini budget. So every fallback leaves a line in `notes`, which
+    `run_visuals` hands back on the `StageResult` for the CLI to print, *and* raises
+    a `RerankUnavailable` warning — the note is for someone reading a run's report,
+    the warning is for the callers that ignore `StageResult` entirely, which is what
+    the quality harness that missed this does.
+
+    Deliberately **not** `Scene.error`: that field means *this scene failed* and the
+    storyboard renders it as broken. A scene that fell back to its metadata order did
+    not fail, and marking it would train the reader to ignore the field. Deliberately
+    not a new persisted field either — a re-rank that 429s once and works next run
+    must not leave a mark in `project.json` for ten finished projects to carry.
     """
     if not deps.settings.visual_rerank_enabled or len(results) < 2:
         return results
@@ -247,9 +282,13 @@ def _rerank(deps: StageDeps, scene: Scene, results: list[StockResult]) -> list[S
 
     try:
         verdict = call_chain(deps, "vision", call)
-    except Exception:  # noqa: BLE001 - see the docstring: never raise into the pipeline
+    except Exception as exc:  # noqa: BLE001 - see the docstring: never raise into the pipeline
+        _note_rerank_fallback(notes, scene, f"{type(exc).__name__}: {exc}")
         return results
     if len(verdict) != len(results):
+        _note_rerank_fallback(
+            notes, scene, f"answered {len(verdict)} scores for {len(results)} candidates"
+        )
         return results
     # Stable: where the model has no preference the metadata order survives.
     order = sorted(range(len(results)), key=lambda index: verdict[index], reverse=True)
@@ -257,12 +296,12 @@ def _rerank(deps: StageDeps, scene: Scene, results: list[StockResult]) -> list[S
 
 
 def _fetch_stock(
-    deps: StageDeps, project: Project, scene: Scene, kind: VisualKind
+    deps: StageDeps, project: Project, scene: Scene, kind: VisualKind, notes: list[str]
 ) -> list[AssetRef]:
     scene_dir = deps.store.scene_dir(project, scene.id)
 
     def call(name: str, stock: StockProvider) -> list[AssetRef]:
-        results = _rerank(deps, scene, _search_ladder(stock, scene, kind))
+        results = _rerank(deps, scene, _search_ladder(stock, scene, kind), notes)
         if not results:
             raise NoResults(f"{name} has no {kind.value} for {scene.visual.query!r}")
         # Search and download share one provider instance: a `StockResult` is only
@@ -290,14 +329,14 @@ def _generate_image(deps: StageDeps, project: Project, scene: Scene) -> list[Ass
 
 
 def _fetch(
-    deps: StageDeps, project: Project, scene: Scene, kinds: list[VisualKind]
+    deps: StageDeps, project: Project, scene: Scene, kinds: list[VisualKind], notes: list[str]
 ) -> list[AssetRef]:
     """Walk the kinds in order and take the first that yields something."""
     problems: list[str] = []
     for kind in kinds:
         try:
             if PROVIDER_KIND[kind] == "stock":
-                return _fetch_stock(deps, project, scene, kind)
+                return _fetch_stock(deps, project, scene, kind, notes)
             return _generate_image(deps, project, scene)
         except ProviderError as exc:
             problems.append(f"{kind.value}: {exc}")
@@ -318,6 +357,8 @@ def run_visuals(project: Project, deps: StageDeps) -> StageResult:
     kind_order = load_template(project.template).visual_kind_order
     changed = False
     skipped = 0
+    #: Degradations this run survived, reported rather than swallowed.
+    notes: list[str] = []
 
     for scene in project.scenes:
         if scene.locked:
@@ -334,7 +375,7 @@ def run_visuals(project: Project, deps: StageDeps) -> StageResult:
 
         # Providers set `local_path` with `providers.assets.project_relative`, so the
         # refs come back already anchored on the project folder.
-        refs = _fetch(deps, project, scene, kinds)
+        refs = _fetch(deps, project, scene, kinds, notes)
         scene.visual.candidates = refs[:MAX_CANDIDATES]
         scene.visual.chosen = scene.visual.candidates[0]
         scene.error = None
@@ -344,4 +385,4 @@ def run_visuals(project: Project, deps: StageDeps) -> StageResult:
     if changed:
         deps.stage_cache.save()
         deps.store.save(project)
-    return StageResult(changed=changed, skipped_units=skipped)
+    return StageResult(changed=changed, skipped_units=skipped, warnings=tuple(notes))

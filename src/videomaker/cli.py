@@ -169,6 +169,11 @@ def run(
     def report(stage: str, result: StageResult) -> None:
         verb = "[green]ran[/green]" if result.changed else "[dim]cached[/dim]"
         console.print(f"  {verb} {stage} ({result.skipped_units} unit(s) skipped)")
+        # Things the stage survived. A silent degradation is how an optional
+        # feature can be completely dead for a hundred scenes and still look like
+        # it is working (M3 Task 14).
+        for note in result.warnings:
+            console.print(f"    [yellow]warning[/yellow] {note}")
 
     try:
         run_pipeline(project, deps, until=until, yes=yes, on_stage=report)

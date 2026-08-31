@@ -161,7 +161,10 @@ def test_groq_unusable_payload_maps_to_response_error():
 GEMINI_MODELS_BODY = {
     "models": [
         {"name": "models/embedding-001", "supportedGenerationMethods": ["embedContent"]},
-        {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+        {
+            "name": f"models/{GEMINI_MODEL_PREFERENCE[0]}",
+            "supportedGenerationMethods": ["generateContent"],
+        },
     ]
 }
 # `gemini-1.0-pro-vision-latest` is Gemini's `allam-2-7b`: a real chat model that
@@ -188,7 +191,7 @@ def test_gemini_resolves_preferred_model_not_first_listed():
         return httpx.Response(200, json=_gemini_text("hi"))
 
     p = GeminiProvider(Settings(gemini_api_key="k"), client=_client(handler))
-    assert p._resolve_model() == "gemini-2.5-flash"
+    assert p._resolve_model() == GEMINI_MODEL_PREFERENCE[0]
 
 
 def test_gemini_raises_when_no_preferred_model_available():
@@ -215,7 +218,7 @@ def test_gemini_generate_returns_text_and_marks_uncached():
     result = p.generate(system="s", user="u")
     assert result.text == '{"scenes": []}'
     assert result.cached is False
-    assert result.model == "gemini-2.5-flash"
+    assert result.model == GEMINI_MODEL_PREFERENCE[0]
 
 
 def test_gemini_uses_goog_api_key_header_and_response_mime_type():
@@ -235,7 +238,7 @@ def test_gemini_uses_goog_api_key_header_and_response_mime_type():
     assert "key=" not in str(generate.url)  # the key never rides in the query string
     body = httpx.Response(200, content=generate.content).json()
     assert body["generationConfig"]["responseMimeType"] == "application/json"
-    assert "gemini-2.5-flash" in generate.url.path
+    assert GEMINI_MODEL_PREFERENCE[0] in generate.url.path
 
 
 def test_gemini_429_maps_to_transient_with_retry_delay():
@@ -339,3 +342,166 @@ def test_a_recorded_llm_call_survives_a_new_quota_tracker(tmp_path):
     spent_in_memory = provider.quota.remaining("groq", budget)
     reloaded = QuotaTracker(ledger).remaining("groq", budget)
     assert reloaded == spent_in_memory, "the recorded call did not reach disk"
+
+
+# ------------------------------------------- a listed model that will not answer
+
+#: `ListModels` is a catalogue, not a promise. Measured against the live API on
+#: 2026-08-31 with this project's own key: every one of the four ids the old
+#: `GEMINI_MODEL_PREFERENCE` named answered `generateContent` with a 404, and the
+#: first two of them were *still advertised by `ListModels`* while doing it.
+#:
+#: ```
+#: gemini-2.5-flash       404 NOT_FOUND  no longer available to new users
+#: gemini-2.5-flash-lite  404 NOT_FOUND  no longer available to new users
+#: gemini-2.0-flash       404 NOT_FOUND  no longer available
+#: gemini-2.0-flash-lite  404 NOT_FOUND  no longer available
+#: ```
+#:
+#: So resolution that trusts the catalogue "succeeds" and every call fails — which
+#: is exactly how M3 Task 14 spent 240 requests on a provider that never answered.
+RETIRED_IDS = ("gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.0-flash-lite")
+
+
+def test_the_gemini_preference_names_no_model_measured_dead():
+    """A regression pin on the list itself, with the evidence in `RETIRED_IDS`."""
+    assert not set(GEMINI_MODEL_PREFERENCE) & set(RETIRED_IDS)
+    assert GEMINI_MODEL_PREFERENCE  # and it still names something
+
+
+def _retirement(model: str) -> dict:
+    return {
+        "error": {
+            "code": 404,
+            "status": "NOT_FOUND",
+            "message": (
+                f"This model models/{model} is no longer available to new users. "
+                "Please update your code to use models/gemini-3.6-flash."
+            ),
+        }
+    }
+
+
+def _catalogue_of(*models: str) -> dict:
+    return {
+        "models": [
+            {"name": f"models/{m}", "supportedGenerationMethods": ["generateContent"]}
+            for m in models
+        ]
+    }
+
+
+def _retiring_handler(dead: set[str], calls: list[httpx.Request] | None = None):
+    """Lists the whole preference; 404s the ids in `dead`, answers for the rest."""
+
+    def handler(request):
+        if calls is not None:
+            calls.append(request)
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=_catalogue_of(*GEMINI_MODEL_PREFERENCE))
+        model = request.url.path.rsplit("/", 1)[-1].split(":")[0]
+        if model in dead:
+            return httpx.Response(404, json=_retirement(model))
+        return httpx.Response(200, json=_gemini_text("hi"))
+
+    return handler
+
+
+def test_a_listed_but_retired_model_falls_through_to_the_next_preference():
+    """The catalogue said yes and `generateContent` said 404. Only the call is proof."""
+    calls: list[httpx.Request] = []
+    p = GeminiProvider(
+        Settings(gemini_api_key="k"),
+        client=_client(_retiring_handler({GEMINI_MODEL_PREFERENCE[0]}, calls)),
+    )
+    result = p.generate(system="s", user="u")
+
+    assert result.text == "hi"
+    assert result.model == GEMINI_MODEL_PREFERENCE[1]
+    tried = [c.url.path.rsplit("/", 1)[-1].split(":")[0] for c in calls if ":generateContent" in c.url.path]
+    assert tried == [GEMINI_MODEL_PREFERENCE[0], GEMINI_MODEL_PREFERENCE[1]]
+
+
+def test_a_retired_model_is_not_offered_again_within_the_process():
+    """One 404 per dead id, not one per request. 240 of them is the bug being fixed."""
+    calls: list[httpx.Request] = []
+    p = GeminiProvider(
+        Settings(gemini_api_key="k"),
+        client=_client(_retiring_handler({GEMINI_MODEL_PREFERENCE[0]}, calls)),
+    )
+    p.generate(system="s", user="u1")
+    p.generate(system="s", user="u2")
+
+    tried = [c.url.path.rsplit("/", 1)[-1].split(":")[0] for c in calls if ":generateContent" in c.url.path]
+    assert tried.count(GEMINI_MODEL_PREFERENCE[0]) == 1
+    assert tried.count(GEMINI_MODEL_PREFERENCE[1]) == 2
+
+
+def test_every_preferred_model_retired_is_a_loud_config_error():
+    """The M0 rule survives: never adopt an arbitrary id, say what happened instead."""
+    p = GeminiProvider(
+        Settings(gemini_api_key="k"),
+        client=_client(_retiring_handler(set(GEMINI_MODEL_PREFERENCE))),
+    )
+    with pytest.raises(ProviderConfigError) as exc:
+        p.generate(system="s", user="u")
+    message = str(exc.value)
+    assert GEMINI_MODEL_PREFERENCE[0] in message
+    assert "retired" in message.lower() or "refused" in message.lower()
+
+
+def test_a_404_on_a_retired_model_costs_no_quota(tmp_path):
+    """The half of M3 Task 14 that cost the user their day.
+
+    A `generateContent` 404 is refused before any model runs: Google books no unit
+    for it, so neither may we. The successful retry costs exactly one — not two.
+    """
+    ledger = tmp_path / "quota.json"
+    p = GeminiProvider(
+        Settings(gemini_api_key="k"),
+        client=_client(_retiring_handler({GEMINI_MODEL_PREFERENCE[0]})),
+        quota=QuotaTracker(ledger),
+    )
+    p.generate(system="s", user="u")
+
+    budget = SOFT_BUDGETS["gemini"]
+    assert QuotaTracker(ledger).remaining("gemini", budget)["per_day"] == budget.per_day - 1
+
+
+def test_a_dead_preference_list_spends_nothing_at_all(tmp_path):
+    """Every id 404s: four refused requests, zero units. The 240 that must not recur."""
+    ledger = tmp_path / "quota.json"
+    p = GeminiProvider(
+        Settings(gemini_api_key="k"),
+        client=_client(_retiring_handler(set(GEMINI_MODEL_PREFERENCE))),
+        quota=QuotaTracker(ledger),
+    )
+    with pytest.raises(ProviderConfigError):
+        p.generate(system="s", user="u")
+
+    budget = SOFT_BUDGETS["gemini"]
+    assert QuotaTracker(ledger).remaining("gemini", budget)["per_day"] == budget.per_day
+
+
+def test_a_429_still_costs_quota(tmp_path):
+    """The other side of the rule, and the mutant guard on it.
+
+    A rate limit or a 500 *left the machine* and probably counted against the
+    allowance. Only a refusal that never reached a model is free; a fix that stops
+    booking failures wholesale would put us back to billing past the free tier.
+    """
+    ledger = tmp_path / "quota.json"
+
+    def handler(request):
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=_catalogue_of(*GEMINI_MODEL_PREFERENCE))
+        return httpx.Response(429, json={"error": {"status": "RESOURCE_EXHAUSTED", "message": "slow down"}})
+
+    p = GeminiProvider(
+        Settings(gemini_api_key="k"), client=_client(handler), quota=QuotaTracker(ledger)
+    )
+    with pytest.raises(TransientError):
+        p.generate(system="s", user="u")
+
+    budget = SOFT_BUDGETS["gemini"]
+    assert QuotaTracker(ledger).remaining("gemini", budget)["per_day"] == budget.per_day - 1

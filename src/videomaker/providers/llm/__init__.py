@@ -14,6 +14,7 @@ therefore *intersection with an ordered preference list, or a loud
 """
 
 from abc import abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -22,6 +23,7 @@ from videomaker.cache import ResponseCache, hash_inputs
 from videomaker.config import Settings
 from videomaker.providers.base import LLMProvider, LLMResult
 from videomaker.providers.errors import (
+    ModelRetired,
     ProviderConfigError,
     ProviderResponseError,
     QuotaExceeded,
@@ -50,6 +52,12 @@ DAILY_CAP_MARKERS: tuple[str, ...] = (
 # transport (tests, or a future proxy), and one caller's catalogue must never
 # leak into another's.
 _CATALOGUE_CACHE: dict[tuple[str, str], tuple[str, ...]] = {}
+
+# Ids the catalogue advertises that `generateContent` refuses. Same key and the
+# same owned-client rule as `_CATALOGUE_CACHE`, and deliberately shared across
+# provider *kinds*: the LLM and the vision provider are the same account talking to
+# the same endpoint, so one of them proving an id dead spares the other a 404.
+_RETIRED_CACHE: dict[tuple[str, str], set[str]] = {}
 
 
 def parse_retry_after(value: str | None) -> float | None:
@@ -84,6 +92,9 @@ class HttpLLMProvider(LLMProvider):
         self.model: str | None = None
         self._client = client
         self._owns_client = client is None
+        #: Ids this account lists but will not serve. Only ever grows, which is
+        #: what makes `_with_model_fallback`'s loop terminate.
+        self._retired: set[str] = set()
 
     # ----------------------------------------------------------------- plumbing
 
@@ -109,7 +120,16 @@ class HttpLLMProvider(LLMProvider):
     # ------------------------------------------------------- model resolution
 
     def _resolve_model(self) -> str:
-        """The first preferred model this account actually serves (M0 finding 1)."""
+        """The first preferred model this account actually serves (M0 finding 1).
+
+        "Serves" means two things, and M3 Task 14 was the bill for only checking
+        the first. `ListModels` still advertised `gemini-2.5-flash` long after
+        `generateContent` began answering `404 ... no longer available to new
+        users`, so resolution succeeded and every call failed. A listing is a
+        catalogue, not a promise; the only proof is a call. Ids that have failed
+        that proof are in `_retired` and are skipped here — see
+        `_with_model_fallback`, which is what puts them there.
+        """
         if self.model is not None:
             return self.model
         key = self._require_api_key()
@@ -119,19 +139,68 @@ class HttpLLMProvider(LLMProvider):
             available = tuple(self._catalogue())
             if self._owns_client:
                 _CATALOGUE_CACHE[cache_key] = available
-        offered = set(available)
+        retired = self._retired_ids()
+        offered = set(available) - retired
         for candidate in self.preference:
             if candidate in offered:
                 self.model = candidate
                 return candidate
         listed = ", ".join(sorted(available)[:MAX_LISTED_MODELS]) or "nothing"
+        refused = ", ".join(sorted(retired)) or "none"
         raise ProviderConfigError(
             f"{self.provider_name} serves none of the models this project prefers. "
             f"Wanted, in order: {', '.join(self.preference)}. "
             f"Your account offers: {listed}. "
+            f"Listed but retired — refused with a 404 when actually called: {refused}. "
             "Update the preference list rather than accepting an arbitrary model — "
             "a mismatched model silently produces a bad script (M0 finding 1)."
         )
+
+    def _retired_ids(self) -> set[str]:
+        """Ids proven unusable, shared process-wide when we own the transport."""
+        if not self._owns_client:
+            return self._retired
+        return _RETIRED_CACHE.setdefault((self.provider_name, self._api_key()), self._retired)
+
+    def _retire_model(self, model: str) -> None:
+        """Record that `model` is listed but unusable, and re-open resolution."""
+        self._retired.add(model)
+        self._retired_ids().add(model)
+        if self.model == model:
+            self.model = None
+
+    def _with_model_fallback[T](self, call: Callable[[str], T]) -> T:
+        """Run `call` against the resolved model, walking past ids that 404.
+
+        This is the half of the fix that does not rot. Updating the preference list
+        fixes today's retirement; Google will publish the next one on schedule, and
+        then the only thing that knows is the 404. Each refusal retires the id and
+        re-resolves down the list, so the chain degrades to the next preferred model
+        instead of to a provider that answers nothing.
+
+        Bounded by the preference list, which is short and only ever shrinks within
+        a process — and a refusal costs no quota, so the walk is free.
+        """
+        for _ in range(len(self.preference)):
+            model = self._resolve_model()
+            try:
+                return call(model)
+            except ModelRetired:
+                self._retire_model(model)
+        # Every preference retired: `_resolve_model` now has nothing to offer and
+        # raises the loud M0 message naming each one.
+        return call(self._resolve_model())
+
+    def _book_request(self) -> None:
+        """Book one unit against the provider's soft budget, and persist it.
+
+        `record` only mutates memory, and `build_deps` makes a fresh `QuotaTracker`
+        per job — without the `save` the count dies with the job and a *per-day*
+        budget (gemini's 240) can never be enforced across invocations (M2 finding).
+        """
+        if self.quota is not None:
+            self.quota.record(self.provider_name)
+            self.quota.save()
 
     # ----------------------------------------------------------------- generate
 
@@ -145,45 +214,53 @@ class HttpLLMProvider(LLMProvider):
         max_tokens: int = 2048,
     ) -> LLMResult:
         self._require_api_key()
-        model = self._resolve_model()
-        key = hash_inputs(
-            provider=self.provider_name,
-            model=model,
-            system=system,
-            user=user,
-            temperature=temperature,
-            schema=json_schema,
-        )
-        if self.cache is not None:
-            entry = self.cache.get(key)
-            text = entry.get("text") if entry else None
-            if isinstance(text, str):
-                # A hit costs nothing, so the quota tracker is never touched.
-                return LLMResult(text=text, model=str(entry.get("model") or model), cached=True)
-        if self.quota is not None:
-            self.quota.check(self.provider_name, SOFT_BUDGETS[self.provider_name])
-        try:
-            text = self._complete(
+
+        def attempt(model: str) -> LLMResult:
+            key = hash_inputs(
+                provider=self.provider_name,
                 model=model,
                 system=system,
                 user=user,
-                json_schema=json_schema,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                schema=json_schema,
             )
-        finally:
-            # The request left the machine even if it came back 429 or 500, so
-            # book it either way: over-counting costs headroom, never money.
+            if self.cache is not None:
+                entry = self.cache.get(key)
+                text = entry.get("text") if entry else None
+                if isinstance(text, str):
+                    # A hit costs nothing, so the quota tracker is never touched.
+                    return LLMResult(
+                        text=text, model=str(entry.get("model") or model), cached=True
+                    )
             if self.quota is not None:
-                self.quota.record(self.provider_name)
-                # `record` only mutates memory, and `build_deps` makes a fresh
-                # tracker per job — without this the count dies with the job and
-                # a per-day budget (gemini's 240) can never be enforced across
-                # invocations. The stock and image providers already save here.
-                self.quota.save()
-        if self.cache is not None:
-            self.cache.put(key, {"text": text, "model": model})
-        return LLMResult(text=text, model=model, cached=False)
+                self.quota.check(self.provider_name, SOFT_BUDGETS[self.provider_name])
+            chargeable = True
+            try:
+                text = self._complete(
+                    model=model,
+                    system=system,
+                    user=user,
+                    json_schema=json_schema,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            except ModelRetired:
+                # A 404 on a listed-but-retired id is refused before any model
+                # runs, so the provider books no unit and neither do we. This is
+                # the *only* free failure: a 429 or a 500 left the machine and
+                # probably counted, and over-counting those costs headroom, never
+                # money. Getting this backwards spent a whole day's Gemini budget
+                # on requests that never happened (M3 Task 14).
+                chargeable = False
+                raise
+            finally:
+                if chargeable:
+                    self._book_request()
+            if self.cache is not None:
+                self.cache.put(key, {"text": text, "model": model})
+            return LLMResult(text=text, model=model, cached=False)
+
+        return self._with_model_fallback(attempt)
 
     # -------------------------------------------------------------- error maps
 
@@ -207,6 +284,15 @@ class HttpLLMProvider(LLMProvider):
             raise TransientError(
                 f"{self.provider_name} rate limited: {signal or 'no detail'}",
                 retry_after_s=retry_after,
+            )
+        if status == 404:
+            # The only 404 either provider can produce is on a model path: both
+            # build the URL themselves and neither takes one from a response. So a
+            # 404 means "this id, not this account" — a different model, not a
+            # different provider, and not a retry.
+            raise ModelRetired(
+                f"{self.provider_name} lists this model but refused to serve it "
+                f"(404): {signal or 'no detail'}"
             )
         if status == 408 or status >= 500:
             raise TransientError(

@@ -108,6 +108,38 @@ spent the budget it needed. **Until it runs, the switch must stay off, and the
 reason to keep it off is now stronger than "unmeasured": as shipped it is a
 no-op with a bill.**
 
+### Addendum, 2026-08-31: the three defects are fixed
+
+The section above is the measurement as taken and is left as written. The code it
+describes has since changed, so read it as history rather than as the current tree.
+
+* **It was not "two constants".** Every id in `GEMINI_MODEL_PREFERENCE` was dead,
+  not just the first: `gemini-2.5-flash` and `gemini-2.5-flash-lite` 404 while still
+  being advertised by `ListModels`, and `gemini-2.0-flash{,-lite}` are no longer
+  listed at all. The list now names four ids probed to answer on this account, led
+  by `gemini-3.6-flash`. The list alone is not the fix, because Google retires on a
+  schedule and it will rot again — `_with_model_fallback` now treats a 404 as the
+  proof a listing is not, retires the id and re-resolves down the preference.
+* **The token ceiling is derived, and truncation is detected.** `MAX_SCORE_TOKENS`
+  is `MAX_CANDIDATES` scores plus JSON overhead plus reasoning headroom, and a
+  `finishReason=MAX_TOKENS` reply is now rejected by name instead of failing the
+  JSON parse by luck.
+* **The re-rank still cannot fail a scene, but it can no longer fail silently.**
+  Each fallback appends a line to `StageResult.warnings`, which the CLI prints, and
+  raises a `RerankUnavailable` warning for callers that ignore the result — such as
+  this harness.
+* **A 404 no longer costs quota.** It never reached a model, so it is not spent
+  capacity. A 429, a 500 or a truncated answer still book their unit. The 240
+  bookings in the table below are all of the first kind: real requests, zero real
+  capacity, and under the current rule they would have cost nothing.
+
+The mechanism is verified live — `gemini-3.6-flash`, four scenes off the projects on
+disk, four well-formed scores in `[0, 1]` each, consistent across a reversed
+candidate order. **What is still unmeasured is whether it is worth its quota**, and
+that is `test_vision_rerank_repaired_probe`'s question. It skipped again on
+2026-08-31: all 240 units were spent inside a 35-minute window ~1.5 hours earlier,
+so the sliding day releases nothing for another ~22 hours. **The switch stays off.**
+
 ## The judge, and why it can be believed
 
 The design doc offered two scoring options; this is the LLM judge, on Groq

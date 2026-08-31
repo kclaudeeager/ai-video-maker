@@ -29,7 +29,14 @@ from videomaker.pipeline.ranking import (
     is_ambiguous,
     scores_for,
 )
-from videomaker.pipeline.visuals import provider_names, run_visuals, scene_hash, vision_names
+from videomaker.pipeline.visuals import (
+    MAX_CANDIDATES,
+    RerankUnavailable,
+    provider_names,
+    run_visuals,
+    scene_hash,
+    vision_names,
+)
 from videomaker.project import ProjectStore
 from videomaker.providers import register
 from videomaker.providers.base import StockProvider, VisionProvider
@@ -41,7 +48,13 @@ from videomaker.providers.errors import (
 )
 from videomaker.providers.mock import MockStock
 from videomaker.providers.ratelimit import SOFT_BUDGETS, QuotaTracker
-from videomaker.providers.vision.gemini import GeminiVisionProvider
+from videomaker.providers.vision.gemini import (
+    MAX_SCORE_TOKENS,
+    MAX_SCORED_IMAGES,
+    SCORE_JSON_OVERHEAD_TOKENS,
+    SCORE_TOKENS_PER_IMAGE,
+    GeminiVisionProvider,
+)
 
 QUERY = "nand flash cell macro"
 NARRATION = "Every write wears the memory cells out a little more."
@@ -49,7 +62,10 @@ SCENE_DURATION_S = 4.0
 
 CATALOGUE = {
     "models": [
-        {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]}
+        {
+            "name": f"models/{GeminiVisionProvider.preference[0]}",
+            "supportedGenerationMethods": ["generateContent"],
+        }
     ]
 }
 JPEG_BYTES = b"\xff\xd8\xff\xe0 not really a jpeg, but bytes are bytes"
@@ -515,3 +531,217 @@ def test_config_yaml_without_a_visuals_section_leaves_it_off(tmp_path):
     path = tmp_path / "config.yaml"
     path.write_text("paths:\n  workspace_dir: ./workspace\n")
     assert load_settings(path).visual_rerank_enabled is False
+
+
+# ----------------------------------------------------------------- room to answer
+
+
+def test_the_token_ceiling_fits_the_worst_case_this_stage_can_send():
+    """`MAX_SCORE_TOKENS = 256` truncated the reply mid-array (M3 Task 14).
+
+    The worst case is one score per candidate, `MAX_CANDIDATES` of them, plus the
+    JSON around them. The ceiling is derived from exactly that — so a change to
+    `MAX_CANDIDATES` cannot quietly outgrow it — and the rest is headroom, because
+    Gemini 3.x bills its private reasoning against `maxOutputTokens` and a
+    four-image comparison is precisely the prompt that provokes a long one.
+    """
+    answer = MAX_CANDIDATES * SCORE_TOKENS_PER_IMAGE + SCORE_JSON_OVERHEAD_TOKENS
+    assert MAX_SCORED_IMAGES >= MAX_CANDIDATES  # the provider's copy of the bound
+    assert MAX_SCORE_TOKENS >= answer
+    # The observed truncation cut `{"scores": [0.65` off a 256-token budget: ~240
+    # tokens went somewhere that was not the answer. Headroom below that is a
+    # ceiling that has already been shown to fail.
+    assert MAX_SCORE_TOKENS - answer > 256
+
+
+def test_the_request_asks_for_the_whole_ceiling():
+    calls: list[httpx.Request] = []
+    provider = _provider(_handler([0.2, 0.9], calls=calls))
+    provider.score_images(image_urls=URLS, query=QUERY, narration=NARRATION)
+
+    generate = next(c for c in calls if c.url.path.endswith(":generateContent"))
+    config = json.loads(generate.content)["generationConfig"]
+    assert config["maxOutputTokens"] == MAX_SCORE_TOKENS
+
+
+def _truncated_handler(text: str, finish: str = "MAX_TOKENS"):
+    def handle(request):
+        if request.url.host == "img.invalid":
+            return httpx.Response(200, content=JPEG_BYTES, headers={"content-type": "image/jpeg"})
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=CATALOGUE)
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {"content": {"parts": [{"text": text}]}, "finishReason": finish}
+                ]
+            },
+        )
+
+    return handle
+
+
+def test_a_reply_cut_mid_array_is_detected():
+    """The literal body observed on 2026-08-31: `{"scores": [0.65`."""
+    provider = _provider(_truncated_handler('{"scores": [0.65'))
+    with pytest.raises(ProviderResponseError) as exc:
+        provider.score_images(image_urls=URLS, query=QUERY, narration=NARRATION)
+    assert "truncat" in str(exc.value).lower()
+
+
+def test_a_reply_that_stops_early_but_parses_is_still_a_truncation():
+    """The dangerous shape: valid JSON, a *short* list, `finishReason=MAX_TOKENS`.
+
+    Detected by the finish reason, not by the length happening to disagree — a
+    truncated answer must never be mistaken for a considered one.
+    """
+    provider = _provider(_truncated_handler('{"scores": [0.65]}'))
+    with pytest.raises(ProviderResponseError) as exc:
+        provider.score_images(image_urls=URLS, query=QUERY, narration=NARRATION)
+    assert "truncat" in str(exc.value).lower()
+
+
+def test_a_truncated_reply_still_costs_its_quota(tmp_path):
+    """The model ran and produced tokens. That is spent capacity whatever came back."""
+    ledger = tmp_path / "quota.json"
+    provider = _provider(_truncated_handler('{"scores": [0.65'), quota=QuotaTracker(ledger))
+    with pytest.raises(ProviderResponseError):
+        provider.score_images(image_urls=URLS, query=QUERY, narration=NARRATION)
+
+    budget = SOFT_BUDGETS["gemini"]
+    assert QuotaTracker(ledger).remaining("gemini", budget)["per_day"] == budget.per_day - 1
+
+
+# -------------------------------------------------- a model the account cannot call
+
+
+def _vision_retiring_handler(dead: set[str], calls: list[httpx.Request] | None = None):
+    listed = {
+        "models": [
+            {"name": f"models/{m}", "supportedGenerationMethods": ["generateContent"]}
+            for m in GeminiVisionProvider.preference
+        ]
+    }
+
+    def handle(request):
+        if calls is not None:
+            calls.append(request)
+        if request.url.host == "img.invalid":
+            return httpx.Response(200, content=JPEG_BYTES, headers={"content-type": "image/jpeg"})
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=listed)
+        model = request.url.path.rsplit("/", 1)[-1].split(":")[0]
+        if model in dead:
+            return httpx.Response(
+                404,
+                json={
+                    "error": {
+                        "code": 404,
+                        "status": "NOT_FOUND",
+                        "message": f"This model models/{model} is no longer available to new users.",
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": json.dumps({"scores": [0.4, 0.6]})}]}}]},
+        )
+
+    return handle
+
+
+def test_a_retired_vision_model_falls_through_and_answers():
+    provider = _provider(_vision_retiring_handler({GeminiVisionProvider.preference[0]}))
+    assert provider.score_images(image_urls=URLS, query=QUERY, narration=NARRATION) == [0.4, 0.6]
+
+
+def test_a_retired_vision_model_books_no_quota(tmp_path):
+    """240 units on 404s is what this test exists to make impossible.
+
+    The refused request never reached a model, so it is not spent capacity. The
+    retry that *did* answer costs one — not two.
+    """
+    ledger = tmp_path / "quota.json"
+    provider = _provider(
+        _vision_retiring_handler({GeminiVisionProvider.preference[0]}), quota=QuotaTracker(ledger)
+    )
+    provider.score_images(image_urls=URLS, query=QUERY, narration=NARRATION)
+
+    budget = SOFT_BUDGETS["gemini"]
+    assert QuotaTracker(ledger).remaining("gemini", budget)["per_day"] == budget.per_day - 1
+
+
+def test_a_wholly_dead_preference_list_books_nothing(tmp_path):
+    ledger = tmp_path / "quota.json"
+    provider = _provider(
+        _vision_retiring_handler(set(GeminiVisionProvider.preference)), quota=QuotaTracker(ledger)
+    )
+    with pytest.raises(ProviderConfigError):
+        provider.score_images(image_urls=URLS, query=QUERY, narration=NARRATION)
+
+    budget = SOFT_BUDGETS["gemini"]
+    assert QuotaTracker(ledger).remaining("gemini", budget)["per_day"] == budget.per_day
+
+
+# ------------------------------------------------------------ the failure is visible
+
+
+def test_a_failed_rerank_leaves_a_trace_in_the_stage_result(tmp_path, vision):
+    """The actual M3 Task 14 bug: a provider that never answered once was
+    indistinguishable from one that worked, for a hundred scenes.
+
+    The fallback policy is right — a re-rank may never fail a scene — but it must
+    not be silent. The stage reports it and the CLI prints it.
+    """
+    vision.error = RuntimeError("404 no longer available to new users")
+    deps = _deps(tmp_path, enabled=True, results=TIED)
+    project = _project(deps)
+
+    with pytest.warns(RerankUnavailable):
+        result = run_visuals(project, deps)
+
+    assert project.scenes[0].visual.chosen.source_id == "a"  # policy unchanged
+    assert len(result.warnings) == 1
+    note = result.warnings[0]
+    assert "s01" in note
+    assert "no longer available" in note
+
+
+def test_a_working_rerank_leaves_no_trace(tmp_path, vision):
+    """A mutant that warns unconditionally has to fail here."""
+    vision.scores = [0.1, 0.9]
+    deps = _deps(tmp_path, enabled=True, results=TIED)
+    project = _project(deps)
+
+    result = run_visuals(project, deps)
+
+    assert project.scenes[0].visual.chosen.source_id == "b"
+    assert result.warnings == ()
+
+
+def test_a_scene_the_gate_never_opened_leaves_no_trace(tmp_path, vision):
+    """Not spending a request is not a failure, and must not read like one."""
+    deps = _deps(tmp_path, enabled=True, results=CONFIDENT)
+    project = _project(deps)
+
+    result = run_visuals(project, deps)
+
+    assert vision.asked == []
+    assert result.warnings == ()
+
+
+def test_a_rerank_failure_is_not_recorded_as_a_scene_error(tmp_path, vision):
+    """`Scene.error` means *this scene failed*; the storyboard renders it as broken.
+
+    A re-rank that fell back produced a perfectly good scene, so the trace belongs
+    in the run report, not on the artefact.
+    """
+    vision.error = RuntimeError("boom")
+    deps = _deps(tmp_path, enabled=True, results=TIED)
+    project = _project(deps)
+
+    with pytest.warns(RerankUnavailable):
+        run_visuals(project, deps)
+
+    assert project.scenes[0].error is None

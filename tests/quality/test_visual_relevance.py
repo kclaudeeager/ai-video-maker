@@ -141,7 +141,6 @@ from videomaker.providers.errors import (
 )
 from videomaker.providers.ratelimit import SOFT_BUDGETS, QuotaTracker
 from videomaker.providers.stock.pexels import PexelsProvider
-from videomaker.providers.vision import gemini as vision_gemini
 from videomaker.templates import load_template
 
 pytestmark = pytest.mark.slow
@@ -852,16 +851,14 @@ def test_visual_relevance_before_and_after(
 # ------------------------------------------------- what a *working* re-rank would buy
 
 
-#: Models this account can actually reach. `GEMINI_MODEL_PREFERENCE` leads with
-#: `gemini-2.5-flash`, which `ListModels` still advertises and `generateContent`
-#: answers with `404 ... no longer available to new users` — so every re-rank
-#: request 404s, `_rerank` swallows it, and the shipped arm is the metadata arm with
-#: a Gemini bill attached.
-REPAIRED_VISION_MODELS = ("gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash-lite")
-#: And the second defect behind the first: `MAX_SCORE_TOKENS = 256` truncates a
-#: reasoning model mid-array, so even a reachable model returns
-#: `{"scores": [0.65` and fails the parse.
-REPAIRED_SCORE_TOKENS = 2048
+#: **Both defects this probe used to hand-patch are now fixed in the source.**
+#: `GEMINI_MODEL_PREFERENCE` led with `gemini-2.5-flash`, which `ListModels` still
+#: advertises and `generateContent` answers with `404 ... no longer available to new
+#: users`; and `MAX_SCORE_TOKENS = 256` truncated a reasoning model mid-array. The
+#: preference list now names ids measured to answer, `_with_model_fallback` retires
+#: any that 404 rather than trusting the catalogue, and the token ceiling is derived
+#: from `MAX_CANDIDATES` with reasoning headroom. So the probe runs the shipped
+#: provider unpatched — which is the only version of it worth measuring.
 
 #: Gemini's soft budget is 240 requests a day, shared with the script stage, and the
 #: broken arm spends one per gated scene before failing. Four projects is what is
@@ -874,18 +871,17 @@ def test_vision_rerank_repaired_probe(
 ) -> None:
     """Would Task 13's re-rank be worth its quota *if it worked*?
 
-    **This does not measure shipped behaviour and is not a fix.** The two constants
-    patched below belong to `providers/vision/gemini.py` and to a commit that says
-    so. What this answers is the question the broken arm cannot: with a model the
-    account can reach and room to finish the sentence, does looking at the picture
-    change the pick, and does it change it for the better?
+    Written while the provider was broken, and it hand-patched the two constants to
+    ask the question anyway. Those patches are gone: the model preference and the
+    token ceiling are fixed in `providers/vision/gemini.py`, so this now measures
+    the shipped provider. What it answers is the question the broken arm could not:
+    with a model the account can reach and room to finish the sentence, does looking
+    at the picture change the pick, and does it change it for the better?
 
     Deliberately narrow — four projects, on whatever is left of the day's Gemini
     allowance — and reported as directional, not as a number to put beside the
     hundred-scene arms.
     """
-    monkeypatch.setattr(vision_gemini, "MAX_SCORE_TOKENS", REPAIRED_SCORE_TOKENS)
-    monkeypatch.setattr(vision_gemini.GeminiVisionProvider, "preference", REPAIRED_VISION_MODELS)
     monkeypatch.setattr(PexelsProvider, "download", _stub_download)
 
     # `_rerank` swallows every failure, `QuotaExceeded` included, so a spent budget

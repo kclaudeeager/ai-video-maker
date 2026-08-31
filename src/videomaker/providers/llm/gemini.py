@@ -25,11 +25,40 @@ GENERATE_CONTENT_METHOD = "generateContent"
 MODEL_NAME_PREFIX = "models/"
 MODELS_PAGE_SIZE = 200
 
+#: Models this account can actually *call*, newest first, flash before flash-lite.
+#:
+#: Every id in the previous list was dead. Probed against the live API on
+#: 2026-08-31 with a one-token `generateContent`:
+#:
+#: ```
+#: gemini-2.5-flash        404  listed by ListModels, "no longer available to new users"
+#: gemini-2.5-flash-lite   404  listed by ListModels, "no longer available to new users"
+#: gemini-2.0-flash        404  not listed at all
+#: gemini-2.0-flash-lite   404  not listed at all
+#: gemini-3.6-flash        OK   <- Google's own named replacement for 2.5-flash
+#: gemini-3.5-flash        OK
+#: gemini-3.5-flash-lite   OK   <- Google's own named replacement for 2.5-flash-lite
+#: gemini-3.1-flash-lite   OK
+#: gemini-3.7-flash        read timeout, twice
+#: gemini-flash-latest     503 UNAVAILABLE / read timeout
+#: ```
+#:
+#: The first two are the whole of M3 Task 14's defect 1: `ListModels` advertises
+#: them, so resolution succeeded and all 240 calls 404'd. Fixing the list is only
+#: half the repair — Google retires on a published schedule and this list will rot
+#: again — so `HttpLLMProvider._with_model_fallback` treats a 404 as proof and walks
+#: on. The list decides *which* working model; the fallback decides *that* it works.
+#:
+#: Excluded on purpose: `gemini-3.7-flash` and `gemini-flash-latest`, which were
+#: under load both times they were probed and must not be led with; `-preview` ids,
+#: which can vanish without a deprecation window; and the floating `-latest`
+#: aliases, because the response cache keys entries by model id and an alias that
+#: silently moves makes those keys lie about what produced the text.
 GEMINI_MODEL_PREFERENCE: tuple[str, ...] = (
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
 )
 
 

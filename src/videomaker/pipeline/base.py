@@ -35,10 +35,19 @@ SCENE_GAP_S = 0.5
 
 @dataclass(frozen=True)
 class StageResult:
-    """What one stage did. `skipped_units` are the units the hash engine spared."""
+    """What one stage did. `skipped_units` are the units the hash engine spared.
+
+    `warnings` is for the things a stage *survived*. A stage that raises is
+    impossible to miss; a stage that quietly fell back to its second-best answer is
+    invisible, and M3 Task 14 spent a hundred scenes and a day's Gemini budget
+    proving how expensive that is. Anything that degraded the output without
+    failing it belongs here, one human-readable line each, and every caller of
+    `run_pipeline` gets them through `on_stage`.
+    """
 
     changed: bool = False
     skipped_units: int = 0
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass
