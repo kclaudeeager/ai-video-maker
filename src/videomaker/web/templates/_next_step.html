@@ -11,7 +11,14 @@
   The action is hidden when it points at the page you are already on: a gate page
   offering "Review the script" while you are reading the script is noise, and the
   approve button further down is the real action there.
+
+  The whole panel is guarded on `next` being defined. It is an enhancement, not
+  content: five pages include it, so a context that does not carry `next` should
+  cost the reader this panel, not the page. That is not hypothetical — a server
+  left running across an upgrade holds the old route code while Jinja re-reads
+  these templates from disk, and every one of those five pages returned 500.
 #}
+{% if next is defined and next %}
 {% set here = request.url.path if request is defined and request else "" %}
 <section class="next-step {{ next.tone }}" data-next="{{ next.kind }}" aria-labelledby="next-step-ask">
   <p class="eyebrow flush next-where">{{ next.where }}</p>
@@ -28,3 +35,4 @@
     {% endif %}
   {% endif %}
 </section>
+{% endif %}

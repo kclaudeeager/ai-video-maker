@@ -137,3 +137,26 @@ def test_the_tone_is_warm_only_when_it_is_the_humans_turn(settings, store):
 
     run_pipeline(project, build_deps(settings, project.id), until="script")
     assert _step(store, project.id).tone == "is-review"
+
+
+def test_a_context_without_next_loses_the_panel_not_the_page(tmp_path):
+    """The panel is an enhancement; five pages include it.
+
+    A server left running across an upgrade holds the old route code while Jinja
+    re-reads these templates from disk. Before this guard, every page that
+    included the partial returned 500 with `'next' is undefined`.
+    """
+    from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
+    from videomaker.web.app import TEMPLATES_DIR
+
+    env = Environment(loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True)
+    template = env.get_template("_next_step.html")
+
+    assert template.render() == "" or "next-step" not in template.render()
+
+    strict = Environment(
+        loader=FileSystemLoader(TEMPLATES_DIR), autoescape=True, undefined=StrictUndefined
+    )
+    # Even under StrictUndefined - what a missing key behaves like - it must not raise.
+    assert strict.get_template("_next_step.html").render().strip() == ""
