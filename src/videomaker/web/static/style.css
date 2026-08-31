@@ -548,15 +548,109 @@ code {
   }
 }
 
+/* The stage the shot sits on. Its `aspect-ratio` is set inline, per card, to the
+   *source's* own ratio — not to 16:9 — because the 9:16 overlay has to sit on
+   the whole frame the vertical crop is taken from. An overlay drawn over an
+   already-cropped picture would misdescribe what the Short keeps.
+
+   The inline ratio also reserves the box before the media loads, so the cards
+   below do not jump as each poster frame arrives. */
+.shot-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
 .shot-media {
   display: block;
   width: 100%;
-  /* Reserve the 16:9 box before the media loads, so the cards below do not jump
-     as each poster frame arrives. */
-  aspect-ratio: 16 / 9;
+  height: 100%;
+  /* The frame is already the source's shape, so `cover` fills it exactly and
+     crops nothing. */
   object-fit: cover;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  border-radius: 0;
+}
+
+/* `assemble.reframe_filter`'s window: `--crop-window` is `min(iw, ih·9/16)` as a
+   percentage of the source width, and `--crop-focus` slides it from the left
+   edge (0) to the right (1) — the same `(iw-ow)·focus` FFmpeg will apply. The
+   left edge is arithmetic rather than a second number so the drag can move the
+   box by writing one custom property. */
+.crop-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--crop-window, 100%);
+  left: calc((100% - var(--crop-window, 100%)) * var(--crop-focus, 0.5));
+  border: 2px solid var(--accent);
+  /* Everything outside the box is what the Short throws away; dimming it is the
+     whole point of the overlay. A huge spread shadow is the cheapest way to
+     shade an arbitrary parent without a second element to keep aligned. */
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 45%);
+  pointer-events: none;
+}
+
+.crop-tag {
+  position: absolute;
+  top: 0.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* The slider, its end labels and the toggle beside it. */
+.crop-range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.crop-ends {
+  font-size: 0.72rem;
+}
+
+.in-short-form .toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.in-short-form input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* The running Short duration, inside the gate card. */
+.short-meter {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.short-meter progress {
+  width: 100%;
+  margin: 0.4rem 0 0.1rem;
+}
+
+.short-meter[data-short-state="over"] progress,
+.short-meter[data-short-state="empty"] progress {
+  accent-color: var(--bad);
 }
 
 .shot-caption {

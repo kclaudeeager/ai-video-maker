@@ -46,6 +46,28 @@ request and therefore books nothing against the budget. `search` deliberately
 adds no caching of its own — it calls the same `stock.search` the visuals stage
 calls, so there is exactly one cache to reason about.
 
+**The vertical controls decide things no stage can.** A Short is not a smaller
+copy of the wide video: it is a *re-frame* (M3 Task 4's `reframe_filter` cuts a
+9:16 window out of the source asset) and a *shorter edit* (`aspect_scenes` keeps
+only the `in_short` subset). Which part of a 16:9 shot survives that crop, and
+which scenes are worth the three minutes a Short is allowed, are both editorial
+judgements, so both are controls here rather than heuristics in the pipeline.
+
+The overlay drawn over each shot is the *real* crop window — `min(iw, ih·w/h)`
+from `reframe_filter`, offset by `crop_focus_x` — computed from the asset's own
+dimensions, so the shot is shown at its full source ratio rather than pre-cropped
+to 16:9. An overlay drawn on an already-cropped picture would be a confident lie
+about what the Short keeps. The slider commits on release (`change`, not
+`input`), and the overlay follows the drag in the browser with no request at all;
+see `storyboard.html`.
+
+The running Short duration is drawn *inside the gate card*, for the same reason
+the quota indicator is: every reply already swaps that card out of band, so one
+readout stays in step with every toggle without a second out-of-band element.
+`short_fits` is a duration test and nothing else, so a project with nothing
+ticked runs 0 s and "fits" vacuously — `ShortView.state` therefore has three
+values, and an empty Short reads as a problem rather than as a tick.
+
 Everything else is the shape gate 1 established: compare first and lock second so
 a no-op writes nothing; answer htmx with the card partial and a plain form post
 with a 303; carry the gate card back out of band so a cleared preview approval is
@@ -69,7 +91,14 @@ from fastapi.templating import Jinja2Templates
 
 from videomaker.cache import StageCache, stage_key
 from videomaker.config import Settings
-from videomaker.models import AssetRef, Motion, Project, Scene, StockResult, VisualKind
+from videomaker.models import Aspect, AssetRef, Motion, Project, Scene, StockResult, VisualKind
+from videomaker.pipeline.assemble import (
+    MAX_SHORT_S,
+    VERTICAL_SPEC,
+    VideoSpec,
+    short_duration_s,
+    timeline_scene_ids,
+)
 from videomaker.pipeline.base import ADVANCE_ON, StageDeps, call_chain
 from videomaker.pipeline.visuals import (
     ASSET_STEM,
@@ -147,6 +176,19 @@ MOTION_NOTES: dict[Motion, str] = {
     Motion.NONE: "hold still",
 }
 
+#: The slider's granularity, and the precision `crop_focus_x` is stored at.
+#: Quantising is what makes the no-op guard exact: a value the user has not moved
+#: comes back byte-identical to the one on disk, so it never reaches the lock.
+#: Two decimals is finer than the eye can place a crop and coarser than the
+#: `%.3f` `reframe_filter` prints, so nothing is lost downstream.
+CROP_STEP = 0.01
+CROP_PLACES = 2
+
+#: The values an HTML checkbox can send for "ticked". An unticked box sends *no*
+#: field at all — unlike gate 1's textareas, where a blank means "leave it alone",
+#: absence here genuinely is the off state, because that is what a checkbox means.
+CHECKED_VALUES = frozenset({"on", "true", "1", "yes"})
+
 
 # ------------------------------------------------------------------ view models
 
@@ -222,6 +264,45 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class CropWindow:
+    """Where the vertical frame lands on the source, as percentages of its width.
+
+    The same geometry `assemble.reframe_filter` emits — `min(iw, ih·w/h)` slid by
+    `crop_focus_x` — and not a picture of it. The overlay is the only preview of
+    the Short there is before a vertical render exists, so an approximation here
+    would be a confident lie about which half of the shot survives.
+    """
+
+    focus: float
+    #: The crop's width as a percentage of the source's, so the template can size
+    #: the overlay without knowing the asset's pixels.
+    window_pct: float
+
+    @property
+    def offset_pct(self) -> float:
+        """The overlay's left edge. `(iw-ow)·focus`, expressed the same way."""
+        return (100.0 - self.window_pct) * self.focus
+
+    @property
+    def keeps_all(self) -> bool:
+        """A source already at or narrower than 9:16 loses nothing to the crop."""
+        return self.window_pct >= 100.0
+
+
+def crop_window(ref: AssetRef, focus: float, spec: VideoSpec = VERTICAL_SPEC) -> CropWindow | None:
+    """The vertical window on `ref`, or `None` when its dimensions are unusable.
+
+    `None` rather than a guessed ratio: a ref with no recorded size (an ancient
+    project, or a provider that did not say) cannot have an honest overlay drawn
+    for it, and drawing a dishonest one is worse than drawing none.
+    """
+    if ref.width <= 0 or ref.height <= 0:
+        return None
+    window = min(ref.width, ref.height * spec.width / spec.height)
+    return CropWindow(focus=focus, window_pct=window / ref.width * 100.0)
+
+
+@dataclass(frozen=True)
 class SceneCard:
     """One scene's shot, its alternatives, and what the runner thinks of them."""
 
@@ -270,6 +351,58 @@ class SceneCard:
     @property
     def note_tone(self) -> str:
         return "status-ok" if self.note == SAVED_NOTE else ""
+
+    @property
+    def crop_focus_x(self) -> float:
+        return self.scene.visual.crop_focus_x
+
+    @property
+    def crop_step(self) -> float:
+        """The slider's granularity — the same grid `quantise_focus` stores on.
+
+        Read from the constant rather than typed into the template, so the input
+        the browser offers and the precision the handler keeps cannot drift.
+        """
+        return CROP_STEP
+
+    @property
+    def crop(self) -> CropWindow | None:
+        """The 9:16 overlay for the shot in use, or `None` when there is nothing to draw.
+
+        Measured from `scene.visual.chosen` rather than from the matching tile:
+        the chosen ref is the one `assemble` hands to `reframe_filter`, and it is
+        only *normally* a copy of the candidate. Where they disagree, the overlay
+        has to describe the file the Short will actually be cut from.
+        """
+        ref = self.scene.visual.chosen
+        return None if ref is None else crop_window(ref, self.crop_focus_x)
+
+    @property
+    def source_ratio(self) -> str:
+        """The shot's own aspect ratio, as a CSS `aspect-ratio` value.
+
+        The stage box is the *source's* shape, not 16:9, because the overlay has
+        to sit on the whole frame the crop will be taken from. 16:9 is the
+        fallback for a shot with no recorded size — the same case `crop` refuses
+        to draw an overlay for.
+        """
+        ref = self.scene.visual.chosen
+        if ref is None or ref.width <= 0 or ref.height <= 0:
+            return "16 / 9"
+        return f"{ref.width} / {ref.height}"
+
+    @property
+    def in_short(self) -> bool:
+        return self.scene.in_short
+
+    @property
+    def in_short_marker(self) -> str:
+        return "true" if self.in_short else "false"
+
+    @property
+    def short_seconds(self) -> float | None:
+        """What this scene adds to the Short, or `None` until it has been voiced."""
+        return self.scene.duration_s
 
     @property
     def candidates_query(self) -> str:
@@ -325,6 +458,103 @@ class QuotaView:
     search_provider: str
 
 
+def clock(seconds: float) -> str:
+    """`m:ss`, the way a video length is read out. Rounded to the nearest second."""
+    whole = max(round(seconds), 0)
+    return f"{whole // 60}:{whole % 60:02d}"
+
+
+@dataclass(frozen=True)
+class ShortView:
+    """The `in_short` subset measured against the three-minute Shorts limit.
+
+    **Three states, not a boolean.** `assemble.short_fits` is a duration test and
+    says so: a project with nothing ticked runs for 0 s and passes it vacuously.
+    Reporting that as a tick would hide an empty Short behind a green pill until
+    gate 3 refused to render it, so `empty` is its own answer.
+    """
+
+    duration_s: float
+    limit_s: float
+    #: The scenes actually on the vertical timeline: ticked *and* voiced.
+    included: list[str]
+    #: Ticked but not yet voiced, so not on the timeline. The difference between
+    #: "you have not chosen anything" and "the run has not caught up".
+    pending: list[str]
+    #: The longest scenes in the Short, longest first — what to untick when it
+    #: overruns. Naming them is the difference between a complaint and an action.
+    longest: list[tuple[str, float]]
+
+    @property
+    def fits(self) -> bool:
+        return self.duration_s <= self.limit_s
+
+    @property
+    def empty(self) -> bool:
+        return not self.included
+
+    @property
+    def state(self) -> str:
+        if self.empty:
+            return "empty"
+        return "ok" if self.fits else "over"
+
+    @property
+    def tone(self) -> str:
+        return "status-ok" if self.state == "ok" else "status-failed"
+
+    @property
+    def over_s(self) -> float:
+        return max(self.duration_s - self.limit_s, 0.0)
+
+    @property
+    def duration_label(self) -> str:
+        return clock(self.duration_s)
+
+    @property
+    def limit_label(self) -> str:
+        return clock(self.limit_s)
+
+    @property
+    def over_label(self) -> str:
+        return clock(self.over_s)
+
+    @property
+    def summary(self) -> str:
+        if self.state == "empty":
+            if self.pending:
+                return "Every scene in the Short is still waiting to be voiced."
+            return "No scene is in the Short yet — tick at least one."
+        if self.state == "over":
+            return f"{self.over_label} over the {self.limit_label} limit. Untick a scene."
+        return f"{self.duration_label} of {self.limit_label}."
+
+
+def short_view(project: Project, limit_s: float = MAX_SHORT_S) -> ShortView:
+    """The Short's running time, straight from `assemble`'s own timeline.
+
+    Measured with `short_duration_s` rather than by summing durations here: the
+    number on this page has to be the one the vertical render will produce, gaps
+    and all, and there is exactly one function that knows what that is.
+    """
+    included = timeline_scene_ids(project, Aspect.VERTICAL)
+    on_timeline = set(included)
+    durations = {
+        scene.id: scene.duration_s or 0.0 for scene in project.scenes if scene.id in on_timeline
+    }
+    return ShortView(
+        duration_s=short_duration_s(project),
+        limit_s=limit_s,
+        included=included,
+        pending=[
+            scene.id
+            for scene in project.scenes
+            if scene.in_short and scene.id not in on_timeline
+        ],
+        longest=sorted(durations.items(), key=lambda item: -item[1]),
+    )
+
+
 @dataclass(frozen=True)
 class GateView:
     """Everything the gate 2 card renders, page and out-of-band reply alike."""
@@ -340,6 +570,10 @@ class GateView:
     #: and every out-of-band reply refreshes it for free. `None` on the few
     #: callers that have no settings to build a tracker from.
     quota: QuotaView | None = None
+    #: The Short's running time against the three-minute limit. Drawn in this card
+    #: for the same reason the quota is: every reply already swaps it out of band,
+    #: so one readout keeps up with every `in_short` toggle on the page.
+    short: ShortView | None = None
     #: True only when this edit really did invalidate a later approval.
     cleared: bool = False
     #: The reply swaps this section out of band; the page renders it in place.
@@ -428,6 +662,7 @@ def gate_view(
         gate=next(state for state in states if state.name == GATE),
         others=[state for state in states if state.name != GATE],
         quota=quota,
+        short=short_view(project),
         # Approving a storyboard with no chosen shot would send an unrenderable
         # project into `captions`; the button says why instead.
         can_approve=bool(project.scenes)
@@ -727,6 +962,112 @@ def set_motion(
             scene = _scene_or_404(project, scene_id)
             if scene.visual.motion is not wanted:
                 scene.visual.motion = wanted
+                cleared = clear_stale_approvals(project, stage_cache_for(store, project_id))
+                store.save(project)
+                note = SAVED_NOTE
+
+    return _reply(request, project_id, scene_id, note=note, cleared=cleared)
+
+
+# --------------------------------------------------- framing the vertical crop
+
+
+def quantise_focus(value: float) -> float:
+    """`crop_focus_x` as it is stored: on the slider's own 0.01 grid.
+
+    The guard below compares floats for equality, and that is only safe because
+    everything that reaches it has been through here. Without it, a slider parked
+    where it started would post `0.5000000001` on some browser one day and start
+    taking the lock — and the lock is the one a whole render holds.
+    """
+    return round(value, CROP_PLACES)
+
+
+@router.post("/projects/{project_id}/scenes/{scene_id}/crop")
+def set_crop_focus(
+    request: Request,
+    project_id: str,
+    scene_id: str,
+    crop_focus_x: float = Form(0.5, ge=0.0, le=1.0),
+):
+    """Point the 9:16 window at the part of the shot the Short should keep.
+
+    0.0 frames the left edge of the source, 1.0 the right, 0.5 the centre —
+    exactly what `assemble.reframe_filter` does with it. It also re-centres a
+    still's pan (`assemble._pan_travel`), so this is a wide-video edit too, and
+    the hint on the card says so.
+
+    Compare first, lock second, like every other control here — more so, in fact:
+    a drag across the slider can land several posts in a row, most of them putting
+    back a value the scene already has.
+    """
+    store: ProjectStore = request.app.state.store
+    project = _load(request, project_id)
+    scene = _scene_or_404(project, scene_id)
+    wanted = quantise_focus(crop_focus_x)
+
+    note = UNCHANGED_NOTE
+    cleared = False
+
+    if scene.visual.crop_focus_x != wanted:
+        with store.lock(project_id):
+            project = _load(request, project_id)
+            scene = _scene_or_404(project, scene_id)
+            if scene.visual.crop_focus_x != wanted:
+                scene.visual.crop_focus_x = wanted
+                cleared = clear_stale_approvals(project, stage_cache_for(store, project_id))
+                store.save(project)
+                note = SAVED_NOTE
+
+    return _reply(request, project_id, scene_id, note=note, cleared=cleared)
+
+
+# -------------------------------------------------- keeping a scene in the Short
+
+
+def _checked(value: str) -> bool:
+    """Whether a checkbox field arrived ticked.
+
+    An unticked checkbox sends no field at all, and FastAPI hands a missing
+    `Form` its default, so `""` *is* the off state here. That is the opposite of
+    gate 1's rule for a textarea, where a blank means "leave this alone" — and
+    the two are both right, because a browser cannot send an empty textarea and
+    an absent one differently, whereas an unticked box has no other way to speak.
+    """
+    return value.strip().lower() in CHECKED_VALUES
+
+
+@router.post("/projects/{project_id}/scenes/{scene_id}/in_short")
+def set_in_short(
+    request: Request,
+    project_id: str,
+    scene_id: str,
+    in_short: str = Form(""),
+):
+    """Keep this scene in the Short, or drop it from it.
+
+    A Short is a shorter *edit*, not a truncation: `assemble.aspect_scenes` builds
+    the vertical timeline from the ticked scenes in the project's own order, so
+    dropping one here removes it cleanly rather than cutting mid-sentence at the
+    three-minute mark. The gate card that rides back out of band carries the new
+    running time, which is where the limit becomes visible.
+    """
+    store: ProjectStore = request.app.state.store
+    project = _load(request, project_id)
+    scene = _scene_or_404(project, scene_id)
+    wanted = _checked(in_short)
+
+    note = UNCHANGED_NOTE
+    cleared = False
+
+    # Compare first, lock second: re-ticking a ticked box must not queue behind a
+    # render for the flock it does not need.
+    if scene.in_short is not wanted:
+        with store.lock(project_id):
+            project = _load(request, project_id)
+            scene = _scene_or_404(project, scene_id)
+            if scene.in_short is not wanted:
+                scene.in_short = wanted
                 cleared = clear_stale_approvals(project, stage_cache_for(store, project_id))
                 store.save(project)
                 note = SAVED_NOTE

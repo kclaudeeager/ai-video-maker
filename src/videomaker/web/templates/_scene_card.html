@@ -23,8 +23,18 @@
   `hx-swap-oob` among the response's own top-level elements, so nesting the gate
   card inside the scene card would silently stop the approval news from arriving.
 
-  `data-candidate`/`data-chosen` and `data-gate`/`data-approved` are the attribute
-  pairs the tests read; keep each pair adjacent.
+  `data-candidate`/`data-chosen`, `data-gate`/`data-approved`,
+  `data-crop-window`/`data-crop-focus`, `data-in-short`/`data-included` and
+  `data-short-state`/`data-short-seconds` are the attribute pairs the tests read;
+  keep each pair adjacent.
+
+  The shot is staged at its **source** aspect ratio rather than at 16:9, because
+  the 9:16 overlay has to sit on the whole frame the vertical crop is taken from.
+  Its size and offset come from `card.crop`, which is `assemble.reframe_filter`'s
+  own `min(iw, ih·w/h)` geometry — the overlay is the only preview of the Short
+  that exists before a vertical render does, so it is computed, never guessed.
+  `--crop-focus` is a custom property so the drag can move the rectangle in the
+  browser without a request; `storyboard.html` holds those four lines.
 #}
 
 {% macro candidate_tile(card, candidate) %}
@@ -91,15 +101,35 @@
     <div class="shot">
       <div class="shot-main">
         {% if card.chosen and card.chosen.downloaded %}
-          {% if card.chosen.is_video %}
-            <video class="shot-media" src="{{ card.chosen.media_url }}#t=0.1" controls preload="metadata" muted loop playsinline></video>
-          {% else %}
-            <img class="shot-media" src="{{ card.chosen.media_url }}" alt="Chosen shot for scene {{ card.scene.id }}">
-          {% endif %}
+          {% set crop = card.crop %}
+          <div class="shot-frame"
+               style="aspect-ratio: {{ card.source_ratio }};{% if crop %} --crop-window: {{ "%.4f"|format(crop.window_pct) }}%; --crop-focus: {{ "%.2f"|format(crop.focus) }};{% endif %}"
+               {% if crop %}data-crop-window="{{ "%.4f"|format(crop.window_pct) }}" data-crop-focus="{{ "%.2f"|format(crop.focus) }}"{% endif %}>
+            {% if card.chosen.is_video %}
+              <video class="shot-media" src="{{ card.chosen.media_url }}#t=0.1" controls preload="metadata" muted loop playsinline></video>
+            {% else %}
+              <img class="shot-media" src="{{ card.chosen.media_url }}" alt="Chosen shot for scene {{ card.scene.id }}">
+            {% endif %}
+            {% if crop and not crop.keeps_all %}
+              {# Decorative: the framing is stated in words underneath, so a
+                 screen reader is told what this rectangle means rather than
+                 that there is a rectangle. #}
+              <span class="crop-window" aria-hidden="true"><span class="crop-tag">9:16</span></span>
+            {% endif %}
+          </div>
           <p class="muted shot-caption flush">
             Chosen · {{ card.chosen.label }} · {{ card.chosen.ref.provider }}
             {%- if card.chosen.ref.attribution %} · {{ card.chosen.ref.attribution }}{% endif %}
           </p>
+          {% if crop %}
+            <p class="muted shot-caption flush" data-crop-note="{{ card.scene.id }}">
+              {% if crop.keeps_all %}
+                This shot is already at 9:16 or narrower, so the Short keeps all of it.
+              {% else %}
+                Only the {{ "%.0f"|format(crop.window_pct) }}% of this frame inside the box reaches the Short.
+              {% endif %}
+            </p>
+          {% endif %}
         {% else %}
           <p class="shot-empty muted flush">No shot downloaded for this scene yet.</p>
         {% endif %}
@@ -124,6 +154,55 @@
           <noscript><button type="submit">Set motion</button></noscript>
           <p class="muted hint flush">
             {% if card.is_video %}Footage already moves, so motion is ignored for this shot.{% else %}Applied to the still while the scene plays.{% endif %}
+          </p>
+        </form>
+
+        {# The slider commits on `change`, which a range input fires on release —
+           not on `input`, which fires on every pixel of a drag. The small delay
+           coalesces a held-down arrow key into one post. The rectangle above
+           follows the drag locally, so the wait costs no feedback. #}
+        <form class="field crop-form"
+              method="post"
+              action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/crop"
+              hx-post="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/crop"
+              hx-trigger="submit, change delay:250ms"
+              hx-target="#scene-{{ card.scene.id }}"
+              hx-swap="outerHTML">
+          <label for="crop-{{ card.scene.id }}">Short framing</label>
+          <input id="crop-{{ card.scene.id }}" class="crop-range" type="range"
+                 name="crop_focus_x" min="0" max="1" step="{{ card.crop_step }}"
+                 value="{{ "%.2f"|format(card.crop_focus_x) }}"
+                 aria-describedby="crop-hint-{{ card.scene.id }}">
+          <span class="row spread crop-ends muted" aria-hidden="true"><span>left</span><span>centre</span><span>right</span></span>
+          <noscript><button type="submit">Set framing</button></noscript>
+          <p class="muted hint flush" id="crop-hint-{{ card.scene.id }}">
+            Slides the 9:16 window across the shot. It also re-centres a still's
+            pan, so it moves the wide video too.
+          </p>
+        </form>
+
+        {# A checkbox, so an unticked box sends nothing and that absence is the
+           "off" — see `_checked` in the handler. #}
+        <form class="field in-short-form"
+              method="post"
+              action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/in_short"
+              hx-post="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/in_short"
+              hx-trigger="submit, change"
+              hx-target="#scene-{{ card.scene.id }}"
+              hx-swap="outerHTML">
+          <label class="toggle" for="in-short-{{ card.scene.id }}">
+            <input id="in-short-{{ card.scene.id }}" type="checkbox" name="in_short" value="on"
+                   {% if card.in_short %}checked{% endif %}
+                   data-in-short="{{ card.scene.id }}" data-included="{{ card.in_short_marker }}">
+            <span>In the Short</span>
+          </label>
+          <noscript><button type="submit">Update the Short</button></noscript>
+          <p class="muted hint flush">
+            {% if card.short_seconds is none %}
+              Adds nothing yet — this scene has not been voiced.
+            {% else %}
+              Adds {{ "%.1f"|format(card.short_seconds) }}s to the vertical cut.
+            {% endif %}
           </p>
         </form>
 
@@ -225,6 +304,34 @@
         That change invalidated work a later gate had already approved, so those
         approvals were cleared. You will be asked to review them again.
       </p>
+    {% endif %}
+
+    {# The Short's running time, drawn here rather than beside the cards so the
+       out-of-band swap every reply already does keeps it in step with the
+       toggles. `empty` is a state of its own: `short_fits` is a duration test,
+       so nothing ticked "fits" at 0 s, and reporting that as a tick would hide
+       an unrenderable Short until gate 3 refused it. #}
+    {% if gate.short %}
+      <div class="short-meter"
+           data-short-state="{{ gate.short.state }}" data-short-seconds="{{ "%.1f"|format(gate.short.duration_s) }}">
+        <div class="row spread">
+          <strong>The Short</strong>
+          <span class="status {{ gate.short.tone }}">{{ gate.short.duration_label }} of {{ gate.short.limit_label }}</span>
+        </div>
+        <progress max="{{ gate.short.limit_s }}" value="{{ [gate.short.duration_s, gate.short.limit_s]|min }}"></progress>
+        <p class="muted hint flush">
+          {{ gate.short.summary }}
+          {% if gate.short.state == "over" %}
+            The longest scenes in it are
+            {% for scene_id, seconds in gate.short.longest[:3] %}
+              <code>{{ scene_id }}</code> ({{ "%.0f"|format(seconds) }}s){{ ", " if not loop.last else "." }}
+            {%- endfor %}
+          {% elif gate.short.pending %}
+            {{ gate.short.pending|length }} ticked scene{{ "" if gate.short.pending|length == 1 else "s" }}
+            {{ "is" if gate.short.pending|length == 1 else "are" }} still unvoiced and not counted yet.
+          {% endif %}
+        </p>
+      </div>
     {% endif %}
 
     <p class="muted gate-others-head flush">The other two gates</p>

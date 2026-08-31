@@ -12,6 +12,13 @@
   Every control is a real `<form method="post">` first and an htmx form second, so
   the page still swaps a shot and still approves with JavaScript switched off (M2
   global constraint).
+
+  The one piece of hand-written JavaScript in the tool lives in `scripts` below,
+  and it is a *preview*, never a save: it slides the 9:16 overlay with the drag so
+  the control feels continuous, while the POST still waits for the release. With
+  JavaScript off the slider is a plain form with a submit button and the overlay
+  simply redraws on the next page load — the framing is never lost, only its
+  live feedback.
 #}
 {% extends "base.html" %}
 {% from "_scene_card.html" import scene_card, gate_card %}
@@ -51,4 +58,22 @@
       {% for card in cards %}{{ scene_card(card) }}{% endfor %}
     </ol>
   {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    // Delegated from `document`, not bound per slider: htmx replaces whole scene
+    // cards on every reply, and a listener attached to an element that has since
+    // been swapped out is a listener on nothing.
+    document.addEventListener("input", function (event) {
+      var slider = event.target.closest ? event.target.closest(".crop-range") : null;
+      if (!slider) return;
+      var card = slider.closest(".scene-card");
+      // No frame means no downloaded shot to draw an overlay on. Both lookups
+      // are guarded rather than assumed: a thrown TypeError in here would be a
+      // console error on a page whose whole job is to look trustworthy.
+      var frame = card && card.querySelector(".shot-frame");
+      if (frame) frame.style.setProperty("--crop-focus", slider.value);
+    });
+  </script>
 {% endblock %}
