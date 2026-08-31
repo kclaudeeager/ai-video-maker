@@ -57,7 +57,7 @@ Same as M1: **Interfaces blocks are normative**, **test code is given in full wh
 - `GET /healthz` → `{"status": "ok", "version": __version__}`.
 - CLI: `videomaker serve [--host 127.0.0.1] [--port 8000] [--providers mock] [--reload]`.
 
-- [ ] **Step 1: Add the dependencies**
+- [x] **Step 1: Add the dependencies**
 
 ```bash
 uv add fastapi uvicorn jinja2 python-multipart
@@ -65,7 +65,7 @@ uv add fastapi uvicorn jinja2 python-multipart
 
 These go in the **main** dependency list, not an extra: the web UI is the primary review surface, and the spec's DoD is a browser workflow.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 ```python
 from fastapi.testclient import TestClient
@@ -100,15 +100,15 @@ def test_unknown_route_is_404(tmp_path):
     assert _client(tmp_path).get("/no-such-page").status_code == 404
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**, then implement.
+- [x] **Step 3: Run tests to verify they fail**, then implement.
 
 `create_app` builds the store from `settings.workspace_dir`, mounts nothing yet, and registers `/healthz`. Apply `provider_override` when `providers` is given.
 
-- [ ] **Step 4: Add the `serve` command**
+- [x] **Step 4: Add the `serve` command**
 
 `serve` calls `uvicorn.run` on the factory result. It must print a **warning** when `--host` is not a loopback address, naming the risk explicitly: no authentication, and the app can read and write any path the user can. Do not merely log it at debug level.
 
-- [ ] **Step 5: Configure ruff for FastAPI's idioms**
+- [x] **Step 5: Configure ruff for FastAPI's idioms**
 
 Add to `pyproject.toml`:
 
@@ -117,7 +117,7 @@ Add to `pyproject.toml`:
 "src/videomaker/web/*" = ["B008"]  # FastAPI's Depends()/Form() defaults are call expressions
 ```
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 ```bash
 uv run pytest -q && uv run ruff check .
@@ -139,7 +139,7 @@ git commit -s -m "feat: FastAPI app factory, /healthz, and videomaker serve"
 
 **This task is security-critical and gets its own task for that reason.** The server has no authentication and serves files from disk by a user-supplied path. A traversal bug here reads arbitrary files from the machine. The guard must resolve symlinks (`Path.resolve()`) and confirm containment with `is_relative_to`, **not** with string prefix comparison — `/workspace/projects/a-evil` starts with `/workspace/projects/a` as a string but is a different directory.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 import pytest
@@ -199,11 +199,11 @@ def test_missing_file_raises_file_not_found(root):
 
 Add route-level tests too: a traversal attempt through `GET /media/...` must return **404** (never 500, and never the file), and a valid request must return the bytes with a sensible `content-type`.
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement.
+- [x] **Step 2: Run tests to verify they fail**, then implement.
 
 Note the URL-decoded path is what reaches the handler; Starlette's `{path:path}` converter does not sanitise. Reject absolute inputs before joining.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 ```bash
 git commit -s -m "feat: path-traversal-guarded media serving"
@@ -228,19 +228,19 @@ git commit -s -m "feat: path-traversal-guarded media serving"
 
 **Thread safety is the whole point of this task.** `JobState` is mutated by the worker thread and read by request handlers. Guard the state dict with a `threading.Lock` and hand out **copies** (`dataclasses.replace`) so a handler can never observe a half-updated record. Do not rely on the GIL.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Cover: a submitted job runs and reaches `done`; `state_for` returns `None` for an unknown project; a raising job lands in `failed` with the message captured and the worker **still alive** for the next job; `GateBlocked` maps to `blocked`, not `failed`; a second submit for a busy project returns the existing state without enqueuing twice; two different projects queue and run sequentially, never concurrently (assert with a shared counter that never exceeds 1); `stop()` joins the thread; a full queue raises `JobQueueFull`; progress callbacks update `progress` monotonically.
 
 Use `threading.Event` to synchronise the tests, never `sleep` polling with a bare timeout — a sleep-based test is flaky on a loaded CI runner.
 
-- [ ] **Step 2: Run tests to verify they fail**, then implement.
+- [x] **Step 2: Run tests to verify they fail**, then implement.
 
 The worker translates M1's exceptions: `GateBlocked` → `state="blocked"` with `GATE_REVIEW[gate]` as the message (this is a normal outcome, not an error); `StageFailed` → `state="failed"` with the stage name and cause; anything else → `failed` with the exception text. It must never let an exception kill the thread.
 
 Wire `on_stage` from `run_pipeline` to update `stage` and a coarse progress (stage index / total). Task 12 refines render progress using `run_ffmpeg`'s `on_progress`.
 
-- [ ] **Step 3: Verify and commit**
+- [x] **Step 3: Verify and commit**
 
 ```bash
 git commit -s -m "feat: single-worker job queue with thread-safe progress state"
@@ -258,7 +258,7 @@ git commit -s -m "feat: single-worker job queue with thread-safe progress state"
 **Interfaces:**
 - Produces: `templates: Jinja2Templates` on `app.state`, `GET /static/*` serving the committed assets.
 
-- [ ] **Step 1: Vendor htmx**
+- [x] **Step 1: Vendor htmx**
 
 ```bash
 mkdir -p src/videomaker/web/static/vendor
@@ -269,17 +269,17 @@ sha256sum src/videomaker/web/static/vendor/htmx.min.js
 
 Verify it is roughly 14–50 KB and starts with a JS comment or `(function`. **Record the exact version and SHA-256 in `NOTICE.md`** alongside its licence (htmx is BSD-2-Clause) — this is an AGPL project and the licensing footprint has to stay honest. If the fetch fails, report it rather than substituting a CDN `<script src>`; the no-CDN rule is deliberate (offline use, and no third-party request from a local tool).
 
-- [ ] **Step 2: Package the assets**
+- [x] **Step 2: Package the assets**
 
 `[tool.hatch.build.targets.wheel]` currently packages `src/videomaker`, which includes the templates and static files since they live under the package — **verify this** with `uv build && python -c "import zipfile; print([n for n in zipfile.ZipFile(sorted(__import__('pathlib').Path('dist').glob('*.whl'))[-1]).namelist() if 'templates' in n or 'static' in n])"` and fix it if they are missing. (Contrast with `templates/` at the repo root, which is the *niche template* directory and is a known M6 packaging gap — different thing, same trap.)
 
-- [ ] **Step 3: Write base.html and the stylesheet**
+- [x] **Step 3: Write base.html and the stylesheet**
 
 `base.html` provides the document shell, loads `htmx.min.js` from `/static/vendor/`, and defines blocks `title`, `content`, `scripts`. Keep the CSS to one hand-written file — no framework, no build. Aim for a legible single-column layout that works at 1280 px and on a laptop screen; this is a personal review tool, not a marketing site.
 
 Tests assert: `/static/vendor/htmx.min.js` returns 200 with a JS content type; the rendered base contains no `http://` or `https://` external asset reference (a regression guard on the no-CDN rule).
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 git commit -s -m "feat: base templates, stylesheet, vendored htmx (BSD-2, recorded in NOTICE)"
@@ -300,7 +300,7 @@ git commit -s -m "feat: base templates, stylesheet, vendored htmx (BSD-2, record
 
 Tests: the list shows created projects with correct derived statuses; creating redirects and the project exists on disk; an empty topic is rejected with a form error (422 or a re-rendered form, not a 500); the template dropdown is populated from `list_templates()`; two projects with the same topic get distinct ids.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: project list and creation page"
@@ -324,7 +324,7 @@ The polling partial must stop polling once the job finishes — return the parti
 
 Also test: a 404 for an unknown project id; the stepper marks exactly the stages `stage_is_current` reports; gate rows show approved/pending correctly.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: project dashboard with stepper and htmx job polling"
@@ -347,7 +347,7 @@ git commit -s -m "feat: project dashboard with stepper and htmx job polling"
 
 Tests: editing narration persists and invalidates only that scene's voice/align units; a no-op save changes nothing; approving stamps the timestamp and enqueues; approving an already-approved gate is idempotent; editing after approval clears the downstream approvals (M1's `clear_stale_approvals` already does this — assert the UI surfaces it).
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: gate 1 script review with per-scene editing"
@@ -372,7 +372,7 @@ git commit -s -m "feat: gate 1 script review with per-scene editing"
 
 Tests (pure functions, no HTTP): ids stay stable across a reorder; split produces two scenes whose narrations concatenate back to the original; split at word 0 or past the end is rejected; merge concatenates in order and drops the second id; delete removes artefacts; every operation leaves `project.scenes` ids unique; reordering does not change any per-scene stage hash.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: split, merge, reorder and delete scenes with stable ids"
@@ -397,7 +397,7 @@ git commit -s -m "feat: split, merge, reorder and delete scenes with stable ids"
 
 Note `visual.candidates[1:]` have `local_path=""` (M1 downloads only the chosen one), so choosing a different candidate must download it first. Test the not-yet-downloaded path.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: gate 2 storyboard with candidate swap, motion and re-voice"
@@ -419,7 +419,7 @@ git commit -s -m "feat: gate 2 storyboard with candidate swap, motion and re-voi
 
 Also test: `QuotaExceeded` renders a clear message in the card rather than a 500; a search with an empty query is rejected client-side and server-side.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: live stock search with remaining-quota indicator"
@@ -442,7 +442,7 @@ Reuse the render filter graph at 480p with `-preset ultrafast`, running with `cw
 
 Tests: the preview is 854×480 (or whatever the spec's aspect maths gives at height 480, asserted via ffprobe); a second call with nothing changed re-encodes nothing; changing the captions invalidates it; `on_progress` fires.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: cached 480p preview render for the review gate"
@@ -465,7 +465,7 @@ git commit -s -m "feat: cached 480p preview render for the review gate"
 
 Tests: the preview page 404s cleanly when the project has not been assembled; approving enqueues the render; the render page shows a playable file when done; progress reaches 1.0; a failed render surfaces the FFmpeg stderr tail rather than a bare 500.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "feat: gate 3 preview approval and render progress page"
@@ -494,7 +494,7 @@ Make it fail first for the right reason (e.g. temporarily disable `clear_stale_a
 
 Keep it under ~90 s. Add it to CI — the workflow already runs `uv run pytest -q` over `tests/`, so confirm no CI change is needed rather than assuming.
 
-- [ ] **Step 1–3: TDD as above, then commit**
+- [x] **Step 1–3: TDD as above, then commit**
 
 ```bash
 git commit -s -m "test: end-to-end browser workflow with mock providers and real ffmpeg"
@@ -507,15 +507,15 @@ git commit -s -m "test: end-to-end browser workflow with mock providers and real
 **Files:**
 - Create: `docs/superpowers/spike-results-m2.md`
 
-- [ ] **Step 1: Drive a real project through the browser**
+- [x] **Step 1: Drive a real project through the browser**
 
 Start `uv run videomaker serve` with **real** providers. Using the `browser-automation` skill (or `claude-in-chrome` if it is available), actually load the pages: create a project, edit a scene at gate 1, swap a visual at gate 2, watch the preview, approve, and download the render. Capture screenshots of all three gate pages and report console errors and failed network requests — a page that 500s in the browser but passes `TestClient` is a real possibility, since `TestClient` does not execute JavaScript.
 
-- [ ] **Step 2: Verify the DoD sentence literally**
+- [x] **Step 2: Verify the DoD sentence literally**
 
 Edit one scene's visual at the storyboard gate and confirm from the logs and mtimes that exactly one scene re-generated.
 
-- [ ] **Step 3: Full battery**
+- [x] **Step 3: Full battery**
 
 ```bash
 uv run pytest -q && uv run ruff check .
@@ -523,7 +523,7 @@ uv run videomaker doctor
 uv run videomaker run <id> --yes     # the CLI must still work unchanged
 ```
 
-- [ ] **Step 4: Record results and commit**
+- [x] **Step 4: Record results and commit**
 
 Write `docs/superpowers/spike-results-m2.md`: wall times per gate, any console errors, screenshots referenced, and follow-ups for M3. Carry forward any M1 follow-up that is still open.
 
