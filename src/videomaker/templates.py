@@ -10,6 +10,7 @@ from pydantic import (
     model_validator,
 )
 
+from videomaker.media.audio import DEFAULT_SFX_PROFILE, SFX_PROFILES
 from videomaker.models import VisualKind
 
 TEMPLATE_SUFFIX = ".yaml"
@@ -23,6 +24,10 @@ DEFAULT_TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "templates"
 #: `short_beats` defaults to empty, meaning "this template has no opinion", and a
 #: template with no opinion keeps every scene in the Short exactly as before.
 RECOMMENDED_SHORT_BEATS = ("hook", "mechanism", "close")
+
+#: What `sfx_profile` may say. The levels themselves live in `media/audio.py`,
+#: which is what reads them; a template names a house style, not a dB.
+SFX_PROFILE_NAMES: tuple[str, ...] = tuple(SFX_PROFILES)
 
 
 class Template(BaseModel):
@@ -47,6 +52,10 @@ class Template(BaseModel):
     visual_kind_order: list[VisualKind] = Field(min_length=1)
     caption_style: str = "default"
     music_mood: str = "calm"
+    #: How loud this template's sound effects sit: `subtle`, `punchy` or `none`.
+    #: Effects come from the user's own `assets/sfx/`, so on a fresh clone every
+    #: profile including `punchy` places nothing at all. See `docs/audio-design.md`.
+    sfx_profile: str = DEFAULT_SFX_PROFILE
 
     @field_validator("scene_count")
     @classmethod
@@ -54,6 +63,21 @@ class Template(BaseModel):
         low, high = value
         if low < 1 or high < low:
             raise ValueError(f"scene_count must be [min, max] with 1 <= min <= max, got {value}")
+        return value
+
+    @field_validator("sfx_profile")
+    @classmethod
+    def _known_profile(cls, value: str) -> str:
+        """A profile the mixer does not know would silently place nothing.
+
+        Which is indistinguishable from an empty `assets/sfx/`, so a typo here would
+        only ever be noticed by watching a finished video and wondering why the cuts
+        went quiet. Fail on the template instead.
+        """
+        if value not in SFX_PROFILES:
+            raise ValueError(
+                f"sfx_profile {value!r} is not one of {', '.join(SFX_PROFILE_NAMES)}"
+            )
         return value
 
     @model_validator(mode="after")
@@ -74,13 +98,14 @@ class Template(BaseModel):
     def script_fingerprint(self) -> str:
         """The parts of this template the **script stage** is a function of.
 
-        Deliberately `model_dump_json` minus `short_beats`, and that exclusion is
-        load-bearing in two directions:
+        Deliberately `model_dump_json` minus `short_beats` and `sfx_profile`, and that
+        exclusion is load-bearing in two directions:
 
-        * `short_beats` changes nothing the model writes. It only picks which scenes
-          start out ticked for the vertical cut, which is a per-scene flag a person
-          edits afterwards. Hashing it would make an editorial retune of the Short
-          rewrite the narration.
+        * Neither field changes anything the model writes. `short_beats` only picks
+          which scenes start out ticked for the vertical cut, a per-scene flag a
+          person edits afterwards; `sfx_profile` only sets how loud a whoosh sits in
+          the final mix. Hashing either would make an editorial retune of the Short,
+          or turning the effects down, rewrite the narration.
         * The dump is the *whole* model, so **adding the field at all** would have
           moved every existing template's fingerprint and re-derived every rendered
           project as `new` — with `run_script` then replacing its scenes, and every
@@ -91,7 +116,7 @@ class Template(BaseModel):
         A field added here in future must make the same call explicitly: if it does
         not change what the model writes, exclude it and extend that test.
         """
-        return self.model_dump_json(exclude={"short_beats"})
+        return self.model_dump_json(exclude={"short_beats", "sfx_profile"})
 
     def target_scene_count(self, minutes: float) -> int:
         """Scenes for a `minutes`-long video, clamped into this template's bounds."""

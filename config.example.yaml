@@ -12,3 +12,9 @@ audio:
   music_volume_db: -18
   # How far it drops while someone is talking, in dB. 0 turns the ducking off.
   duck_amount_db: 12
+  # Sound effects, from assets/sfx/. Off means no whooshes and no accents at all;
+  # how loud they sit when on is the template's sfx_profile. With an empty
+  # assets/sfx/ these change nothing either way.
+  sfx_enabled: true
+  # Just the whooshes on scene cuts, leaving the beat accents in place.
+  transition_sfx_enabled: true

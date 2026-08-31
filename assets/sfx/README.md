@@ -22,6 +22,28 @@ assets/sfx/
 Unlike moods, these four role names are fixed — the pipeline places effects by
 role, so `transition/` is where cut effects are looked for.
 
+## Where each role is placed
+
+| role | when it plays |
+| --- | --- |
+| `transition/` | on every scene cut, starting 0.12 s before the picture changes |
+| `accent/` | at the start of the `hook` scene and the `close` scene |
+| `riser/` | one second ahead of the `mechanism` scene, building into it |
+| `ambient/` | not yet placed by anything — the design ranks it a distant fourth |
+
+The beats come from the template's `structure` and from `Scene.beat`, which records
+which beat each scene was written for. Nothing is inferred and no model is asked:
+the template already said where the emphasis belongs.
+
+**One file per role, per project.** The same whoosh plays on every cut and the same
+sting on both accents — that is the effect, not a limitation. Drop in eight whooshes
+and one of them is chosen for the whole video; a different project picks a different
+one.
+
+How loud they sit is the template's `sfx_profile` (`subtle`, `punchy` or `none`).
+`config.yaml`'s `audio.sfx_enabled` switches the whole layer off, and
+`audio.transition_sfx_enabled` just the cuts.
+
 **One good file per role is enough to start.** A single reused whoosh on every cut
 is what makes the cuts read as deliberate rather than abrupt; it is the highest
 return per unit of work in the whole audio layer. Ambience is a distant fourth,

@@ -78,3 +78,9 @@ visual_kind_order:
 
 caption_style: default
 music_mood: calm
+
+# How loud the sound effects sit: subtle, punchy or none. Effects come from your
+# own assets/sfx/, which ships empty — on a fresh clone this places nothing at all.
+# An explainer earns its authority from the narration, so the cuts are marked, not
+# announced.
+sfx_profile: subtle

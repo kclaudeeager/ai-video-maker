@@ -10,6 +10,9 @@ DEFAULT_CONFIG_FILE = Path("config.yaml")
 
 #: The `audio:` keys `config.yaml` may set. Anything else there is ignored.
 AUDIO_LEVELS = frozenset({"music_volume_db", "duck_amount_db"})
+#: ...and the switches. Kept apart from the levels because they are read as bools:
+#: `float("false")` is a crash, and a config file must not be able to cause one.
+AUDIO_TOGGLES = frozenset({"sfx_enabled", "transition_sfx_enabled"})
 
 
 class Settings(BaseSettings):
@@ -24,6 +27,13 @@ class Settings(BaseSettings):
     #: Defaults live in `media/audio.py`, which is what reads them.
     music_volume_db: float = DEFAULT_VOLUME_DB
     duck_amount_db: float = DEFAULT_DUCK_DB
+
+    #: The sound-effect layer, and the transitions on scene cuts within it. On by
+    #: default and yet silent on a fresh clone: effects come from the user's own
+    #: `assets/sfx/`, which the project ships empty and always will. Switching them
+    #: off is for someone who *has* a library and wants one video without it.
+    sfx_enabled: bool = True
+    transition_sfx_enabled: bool = True
 
     groq_api_key: str = Field(default="", validation_alias=AliasChoices("GROQ_API_KEY"))
     gemini_api_key: str = Field(default="", validation_alias=AliasChoices("GEMINI_API_KEY"))
@@ -57,6 +67,8 @@ def load_settings(config_file: Path | None = None) -> Settings:
         for key, value in (raw.get("audio") or {}).items():
             if key in AUDIO_LEVELS:
                 overrides[key] = float(value)
+            elif key in AUDIO_TOGGLES:
+                overrides[key] = bool(value)
         chains = {
             str(kind): [str(name) for name in names]
             for kind, names in (raw.get("providers") or {}).items()

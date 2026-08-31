@@ -9,13 +9,17 @@ the moov atom to the front so the file starts playing before it has finished loa
 looks at the filesystem, so an absolute `.ass` path breaks the parse the moment the
 project folder contains a colon (the M0 spike hit exactly this). Every path here is
 relative and FFmpeg runs with `cwd` set to the project folder. The one exception is
-the music track, which lives in the user's own library outside the project and so
-cannot be made relative — it is an `-i` input, never a filter argument, and
-`media/audio.music_input_args` is the only place it is written.
+the user's own audio — the music track and the sound effects — which lives outside
+the project and so cannot be made relative. Those are `-i` inputs, never filter
+arguments, and `media/audio.music_input_args` and `SfxPlan.input_args` are the only
+places their paths are written.
 
-**With an empty `assets/music/` this stage does exactly what M1 shipped**, down to
-the argument list and the stage hash, because that is the path every fresh clone
-takes. Music adds a third input, an `amix` and a second loudness pass; nothing else.
+**With an empty `assets/music/` and `assets/sfx/` this stage does exactly what M1
+shipped**, down to the argument list and the stage hash, because that is the path
+every fresh clone takes — the owner's included. Music adds an input, an `amix` and a
+second loudness pass. Effects add one input per distinct file and one `adelay` per
+placement; where they land is decided by `sfx_plan`, out of the cut timestamps
+`scene_timeline` already knows and the beats `Scene.beat` already records.
 """
 
 from pathlib import Path
@@ -23,12 +27,17 @@ from pathlib import Path
 from videomaker import audio as music_library
 from videomaker.cache import hash_inputs, stage_key
 from videomaker.media.audio import (
+    DEFAULT_SFX_PROFILE,
+    SFX_PROFILES,
     MusicBed,
     MusicMix,
+    SfxPlan,
+    SfxProfile,
     measure_args,
     measure_loudness,
     mix_filter_complex,
     music_input_args,
+    plan_sfx,
 )
 from videomaker.media.ffmpeg import probe_duration, run_ffmpeg
 from videomaker.models import Aspect, Project
@@ -163,6 +172,7 @@ def render_hash(
     narration: Path,
     captions: Path | None,
     music: MusicBed | None = None,
+    sfx: SfxPlan | None = None,
 ) -> str:
     """Content of the three inputs, plus every knob that shapes the final encode.
 
@@ -170,9 +180,12 @@ def render_hash(
     `None`. That is deliberate: `hash_inputs` covers the keys it is given, so an
     always-present key would change the fingerprint of every no-music project and
     re-encode every finished video in the workspace for no change in the output.
+    The effects follow the same rule for the same reason, and an empty
+    `assets/sfx/` is the state of every fresh clone.
 
-    This is also the whole of music's reach into the cache engine. Nothing upstream
-    hashes `project.music`, so choosing a track re-renders and re-assembles nothing.
+    This is also the whole of the audio layer's reach into the cache engine. Nothing
+    upstream hashes `project.music` or the library, so choosing a track or dropping in
+    a whoosh re-renders and re-assembles nothing.
     """
     spec = SPECS[aspect]
     parts: dict[str, object] = {
@@ -185,6 +198,11 @@ def render_hash(
     }
     if music is not None:
         parts["music"] = {**music.knobs(), "content": content_hash(music.path)}
+    if sfx:
+        parts["sfx"] = {
+            "cues": sfx.knobs(),
+            "content": [content_hash(path) for path in sfx.files],
+        }
     return hash_inputs(**parts)
 
 
@@ -202,24 +220,78 @@ def _mood(project: Project) -> str:
         return ""
 
 
-def music_bed(project: Project, deps: StageDeps) -> MusicBed | None:
-    """The track that plays under this project's renders, or `None` for narration only.
+def sfx_profile_for(project: Project) -> SfxProfile:
+    """How loud this project's effects sit, per the template's `sfx_profile`.
 
-    Scanned with `probe=None`, so choosing a bed costs no ffprobe: the mix loops and
-    trims without knowing a track's duration, and the index supplies one anyway when
-    `videomaker music scan` has run. The index is read through the module rather than
-    a direct import so tests can redirect it (`tests/conftest.py`).
+    Falls back rather than raising, for `_mood`'s reason: a template renamed out from
+    under a finished project must not stop a render that is otherwise ready. The
+    profile only decides how loud a whoosh is.
     """
-    selection = project.music
-    if not selection.enabled:
-        return None
+    try:
+        name = load_template(project.template).sfx_profile
+    except ValueError:
+        name = DEFAULT_SFX_PROFILE
+    return SFX_PROFILES.get(name, SFX_PROFILES[DEFAULT_SFX_PROFILE])
 
-    scanned = music_library.scan(
+
+def scan_library(deps: StageDeps) -> music_library.Library:
+    """The user's library as it is on disk right now.
+
+    Scanned with `probe=None`, so the whole audio layer costs no ffprobe: the mix
+    loops and trims without knowing a track's duration, and effects are placed by the
+    timeline rather than by their own length (`media/audio.ROLE_LEAD_S` says why).
+    The index is read through the module rather than a direct import so tests can
+    redirect it (`tests/conftest.py`).
+    """
+    return music_library.scan(
         deps.settings.music_dir,
         deps.settings.sfx_dir,
         index_path=music_library.DEFAULT_INDEX_PATH,
         probe=None,
     )
+
+
+def sfx_plan(
+    project: Project,
+    deps: StageDeps,
+    aspect: Aspect,
+    *,
+    library: music_library.Library | None = None,
+) -> SfxPlan:
+    """Where this aspect's effects land — **an empty `assets/sfx/` places nothing.**
+
+    That is the default on every fresh clone, the owner's included, so it is the path
+    this function takes most often and it must cost nothing: no placements, no extra
+    inputs, no change to the render fingerprint, no re-encode.
+
+    Everything it needs it already has. `scene_timeline` knows every cut timestamp for
+    *this* aspect — which is why the Short's whooshes land on the Short's own cuts and
+    not on the wide video's — and `Scene.beat` records which of the template's
+    `structure` beats each scene was written for. Nothing here calls a model or looks
+    at the footage.
+    """
+    if not deps.settings.sfx_enabled:
+        return SfxPlan()
+    scanned = scan_library(deps) if library is None else library
+    segments = scene_timeline(project, gap_s=SCENE_GAP_S, aspect=aspect)
+    return plan_sfx(
+        [(segment.scene_id, segment.start_s) for segment in segments],
+        beats={scene.id: scene.beat for scene in project.scenes},
+        pick=lambda role: music_library.select_sfx(scanned, role, seed=project.id),
+        profile=sfx_profile_for(project),
+        transitions=deps.settings.transition_sfx_enabled,
+    )
+
+
+def music_bed(
+    project: Project, deps: StageDeps, *, library: music_library.Library | None = None
+) -> MusicBed | None:
+    """The track that plays under this project's renders, or `None` for narration only."""
+    selection = project.music
+    if not selection.enabled:
+        return None
+
+    scanned = scan_library(deps) if library is None else library
     track = music_library.select_track(
         scanned, mood=_mood(project), track_key=selection.track_key, seed=project.id
     )
@@ -249,7 +321,10 @@ def _render_args(
     if mix is None:
         args += ["-map", "0:v:0", "-map", "1:a:0"]
     else:
-        args += [*music_input_args(mix.bed), "-map", "0:v:0", "-map", "[aout]"]
+        # Video 0, narration 1, then the bed if there is one, then one input per
+        # distinct effect file. `sfx_input` below has to agree with this order.
+        bed_args = music_input_args(mix.bed) if mix.bed is not None else []
+        args += [*bed_args, *mix.sfx.input_args(), "-map", "0:v:0", "-map", "[aout]"]
     if burn_captions:
         # A simple filtergraph for the picture even when the audio needs a complex
         # one: the two do not meet, and `-vf` keeps the M0 relative-path rule visible.
@@ -267,6 +342,8 @@ def _render_args(
                 target=LOUDNORM,
                 speech=1,
                 music=2,
+                sfx=mix.sfx,
+                sfx_input=2 + (1 if mix.bed is not None else 0),
                 measured=mix.measured,
             ),
         ]
@@ -299,16 +376,23 @@ def _render_args(
     return args
 
 
-def _plan_mix(bed: MusicBed | None, root: Path, aspect: Aspect) -> MusicMix | None:
-    """Place `bed` against this aspect's cut, measuring the mix's loudness first.
+def _plan_mix(
+    bed: MusicBed | None, root: Path, aspect: Aspect, *, sfx: SfxPlan | None = None
+) -> MusicMix | None:
+    """Place `bed` and the effects against this aspect's cut, measuring first.
+
+    `None` when there is neither, which is the fresh clone: that is what keeps the
+    argument list, the graph and the stage hash exactly M1's, with one `-af` and a
+    single loudness pass.
 
     The cut's length comes from the narration bed, which `assemble` authored to the
     exact timeline — that is what the `atrim` and the fade out are cut to. Pass one
-    then measures the finished mix so pass two can hit -14 LUFS instead of landing
-    near it; if it cannot be measured the render falls back to a single pass, which
-    is what a no-music render does anyway.
+    then measures the finished mix, effects included, so pass two can hit -14 LUFS
+    instead of landing near it; if it cannot be measured the render falls back to a
+    single pass, which is what a no-music render does anyway.
     """
-    if bed is None:
+    sfx = sfx or SfxPlan()
+    if bed is None and not sfx:
         return None
     duration = probe_duration(root / narration_relpath(aspect))
     measured = measure_loudness(
@@ -319,10 +403,11 @@ def _plan_mix(bed: MusicBed | None, root: Path, aspect: Aspect) -> MusicMix | No
             rate=AUDIO_RATE,
             channels=AUDIO_CHANNELS,
             target=LOUDNORM,
+            sfx=sfx,
         ),
         cwd=root,
     )
-    return MusicMix(bed=bed, duration_s=duration, measured=measured)
+    return MusicMix(bed=bed, duration_s=duration, measured=measured, sfx=sfx)
 
 
 def run_render(project: Project, deps: StageDeps) -> StageResult:
@@ -335,7 +420,11 @@ def run_render(project: Project, deps: StageDeps) -> StageResult:
     run would re-encode it to reach the same refusal.
     """
     root = project_root(deps, project)
-    bed = music_bed(project, deps)
+    # One scan for the whole run: the bed and every aspect's effects come out of the
+    # same reading of the library, so a file dropped in mid-render cannot make the
+    # wide video and the Short disagree about what is on disk.
+    library = scan_library(deps)
+    bed = music_bed(project, deps, library=library)
     changed = False
     skipped = 0
 
@@ -353,6 +442,7 @@ def run_render(project: Project, deps: StageDeps) -> StageResult:
                 skipped += 1
                 continue
 
+            effects = sfx_plan(project, deps, aspect, library=library)
             captions = caption_path(deps, project, aspect)
             # Whether captions were burned is part of the hash, so a project that gains
             # an `.ass` file later re-renders rather than keeping a caption-less video.
@@ -365,6 +455,7 @@ def run_render(project: Project, deps: StageDeps) -> StageResult:
                 narration=narration,
                 captions=captions if burn else None,
                 music=bed,
+                sfx=effects,
             )
             out_path = root / output_relpath(aspect)
             if not deps.stage_cache.is_stale(key, current) and out_path.is_file():
@@ -373,7 +464,12 @@ def run_render(project: Project, deps: StageDeps) -> StageResult:
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
             run_ffmpeg(
-                _render_args(root, aspect, burn_captions=burn, mix=_plan_mix(bed, root, aspect)),
+                _render_args(
+                    root,
+                    aspect,
+                    burn_captions=burn,
+                    mix=_plan_mix(bed, root, aspect, sfx=effects),
+                ),
                 cwd=root,
             )
             spec = project.outputs.get(aspect)

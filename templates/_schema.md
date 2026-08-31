@@ -31,7 +31,8 @@ names when a template is missing, malformed, or fails validation.
 | `scene_count` | `[min, max]` integers | yes | — | Hard bounds on how many scenes a video may have. `1 <= min <= max`. |
 | `visual_kind_order` | list of visual kinds | yes | — | Preference order the visuals stage tries when a scene's kind is `auto`. At least one entry. |
 | `caption_style` | string | no | `"default"` | Named caption look (font, size, position). M1 ships `default` only. |
-| `music_mood` | string | no | `"calm"` | Music bed mood. Recorded now; used from M3. |
+| `music_mood` | string | no | `"calm"` | Music bed mood — the subdirectory of `assets/music/` a track is picked from. |
+| `sfx_profile` | string | no | `"subtle"` | How loud this template's sound effects sit: `subtle`, `punchy` or `none`. |
 
 ### `visual_kind_order`
 
@@ -94,6 +95,44 @@ beat, the last takes the last, the rest spread evenly between — so it is a goo
 guess and not a certainty. The storyboard shows the ticks and a person can change
 any of them; once they do, the scene is pinned and no later run may move it back.
 
+### `sfx_profile` and the sound effects
+
+Effects come from **your own** `assets/sfx/`, which the project ships empty and
+always will (`docs/audio-design.md`). So on a fresh clone every profile — `punchy`
+included — places nothing at all, and that is not a misconfiguration: it is the
+default state of the tool.
+
+Once there are files in it, two things happen, both decided from information the
+pipeline already has and neither costing an LLM call or a look at the footage:
+
+- **A `transition/` effect plays on every scene cut.** `scene_timeline` already
+  knows every cut timestamp. One reused file is the point — it is what makes a run
+  of cuts read as deliberate rather than abrupt, and it is the highest return per
+  unit of work in the whole audio design.
+- **The beats in `structure` are marked.** `hook` and `close` take an `accent/`
+  effect; `mechanism` is risen into with a `riser/`, starting a second early. The
+  beats in between carry the argument and are deliberately left alone.
+
+The three profiles are levels, not different sounds:
+
+| profile | what it is for |
+| --- | --- |
+| `subtle` | the default. Present under the narration, never over it. |
+| `punchy` | about 7 dB louder, for a template whose register can carry it. |
+| `none` | no effects at any level, for a subject a whoosh would cheapen. |
+
+`config.yaml` can switch the layer off globally (`audio.sfx_enabled`) or just the
+cuts (`audio.transition_sfx_enabled`); the template decides the level, the config
+decides whether it plays at all.
+
+Like `short_beats`, `sfx_profile` is excluded from `Template.script_fingerprint`:
+turning the effects down must not rewrite the narration of projects already
+written, and adding the field must not have restaged a single one.
+
+**Literal foley is out of scope**, and that is a decision rather than a gap. Stock
+clips arrive effectively mute, so there is nothing to sync a key click against, and
+a hit slightly out of time with what is on screen reads as worse than silence.
+
 ### Writing `system_prompt`
 
 This is where the quality of the channel lives. The whole point of this tool is
@@ -141,3 +180,5 @@ visual_kind_order: [stock_video, stock_photo, ai_image]
 - [ ] `short_beats` is a *subset* of `structure`, and the scenes it selects read as a
       complete Short on their own — near 45 s, not the whole video re-cropped.
 - [ ] Visual queries came back concrete enough that the stock search found real footage.
+- [ ] `sfx_profile` is one of `subtle`, `punchy`, `none` — and you have listened to a
+      render with your own `assets/sfx/` in place before settling on it.

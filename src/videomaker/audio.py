@@ -485,6 +485,31 @@ def select_track(
     return pool[int(digest, 16) % len(pool)]
 
 
+def select_sfx(library: Library, role: str, *, seed: str = "") -> Track | None:
+    """The one effect that plays for `role` in this project, or `None`.
+
+    **One file per role, reused.** That is the point of the layer rather than a
+    limitation of it: `docs/audio-design.md` ranks transition SFX second only to the
+    music bed precisely because a *single* reused whoosh is what makes every cut read
+    as deliberate. A different sound on each cut reads as a soundboard.
+
+    Otherwise the rules are `select_track`'s, minus the mood fallback: a role is a
+    fixed name the pipeline places by (`assets/sfx/README.md`), so an empty
+    `transition/` means "no whooshes", never "use an ambience instead". An unreadable
+    file is skipped, and the choice is `seed`-stable per role — pass the project id,
+    and the same project keeps the same whoosh across runs while two projects with the
+    same library do not both open with the same ding.
+    """
+    usable = sorted(
+        (track for track in library.for_role(role) if not track.probe_error),
+        key=lambda track: track.key,
+    )
+    if not usable:
+        return None
+    digest = hashlib.sha256(f"{seed}/{role}".encode()).hexdigest()
+    return usable[int(digest, 16) % len(usable)]
+
+
 #: Below this, a duration is shown in tenths. SFX are routinely under a second,
 #: and `0:00` for a half-second whoosh reads as "broken" rather than "short".
 SUB_SECOND_DISPLAY_S = 10.0
