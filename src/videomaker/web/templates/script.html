@@ -2,8 +2,9 @@
   Gate 1: the whole script on one page, one editable card per scene.
 
   Context: `project`, `scenes` (SceneRow, in order), `status`/`status_label`/
-  `status_tone`, `autosave_delay_ms`, plus `_script_gate.html`'s
-  context (`gate`, `downstream`, `can_approve`, `cleared`, `oob`).
+  `status_tone`, `autosave_delay_ms`, `next` (a `guidance.NextStep`), plus
+  `_script_gate.html`'s context (`gate`, `downstream`, `can_approve`, `cleared`,
+  `oob`).
 
   Every form here is a real `<form method="post">` first and an htmx form second,
   so the page still saves and still approves with JavaScript switched off (M2
@@ -13,35 +14,35 @@
 {% extends "base.html" %}
 
 {% block title %}Script review · {{ project.topic }}{% endblock %}
-{% block heading %}Script review{% endblock %}
+{% block eyebrow %}Gate 1 of 3{% endblock %}
+{% block heading %}Read the script{% endblock %}
 
 {% block content %}
-  <section class="card project-head">
-    <div class="row spread">
-      <p class="muted flush">
-        <a href="/projects/{{ project.id }}">{{ project.topic }}</a> ·
-        <code>{{ project.id }}</code> ·
-        {{ scenes|length }} scene{{ "" if scenes|length == 1 else "s" }}
-      </p>
-      <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
-    </div>
-    <p class="muted flush">
-      Read every scene, fix whatever the model got wrong, then approve. Edits save
-      on their own a moment after you stop typing, and only the scenes you actually
-      change are re-voiced. Emptying a box saves nothing — a scene always keeps its
-      last non-empty text, so an autosave part-way through a rewrite cannot lose it.
-    </p>
-  </section>
+  {% include "_next_step.html" %}
+
+  <p class="meta-strip">
+    <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
+    <a href="/projects/{{ project.id }}">{{ project.topic }}</a> ·
+    <code>{{ project.id }}</code> ·
+    {{ scenes|length }} scene{{ "" if scenes|length == 1 else "s" }}
+  </p>
+
+  <p class="prose">
+    Read every scene, fix whatever the model got wrong, then approve. Edits save
+    on their own a moment after you stop typing, and only the scenes you actually
+    change are re-voiced. Emptying a box saves nothing — a scene always keeps its
+    last non-empty text, so an autosave part-way through a rewrite cannot lose it.
+  </p>
 
   {% include "_script_gate.html" %}
 
   {% if not scenes %}
-    <p class="card muted">
+    <p class="card empty-state flush">
       No script yet. Start a run from the <a href="/projects/{{ project.id }}">project page</a>
       and come back once the script stage has finished.
     </p>
   {% else %}
-    <h2>Scenes</h2>
+    <h2 class="section-title">Scenes</h2>
     <ol class="scene-list">
       {% for row in scenes %}{% include "_scene_row.html" %}{% endfor %}
     </ol>

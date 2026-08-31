@@ -1,0 +1,92 @@
+{#
+  The first-run screen. Four claims and one diagram, shown as the list page's
+  empty state and again on its own at `/guide`.
+
+  Context: `free_tier` (FreeTierRow, live), `keys` (KeyRow, live).
+
+  Both lists are read at render time rather than written here as prose — see
+  `web/onboarding.py`. A screen that promised a free tier already spent, or keys
+  that are not in `.env`, would be the first thing the tool got wrong.
+
+  No absolute URLs anywhere, including in the sign-up hints: the no-CDN guard in
+  tests/unit/test_web_projects.py is textual and blunt, and a bare domain is
+  what someone types anyway.
+#}
+<section class="welcome">
+  <p class="welcome-lede">
+    <strong>One project, two cuts, three gates.</strong>
+    You give it a topic; it writes a script, speaks it, finds a shot for every
+    line, and cuts that into a full-length video <em>and</em> a vertical Short of
+    under three minutes — from the same script and the same footage, reframed
+    rather than squeezed.
+  </p>
+
+  <div class="welcome-grid">
+    <div class="welcome-flow">
+      <p class="eyebrow flush">How a project runs</p>
+      {#
+        The diagram. A list, not a picture: it is the same rail the dashboard
+        draws, it reads correctly with no CSS at all, and a screen reader gets
+        the sequence rather than "image".
+      #}
+      <ol class="flow">
+        <li class="flow-step"><span class="flow-name">Your topic</span></li>
+        <li class="flow-step"><span class="flow-name">Script</span><span class="flow-note">narration, scene by scene</span></li>
+        <li class="flow-gate"><span class="flow-gate-n">Gate 1</span><span class="flow-name">You read it</span></li>
+        <li class="flow-step"><span class="flow-name">Voice &amp; shots</span><span class="flow-note">spoken takes, word timings, a clip per scene</span></li>
+        <li class="flow-gate"><span class="flow-gate-n">Gate 2</span><span class="flow-name">You pick the shots</span></li>
+        <li class="flow-step"><span class="flow-name">Captions &amp; assembly</span><span class="flow-note">subtitles, one timeline per aspect</span></li>
+        <li class="flow-gate"><span class="flow-gate-n">Gate 3</span><span class="flow-name">You watch the preview</span></li>
+        <li class="flow-step is-end"><span class="flow-name">Two files on your disk</span><span class="flow-note">final_wide.mp4 and final_vertical.mp4</span></li>
+      </ol>
+      <p class="welcome-note">
+        It stops at each gate and waits. <strong>Nothing is voiced, rendered or
+        published without you</strong> — the gates are the product, not a safety
+        rail bolted to it.
+      </p>
+    </div>
+
+    <div class="welcome-side">
+      <section class="panel">
+        <p class="eyebrow flush">What it costs · nothing</p>
+        <p class="welcome-note flush">
+          Every provider it calls has a permanent free tier, and it stops itself
+          under each one rather than spilling over. Remaining right now:
+        </p>
+        <ul class="meter-list">
+          {% for row in free_tier %}
+            <li class="meter-row" data-free-tier="{{ row.provider }}" data-remaining="{{ row.remaining }}">
+              <span class="meter-name">{{ row.provider }}</span>
+              <span class="status {{ row.tone }}">{{ row.remaining }} of {{ row.limit }} left {{ row.window }}</span>
+              <span class="meter-role">{{ row.role }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+        <p class="welcome-note flush">
+          Everything else — speech, word timings, encoding — runs on your own
+          machine and calls nobody.
+        </p>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow flush">What it needs · your own keys</p>
+        <ul class="meter-list">
+          {% for key in keys %}
+            <li class="meter-row" data-key="{{ key.env_var }}" data-present="{{ "true" if key.present else "false" }}">
+              <span class="meter-name">{{ key.name }}</span>
+              <span class="status {{ key.tone }}">{{ key.state_label }}</span>
+              <span class="meter-role">{{ key.role }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+        <p class="welcome-note flush">
+          Put them in <code>.env</code> beside <code>.env.example</code>, which
+          lists where each one is issued — console.groq.com,
+          aistudio.google.com, pexels.com/api, dash.cloudflare.com. Then run
+          <code>videomaker doctor</code>, which checks the keys, FFmpeg and the
+          disk and tells you what is missing.
+        </p>
+      </section>
+    </div>
+  </div>
+</section>

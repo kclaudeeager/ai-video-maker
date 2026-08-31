@@ -1,0 +1,21 @@
+{#
+  The first-run screen on its own, for anyone who already has projects.
+
+  One page, read once — deliberately not a wizard; see
+  `docs/guidance-and-chat-design.md`. It shares `_welcome.html` with the empty
+  list page so there is exactly one copy of what the tool promises.
+
+  Context: `free_tier`, `keys` — both live reads, see `web/onboarding.py`.
+#}
+{% extends "base.html" %}
+
+{% block title %}How it works{% endblock %}
+{% block eyebrow %}Longhand · a video studio you stay inside{% endblock %}
+{% block heading %}How it works{% endblock %}
+
+{% block content %}
+  {% include "_welcome.html" %}
+  <p class="welcome-cta">
+    <a class="button button-primary" href="/">Start a project</a>
+  </p>
+{% endblock %}

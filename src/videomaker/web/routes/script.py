@@ -57,6 +57,7 @@ from videomaker.scenes import delete_scene, merge_scenes, reorder_scenes, split_
 # next gate" job body all belong to the dashboard module. Importing them keeps
 # one definition of each: a second 404 helper here would be a second chance to
 # return a 500 for a URL somebody typed by hand.
+from videomaker.web.guidance import next_step
 from videomaker.web.routes.projects import (
     _STATUS_TONES,
     GATE_TITLES,
@@ -288,6 +289,10 @@ def script_page(request: Request, project_id: str):
             **_gate_context(project),
             "project": project,
             "scenes": scene_rows(project, stage_cache),
+            # The same panel the dashboard carries, from the same walk: on this
+            # page it names the gate you are standing in and hides its own
+            # button, because the approve control below is the real action here.
+            "next": next_step(project, stage_cache),
             "status": status,
             "status_label": status.value.replace("_", " "),
             "status_tone": _STATUS_TONES.get(status, ""),

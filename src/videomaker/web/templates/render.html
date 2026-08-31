@@ -2,7 +2,7 @@
   Gate 3, second half: the final render's progress, and the file it produces.
 
   Context: `project`, `output` and `preview` (ArtefactViews), `seconds`, `gate`,
-  `status`/`status_label`/`status_tone`, and the job block (`job`, `poll`,
+  `status`/`status_label`/`status_tone`, `next`, and the job block (`job`, `poll`,
   `job_tone`, `poll_ms`).
 
   The bar here is driven from inside FFmpeg — output seconds encoded over the
@@ -23,33 +23,33 @@
 {% extends "base.html" %}
 
 {% block title %}Render · {{ project.topic }}{% endblock %}
+{% block eyebrow %}After gate 3{% endblock %}
 {% block heading %}Final render{% endblock %}
 
 {% block content %}
-  <section class="card project-head">
-    <div class="row spread">
-      <p class="muted flush">
-        <a href="/projects/{{ project.id }}">{{ project.topic }}</a> ·
-        <code>{{ project.id }}</code> ·
-        <a href="/projects/{{ project.id }}/preview">preview</a>
-      </p>
-      <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
-    </div>
-    <p class="muted flush">
-      Captions burned in, narration mixed and normalised to −14 LUFS, moov atom
-      moved to the front so the file starts playing before it has finished
-      loading. This is the part that takes real time
-      {%- if seconds %} — about {{ seconds|round|int }} s of video to encode{% endif %}.
-    </p>
-  </section>
+  {% include "_next_step.html" %}
+
+  <p class="meta-strip">
+    <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
+    <a href="/projects/{{ project.id }}">{{ project.topic }}</a> ·
+    <code>{{ project.id }}</code> ·
+    <a href="/projects/{{ project.id }}/preview">preview</a>
+  </p>
+
+  <p class="prose">
+    Captions burned in, narration mixed and normalised to −14 LUFS, moov atom
+    moved to the front so the file starts playing before it has finished
+    loading. This is the part that takes real time
+    {%- if seconds %} — about {{ seconds|round|int }} s of video to encode{% endif %}.
+  </p>
 
   <section id="render-live" class="card artefact" data-render="{{ output.state }}"
            {% if poll %}hx-get="/projects/{{ project.id }}/render"
            hx-trigger="every {{ poll_ms }}ms"
            hx-select="#render-live"
            hx-swap="outerHTML"{% endif %}>
-    <div class="row spread">
-      <h2 class="flush">{{ output.relpath.split("/")[-1] }}</h2>
+    <div class="artefact-head">
+      <h2 class="section-title flush">{{ output.relpath.split("/")[-1] }}</h2>
       {% if job %}
         <span class="status {{ job_tone }}" data-job-state="{{ job.state }}">{{ job.state }}</span>
       {% else %}
@@ -61,7 +61,7 @@
       {# The one number worth looking at while this runs. #}
       <p class="render-percent flush">{{ (job.progress * 100)|round|int }}%</p>
       <progress value="{{ '%.3f'|format(job.progress) }}" max="1">{{ (job.progress * 100)|round|int }}%</progress>
-      <p class="muted flush">
+      <p class="hint flush">
         {% if job.message %}{{ job.message }}{% elif job.stage %}stage {{ job.stage }}{% else %}waiting for the worker{% endif %}
       </p>
     {% endif %}
@@ -76,7 +76,7 @@
 
     {% if job and job.state == "blocked" and job.gate %}
       <p class="flush">
-        <a class="button" href="/projects/{{ project.id }}/{{ job.gate }}">Open {{ gate_titles.get(job.gate, job.gate)|lower }}</a>
+        <a class="button button-primary" href="/projects/{{ project.id }}/{{ job.gate }}">Open {{ gate_titles.get(job.gate, job.gate)|lower }}</a>
       </p>
     {% endif %}
 
@@ -98,7 +98,7 @@
       {% endif %}
 
       <label class="path-copy">
-        <span class="muted">On disk</span>
+        <span class="path-label">On disk</span>
         {# Readonly rather than plain text: the whole point of showing the path
            is that it can be selected in one click and pasted somewhere else. #}
         <input class="path-field" type="text" readonly value="{{ output.location }}"
@@ -108,13 +108,13 @@
         {# `download` is same-origin so the browser saves rather than navigates.
            Primary action: on a remote deploy (M6) the path above is useless and
            this is the only way to get the file off the box. #}
-        <a class="button" href="{{ output.url }}" download="{{ output.download_name }}">
+        <a class="button button-primary" href="{{ output.url }}" download="{{ output.download_name }}">
           Download
         </a>
-        <a class="button button-quiet" href="{{ output.url }}">Open in a new tab</a>
+        <a class="button" href="{{ output.url }}">Open in a new tab</a>
       </p>
     {% elif not poll %}
-      <p class="artefact-empty muted flush">
+      <p class="artefact-empty flush">
         Nothing has been rendered yet. Approve the preview on the
         <a href="/projects/{{ project.id }}/preview">preview page</a> to start the
         final encode.

@@ -88,6 +88,7 @@ from videomaker.runner import (
 # one definition of each: a second 404 helper would be a second chance to return
 # a 500 for a URL somebody typed by hand, and a second copy of the terminal-state
 # set would be a second chance for a page to poll forever.
+from videomaker.web.guidance import next_step
 from videomaker.web.routes.projects import (
     _JOB_TONES,
     _STATUS_TONES,
@@ -454,9 +455,20 @@ def _job_view(request: Request, project_id: str) -> dict[str, object]:
 def _page_context(request: Request, project: Project) -> dict[str, object]:
     """What both pages share: the project, its derived status, and the job."""
     store: ProjectStore = request.app.state.store
-    status = derive_status(project, stage_cache_for(store, project.id))
+    stage_cache = stage_cache_for(store, project.id)
+    status = derive_status(project, stage_cache)
+    job_view = _job_view(request, project.id)
+    job: JobState | None = job_view["job"]  # type: ignore[assignment]
     return {
-        **_job_view(request, project.id),
+        **job_view,
+        # Derived from the same walk `derive_status` just performed, so the panel
+        # and the pipeline cannot describe the project differently.
+        "next": next_step(
+            project,
+            stage_cache,
+            busy=bool(job_view["poll"]),
+            running_stage=job.stage if job is not None else None,
+        ),
         "project": project,
         "status": status,
         "status_label": status.value.replace("_", " "),

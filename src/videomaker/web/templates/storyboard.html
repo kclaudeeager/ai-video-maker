@@ -2,12 +2,12 @@
   Gate 2: every scene's shot on one page, with its alternatives beside it.
 
   Context: `project`, `cards` (SceneCard, in order), `gate` (a GateView),
-  `status`/`status_label`/`status_tone`.
+  `status`/`status_label`/`status_tone`, `next` (a `guidance.NextStep`).
 
   The card and the gate markup live in `_scene_card.html` as macros, imported
   here rather than included: the same two macros render this page and the partial
-  replies to `choose` and `motion`, so there is one definition of a scene card and
-  one definition of the gate.
+  replies to `choose`, `motion`, `crop`, `in_short` and `search`, so there is one
+  definition of a scene card and one definition of the gate.
 
   Every control is a real `<form method="post">` first and an htmx form second, so
   the page still swaps a shot and still approves with JavaScript switched off (M2
@@ -24,36 +24,37 @@
 {% from "_scene_card.html" import scene_card, gate_card %}
 
 {% block title %}Storyboard review · {{ project.topic }}{% endblock %}
-{% block heading %}Storyboard review{% endblock %}
+{% block eyebrow %}Gate 2 of 3{% endblock %}
+{% block heading %}Pick the shots{% endblock %}
 
 {% block content %}
-  <section class="card project-head">
-    <div class="row spread">
-      <p class="muted flush">
-        <a href="/projects/{{ project.id }}">{{ project.topic }}</a> ·
-        <code>{{ project.id }}</code> ·
-        {{ cards|length }} scene{{ "" if cards|length == 1 else "s" }} ·
-        <a href="/projects/{{ project.id }}/script">script</a>
-      </p>
-      <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
-    </div>
-    <p class="muted flush">
-      Watch each shot against its narration and swap in a better one where the
-      search got it wrong. Only the scene you change is re-encoded — the rest of
-      the video is left exactly as it is.
-    </p>
-  </section>
+  {% include "_next_step.html" %}
+
+  <p class="meta-strip">
+    <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
+    <a href="/projects/{{ project.id }}">{{ project.topic }}</a> ·
+    <code>{{ project.id }}</code> ·
+    {{ cards|length }} scene{{ "" if cards|length == 1 else "s" }} ·
+    <a href="/projects/{{ project.id }}/script">script</a>
+  </p>
+
+  <p class="prose">
+    Watch each shot against its narration and swap in a better one where the
+    search got it wrong. Only the scene you change is re-encoded — the rest of
+    the video is left exactly as it is. Everything that changes a shot is folded
+    into “Change this shot”, so this page stays scannable at ten scenes.
+  </p>
 
   {{ gate_card(gate) }}
 
   {% if not cards %}
-    <p class="card muted">
+    <p class="card empty-state flush">
       No storyboard yet. Approve the script and let the run reach the visuals
       stage, then come back — start it from the
       <a href="/projects/{{ project.id }}">project page</a>.
     </p>
   {% else %}
-    <h2>Scenes</h2>
+    <h2 class="section-title">Scenes</h2>
     <ol class="scene-list storyboard">
       {% for card in cards %}{{ scene_card(card) }}{% endfor %}
     </ol>

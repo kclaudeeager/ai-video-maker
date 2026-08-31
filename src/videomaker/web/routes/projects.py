@@ -50,6 +50,8 @@ from videomaker.runner import (
     stage_is_current,
 )
 from videomaker.templates import list_templates
+from videomaker.web.guidance import next_step
+from videomaker.web.onboarding import free_tier_rows, key_rows
 from videomaker.web.voices import available_voices
 from videomaker.web.worker import (
     BLOCKED,
@@ -133,11 +135,18 @@ def _render_index(
     """Render the list page, optionally with a rejected form's values and error."""
     templates: Jinja2Templates = request.app.state.templates
     names = list_templates()
+    rows = project_rows(request.app.state.store)
     return templates.TemplateResponse(
         request,
         "index.html",
         {
-            "rows": project_rows(request.app.state.store),
+            "rows": rows,
+            # The first-run screen is the list page's empty state rather than a
+            # separate destination: the create form is the thing it argues for,
+            # and a redirect would put a wall between reading it and using it.
+            # The same partial is served on its own at `/guide` afterwards.
+            "first_run": not rows,
+            **welcome_context(request),
             "templates_available": names,
             # Never raises, even with no `ml` extra and no model weights — see
             # `web.voices`. A create form that 500s on a fresh clone is worse
@@ -190,10 +199,36 @@ def advance_job(settings: Settings, project_id: str) -> JobFn:
     return run_job(settings, project_id, until=None)
 
 
+def welcome_context(request: Request) -> dict[str, object]:
+    """What the onboarding panel says, all of it read live rather than asserted.
+
+    The headroom comes from the ledger the providers are policed against and the
+    key rows from the `Settings` they resolve credentials from, so the screen
+    cannot promise a free tier that has already been spent or keys that are not
+    there. See `web.onboarding`.
+    """
+    return {
+        "free_tier": free_tier_rows(),
+        "keys": key_rows(request.app.state.settings),
+    }
+
+
 @router.get("/")
 def index(request: Request):
-    """The project list, plus the create form."""
+    """The project list, plus the create form — and, when empty, the first run."""
     return _render_index(request)
+
+
+@router.get("/guide")
+def guide(request: Request):
+    """The onboarding screen on its own, for anyone who has projects already.
+
+    One screen, read once, reachable from the nav — deliberately not a wizard
+    (`docs/guidance-and-chat-design.md`). It is the same partial the empty list
+    page shows, so there is one copy of what the tool promises.
+    """
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse(request, "welcome.html", welcome_context(request))
 
 
 @router.post("/projects")
@@ -440,6 +475,14 @@ def project_detail(request: Request, project_id: str):
             "status_tone": _STATUS_TONES.get(status, ""),
             "busy": busy,
             "advance_label": _advance_label(gates, busy=busy),
+            # Read from the same walk `derive_status` performs, so the panel and
+            # the pipeline cannot describe the project differently.
+            "next": next_step(
+                project,
+                stage_cache,
+                busy=busy,
+                running_stage=job.stage if (job := job_context["job"]) is not None else None,
+            ),
         },
     )
 

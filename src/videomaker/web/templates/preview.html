@@ -2,8 +2,8 @@
   Gate 3: the 480p proxy, playable, with the approve button under it.
 
   Context: `project`, `preview` (an ArtefactView), `assembled`, `seconds`,
-  `gate` (a GateView), `status`/`status_label`/`status_tone`, and the job block
-  (`job`, `poll`, `job_tone`, `poll_ms`).
+  `gate` (a GateView), `status`/`status_label`/`status_tone`, `next`, and the job
+  block (`job`, `poll`, `job_tone`, `poll_ms`).
 
   `#preview-live` re-fetches *this page* and lifts itself out of the reply with
   `hx-select`, rather than polling the dashboard's job fragment: the thing the
@@ -21,33 +21,33 @@
 {% extends "base.html" %}
 
 {% block title %}Preview review · {{ project.topic }}{% endblock %}
-{% block heading %}Preview review{% endblock %}
+{% block eyebrow %}Gate 3 of 3{% endblock %}
+{% block heading %}Watch the cut{% endblock %}
 
 {% block content %}
-  <section class="card project-head">
-    <div class="row spread">
-      <p class="muted flush">
-        <a href="/projects/{{ project.id }}">{{ project.topic }}</a> ·
-        <code>{{ project.id }}</code> ·
-        <a href="/projects/{{ project.id }}/script">script</a> ·
-        <a href="/projects/{{ project.id }}/storyboard">storyboard</a>
-      </p>
-      <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
-    </div>
-    <p class="muted flush">
-      Watch it end to end before the machine spends real time on the full-size
-      encode. This is the finished cut at 480 lines — the same shots, the same
-      narration, the same burned-in captions, just smaller and cheaper to make.
-    </p>
-  </section>
+  {% include "_next_step.html" %}
+
+  <p class="meta-strip">
+    <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
+    <a href="/projects/{{ project.id }}">{{ project.topic }}</a> ·
+    <code>{{ project.id }}</code> ·
+    <a href="/projects/{{ project.id }}/script">script</a> ·
+    <a href="/projects/{{ project.id }}/storyboard">storyboard</a>
+  </p>
+
+  <p class="prose">
+    Watch it end to end before the machine spends real time on the full-size
+    encode. This is the finished cut at 480 lines — the same shots, the same
+    narration, the same burned-in captions, just smaller and cheaper to make.
+  </p>
 
   <section id="preview-live" class="card artefact" data-preview="{{ preview.state }}"
            {% if poll %}hx-get="/projects/{{ project.id }}/preview"
            hx-trigger="every {{ poll_ms }}ms"
            hx-select="#preview-live"
            hx-swap="outerHTML"{% endif %}>
-    <div class="row spread">
-      <h2 class="flush">480p preview</h2>
+    <div class="artefact-head">
+      <h2 class="section-title flush">480p preview</h2>
       {% if job %}
         <span class="status {{ job_tone }}" data-job-state="{{ job.state }}">{{ job.state }}</span>
       {% else %}
@@ -63,23 +63,23 @@
         Your browser cannot play this file. It is at
         <code>{{ preview.relpath }}</code> inside the project folder.
       </video>
-      <p class="muted flush">
+      <p class="hint flush">
         <code>{{ preview.relpath }}</code>
         {% if seconds %}· about {{ seconds|round|int }} s long{% endif %}
       </p>
     {% elif writing %}
-      <p class="artefact-empty muted flush">
+      <p class="artefact-empty flush">
         Encoding the preview now. It will appear here on its own when it is
         finished — this page is watching.
       </p>
     {% elif not assembled %}
-      <p class="artefact-empty muted flush">
+      <p class="artefact-empty flush">
         Nothing has been assembled yet, so there is nothing to preview. Run the
         project as far as the assemble stage — the button below does it — or
         start it from the <a href="/projects/{{ project.id }}">project page</a>.
       </p>
     {% else %}
-      <p class="artefact-empty muted flush">
+      <p class="artefact-empty flush">
         The timeline is assembled but no preview has been encoded from it yet.
         It takes a few seconds.
       </p>
@@ -97,7 +97,7 @@
     {% endif %}
 
     {% if job and job.message %}
-      <p class="muted flush">{{ job.message }}</p>
+      <p class="hint flush">{{ job.message }}</p>
     {% endif %}
 
     {% if job and job.error %}
@@ -106,7 +106,7 @@
 
     {% if job and job.state == "blocked" and job.gate %}
       <p class="flush">
-        <a class="button" href="/projects/{{ project.id }}/{{ job.gate }}">Open {{ gate_titles.get(job.gate, job.gate)|lower }}</a>
+        <a class="button button-primary" href="/projects/{{ project.id }}/{{ job.gate }}">Open {{ gate_titles.get(job.gate, job.gate)|lower }}</a>
       </p>
     {% endif %}
 
@@ -114,26 +114,27 @@
       <button type="submit" {% if poll %}disabled{% endif %}>
         {% if poll %}Working…{% elif preview.exists %}Rebuild the preview{% else %}Build the preview{% endif %}
       </button>
-      <span class="muted">
+      <span class="hint">
         Assembles anything that has moved, then encodes 480p with
         <code>-preset ultrafast</code>. Nothing here touches the deliverable.
       </span>
     </form>
   </section>
 
-  <section id="gate-state" class="card gate preview-gate" data-gate="{{ gate.name }}" data-approved="{{ gate.marker }}">
-    <div class="row spread">
-      <strong>Gate 3 · {{ gate.title }}</strong>
-      <span class="status {{ gate.tone }}">{{ gate.state_label }}</span>
+  <section id="gate-state" class="card gate gate-panel preview-gate" data-gate="{{ gate.name }}" data-approved="{{ gate.marker }}">
+    <div class="gate-head">
+      <span class="eyebrow flush">Gate 3 · {{ gate.title }}</span>
+      {% if not gate.approved %}<span class="status {{ gate.tone }}">{{ gate.state_label }}</span>{% endif %}
     </div>
 
     {% if gate.approved %}
-      <p class="muted flush">
-        Approved {{ gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC.
-        Editing anything upstream will clear this again.
+      <p class="stamp flush">
+        <span class="stamp-word">Approved</span>
+        <span class="stamp-date">{{ gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
       </p>
+      <p class="hint flush">Editing anything upstream will clear this again.</p>
     {% else %}
-      <p class="muted flush">
+      <p class="hint flush">
         Nothing is rendered at full size until this gate is stamped — that is the
         point of it. The final encode is the longest part of the run.
       </p>
@@ -143,7 +144,7 @@
       <button type="submit" class="primary" {% if not preview.exists or writing %}disabled{% endif %}>
         {{ "Re-approve and render" if gate.approved else "Approve and render" }}
       </button>
-      <span class="muted">
+      <span class="hint">
         {% if preview.exists and not writing %}
           Stamps gate 3 and starts the full-size render. You will be taken to its
           progress page.

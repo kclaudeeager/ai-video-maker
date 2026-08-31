@@ -129,6 +129,7 @@ from videomaker.templates import load_template
 # The shared 404 helper, the status pill palette, the gate titles and the "run to
 # the next gate" job body all belong to the dashboard module. Importing them keeps
 # one definition of each.
+from videomaker.web.guidance import next_step
 from videomaker.web.routes.projects import (
     _STATUS_TONES,
     GATE_TITLES,
@@ -722,6 +723,7 @@ def storyboard_page(request: Request, project_id: str):
         {
             "project": project,
             "cards": scene_cards(project, stage_cache, store.path_for(project_id)),
+            "next": next_step(project, stage_cache),
             "gate": gate_view(project, quota=quota_view(request.app.state.settings, project_id)),
             "status": status,
             "status_label": status.value.replace("_", " "),

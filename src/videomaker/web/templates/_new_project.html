@@ -1,0 +1,74 @@
+{#
+  The create form. A plain `<form method="post">` with no htmx on it: creation
+  ends in a 303 to another page, which is exactly what a browser does well on
+  its own, and it keeps the page working with JavaScript disabled (M2 global
+  constraint).
+
+  Its own file because `index.html` puts it *above* the list on a first run —
+  when it is the only thing to do — and *below* the list afterwards, when the
+  projects are what you came for. One copy, two positions.
+
+  Context: `first_run`, `form`, `error`, `templates_available`, `voices`.
+#}
+  <h2 class="section-title">{% if first_run %}Your first project{% else %}New project{% endif %}</h2>
+  <form class="card form-card" method="post" action="/projects">
+    {% if error %}
+      <p class="notice notice-bad" role="alert">{{ error }}</p>
+    {% endif %}
+    <div class="field">
+      <label for="topic">Topic</label>
+      {# Focused only when the form leads the page: with projects above it, an
+         autofocus would scroll a returning user straight past them. #}
+      <input type="text" id="topic" name="topic" required{% if first_run %} autofocus{% endif %}
+             placeholder="how solid state drives work"
+             value="{{ form.topic }}">
+      <p class="hint flush">One sentence. The script is written from it, so be concrete.</p>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="template">Template</label>
+        <select id="template" name="template">
+          {% for name in templates_available %}
+            <option value="{{ name }}" {% if name == form.template %}selected{% endif %}>{{ name }}</option>
+          {% else %}
+            {# No templates on disk: say so rather than offering an empty menu. #}
+            <option value="" disabled selected>no templates found in templates/</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="minutes">Target length (minutes)</label>
+        <input type="number" id="minutes" name="minutes" min="0.1" step="0.1" value="{{ form.minutes }}">
+      </div>
+    </div>
+    <div class="field">
+      <label for="voice">Voice</label>
+      {# Kokoro's voice set is fixed and known, so this is a menu rather than a
+         free-text id nobody can remember. Grouped by language because 54 flat
+         options is not a menu. `voices` is `web.voices.available_voices`, which
+         falls back to a short static list rather than failing to render. #}
+      <select id="voice" name="voice">
+        {% if form.voice and form.voice not in voices.ids %}
+          {# A voice the catalogue does not list — an unreadable catalogue, or a
+             value typed by hand. The server accepts it, so the form keeps it. #}
+          <optgroup label="Submitted">
+            <option value="{{ form.voice }}" selected>{{ form.voice }}</option>
+          </optgroup>
+        {% endif %}
+        {% for group in voices.groups %}
+          <optgroup label="{{ group.language }}">
+            {% for voice in group.voices %}
+              <option value="{{ voice.id }}"{% if voice.id == form.voice %} selected{% endif %}>{{ voice.display_name }} — {{ voice.gender }}</option>
+            {% endfor %}
+          </optgroup>
+        {% endfor %}
+      </select>
+      {% if voices.note %}
+        <p class="hint flush">{{ voices.note }}</p>
+      {% endif %}
+    </div>
+    <div class="form-foot">
+      <button type="submit" class="primary">Create and write the script</button>
+      <span class="hint">Writing the script is the only thing that runs now. It stops at gate 1.</span>
+    </div>
+  </form>

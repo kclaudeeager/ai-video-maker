@@ -1,17 +1,17 @@
 {#
-  Gate 2's two building blocks, as macros so one definition serves both the page
-  and the partial replies.
+  Gate 2's building blocks, as macros so one definition serves both the page and
+  the partial replies.
 
   * `scene_card(card)` — one scene: the chosen shot, the alternatives, the stock
-    search box, motion and re-voice. Context: a `SceneCard`.
+    search box, motion, framing and re-voice. Context: a `SceneCard`.
   * `gate_card(gate)` — the gate 2 approval card. Context: a `GateView`.
   * `quota_card(quota)` — remaining free-tier headroom. Context: a `QuotaView`.
 
   `storyboard.html` imports the first two (`{% from "_scene_card.html" import ... %}`).
-  A reply from `choose`, `motion` or `search` renders this template *directly*
-  instead, and the body at the bottom is then the updated card followed by the
-  gate card as an out-of-band swap — guarded, because Jinja builds an imported
-  module by running that body too.
+  A reply from `choose`, `motion`, `crop`, `in_short` or `search` renders this
+  template *directly* instead, and the body at the bottom is then the updated card
+  followed by the gate card as an out-of-band swap — guarded, because Jinja builds
+  an imported module by running that body too.
 
   `quota_card` is drawn *inside* `gate_card` rather than beside it. That is
   deliberate: there is then one indicator on the page, and every reply already
@@ -27,6 +27,14 @@
   `data-crop-window`/`data-crop-focus`, `data-in-short`/`data-included` and
   `data-short-state`/`data-short-seconds` are the attribute pairs the tests read;
   keep each pair adjacent.
+
+  **Progressive disclosure.** At five scenes this page is a long scroll and at ten
+  it is unusable, so a card at rest shows only the *review* — the shot, its 9:16
+  window, and what it is. Everything that *changes* the shot lives in one
+  `<details>`, which opens by itself exactly when the scene needs attention (no
+  downloaded shot, or a problem was reported). `<details>` is native, so this
+  costs no JavaScript and the page still works with it switched off, and every
+  form, field name and `data-*` attribute is present in the markup either way.
 
   The shot is staged at its **source** aspect ratio rather than at 16:9, because
   the 9:16 overlay has to sit on the whole frame the vertical crop is taken from.
@@ -76,7 +84,7 @@
         </span>
         <span class="candidate-meta">
           <span class="candidate-name">Option {{ candidate.index + 1 }}</span>
-          <span class="candidate-label muted">{{ candidate.label }}</span>
+          <span class="candidate-label">{{ candidate.label }}</span>
           <span class="candidate-action">{{ "in use" if candidate.chosen else "use this" }}</span>
         </span>
       </button>
@@ -86,8 +94,8 @@
 
 {% macro scene_card(card) %}
   <li id="scene-{{ card.scene.id }}" class="card scene-card" data-scene="{{ card.scene.id }}">
-    <div class="row spread scene-head">
-      <h3 class="flush">Scene {{ card.number }} <code class="scene-id">{{ card.scene.id }}</code></h3>
+    <div class="scene-head">
+      <h3 class="scene-number flush">Scene {{ card.number }} <code class="scene-id">{{ card.scene.id }}</code></h3>
       <span class="scene-state">
         {% if card.note %}
           <span class="status {{ card.note_tone }}" data-scene-note="{{ card.note }}">{{ card.note }}</span>
@@ -96,7 +104,7 @@
       </span>
     </div>
 
-    <p class="muted scene-summary">{{ card.summary }}</p>
+    <p class="scene-summary prose flush">{{ card.summary }}</p>
 
     <div class="shot">
       <div class="shot-main">
@@ -117,12 +125,22 @@
               <span class="crop-window" aria-hidden="true"><span class="crop-tag">9:16</span></span>
             {% endif %}
           </div>
-          <p class="muted shot-caption flush">
-            Chosen · {{ card.chosen.label }} · {{ card.chosen.ref.provider }}
+        {% else %}
+          <p class="shot-empty flush">No shot downloaded for this scene yet.</p>
+        {% endif %}
+      </div>
+
+      <div class="shot-facts">
+        {% if card.chosen and card.chosen.downloaded %}
+          {% set crop = card.crop %}
+          <p class="shot-caption flush">
+            <span class="shot-caption-key">In use</span>
+            {{ card.chosen.label }} · {{ card.chosen.ref.provider }}
             {%- if card.chosen.ref.attribution %} · {{ card.chosen.ref.attribution }}{% endif %}
           </p>
           {% if crop %}
-            <p class="muted shot-caption flush" data-crop-note="{{ card.scene.id }}">
+            <p class="shot-caption flush" data-crop-note="{{ card.scene.id }}">
+              <span class="shot-caption-key">Framing</span>
               {% if crop.keeps_all %}
                 This shot is already at 9:16 or narrower, so the Short keeps all of it.
               {% else %}
@@ -130,10 +148,35 @@
               {% endif %}
             </p>
           {% endif %}
-        {% else %}
-          <p class="shot-empty muted flush">No shot downloaded for this scene yet.</p>
         {% endif %}
+        <p class="shot-caption flush">
+          <span class="shot-caption-key">In the Short</span>
+          {% if card.in_short %}
+            In it{% if card.short_seconds is not none %}, adding {{ "%.1f"|format(card.short_seconds) }}s{% endif %}.
+          {% else %}
+            Left out of the vertical cut.
+          {% endif %}
+        </p>
       </div>
+    </div>
+
+    {% if card.problem %}
+      <p class="notice notice-warn" role="status" data-scene-problem="true">
+        {{ card.problem }} Nothing was changed.
+      </p>
+    {% endif %}
+
+    {#
+      Everything that changes this scene, folded away. `open` is not a
+      preference: it is the answer to "does this scene need me?", so the page
+      still lands on the scene that is wrong.
+    #}
+    <details class="disclosure scene-change"
+             {% if card.problem or not (card.chosen and card.chosen.downloaded) %}open{% endif %}>
+      <summary>
+        Change this shot
+        <span class="summary-count">{{ card.candidates|length }} alternative{{ "" if card.candidates|length == 1 else "s" }}</span>
+      </summary>
 
       <div class="shot-controls">
         <form class="field motion-form"
@@ -152,7 +195,7 @@
             {% endfor %}
           </select>
           <noscript><button type="submit">Set motion</button></noscript>
-          <p class="muted hint flush">
+          <p class="hint flush">
             {% if card.is_video %}Footage already moves, so motion is ignored for this shot.{% else %}Applied to the still while the scene plays.{% endif %}
           </p>
         </form>
@@ -173,9 +216,9 @@
                  name="crop_focus_x" min="0" max="1" step="{{ card.crop_step }}"
                  value="{{ "%.2f"|format(card.crop_focus_x) }}"
                  aria-describedby="crop-hint-{{ card.scene.id }}">
-          <span class="row spread crop-ends muted" aria-hidden="true"><span>left</span><span>centre</span><span>right</span></span>
+          <span class="crop-ends" aria-hidden="true"><span>left</span><span>centre</span><span>right</span></span>
           <noscript><button type="submit">Set framing</button></noscript>
-          <p class="muted hint flush" id="crop-hint-{{ card.scene.id }}">
+          <p class="hint flush" id="crop-hint-{{ card.scene.id }}">
             Slides the 9:16 window across the shot. It also re-centres a still's
             pan, so it moves the wide video too.
           </p>
@@ -197,7 +240,7 @@
             <span>In the Short</span>
           </label>
           <noscript><button type="submit">Update the Short</button></noscript>
-          <p class="muted hint flush">
+          <p class="hint flush">
             {% if card.short_seconds is none %}
               Adds nothing yet — this scene has not been voiced.
             {% else %}
@@ -206,50 +249,44 @@
           </p>
         </form>
 
-        <form class="revoice" method="post" action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/revoice">
+        <form class="field revoice" method="post" action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/revoice">
           <button type="submit">Re-voice this scene</button>
-          <p class="muted hint flush">Speaks the same words again and re-times them. Nothing else is touched.</p>
+          <p class="hint flush">Speaks the same words again and re-times them. Nothing else is touched.</p>
         </form>
       </div>
-    </div>
 
-    {# The query can be a paragraph — it comes from a model — so it is clipped to
-       one line with the whole of it on the title. #}
-    <p class="muted candidates-head flush" title="{{ card.candidates_query }}">Alternatives found for “{{ card.candidates_query }}”</p>
+      {# A real form first, htmx second. `required` is the client-side half of
+         "an empty query is refused"; the handler refuses it again with a 422,
+         because nothing arriving over HTTP is ever client-side-validated. #}
+      <form class="field scene-search"
+            method="post"
+            action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/search"
+            hx-post="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/search"
+            hx-target="#scene-{{ card.scene.id }}"
+            hx-swap="outerHTML">
+        <label for="search-{{ card.scene.id }}">Search stock for this scene</label>
+        <span class="search-row">
+          <input id="search-{{ card.scene.id }}" type="search" name="query" required
+                 value="{{ card.candidates_query }}"
+                 placeholder="concrete, filmable nouns"
+                 autocomplete="off" spellcheck="false">
+          <button type="submit">Search</button>
+        </span>
+        <p class="hint flush">
+          Replaces the alternatives below; the shot in use stays as it is. A new
+          search costs one request against the stock free tier — repeating one you
+          have already run is served from the cache and is free.
+        </p>
+      </form>
 
-    {# A real form first, htmx second. `required` is the client-side half of
-       "an empty query is refused"; the handler refuses it again with a 422,
-       because nothing arriving over HTTP is ever client-side-validated. #}
-    <form class="field scene-search"
-          method="post"
-          action="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/search"
-          hx-post="/projects/{{ card.project_id }}/scenes/{{ card.scene.id }}/search"
-          hx-target="#scene-{{ card.scene.id }}"
-          hx-swap="outerHTML">
-      <label for="search-{{ card.scene.id }}">Search stock for this scene</label>
-      <span class="row search-row">
-        <input id="search-{{ card.scene.id }}" type="search" name="query" required
-               value="{{ card.candidates_query }}"
-               placeholder="concrete, filmable nouns"
-               autocomplete="off" spellcheck="false">
-        <button type="submit">Search</button>
-      </span>
-      <p class="muted hint flush">
-        Replaces the alternatives below; the shot in use stays as it is. A new
-        search costs one request against the stock free tier — repeating one you
-        have already run is served from the cache and is free.
-      </p>
-    </form>
+      {# The query can be a paragraph — it comes from a model — so it is clipped to
+         one line with the whole of it on the title. #}
+      <p class="candidates-head flush" title="{{ card.candidates_query }}">Alternatives found for “{{ card.candidates_query }}”</p>
 
-    {% if card.problem %}
-      <p class="notice notice-warn" role="status" data-scene-problem="true">
-        {{ card.problem }} Nothing was changed.
-      </p>
-    {% endif %}
-
-    <ul class="candidates card-list">
-      {% for candidate in card.candidates %}{{ candidate_tile(card, candidate) }}{% endfor %}
-    </ul>
+      <ul class="candidates card-list">
+        {% for candidate in card.candidates %}{{ candidate_tile(card, candidate) }}{% endfor %}
+      </ul>
+    </details>
   </li>
 {% endmacro %}
 
@@ -259,25 +296,22 @@
      on the page is that the wall should be visible while there is still room to
      stop. `data-quota`/`data-remaining` are the attribute pair the tests read;
      keep them adjacent. #}
-  <section id="quota-state" class="card quota"
+  <section id="quota-state" class="quota"
            hx-get="/projects/{{ quota.project_id }}/quota"
            hx-trigger="every 60s"
            hx-swap="outerHTML">
-    <div class="row spread">
-      <strong>Free-tier headroom</strong>
-      <span class="muted">refills as the window slides</span>
-    </div>
-    <ul class="quota-list card-list">
+    <p class="eyebrow flush">Free-tier headroom · refills as the window slides</p>
+    <ul class="meter-list quota-list">
       {% for row in quota.rows %}
-        <li class="row spread" data-quota="{{ row.provider }}" data-remaining="{{ row.remaining }}" data-axis="{{ row.axis }}">
-          <span class="muted">{{ row.provider }}</span>
+        <li class="meter-row" data-quota="{{ row.provider }}" data-remaining="{{ row.remaining }}" data-axis="{{ row.axis }}">
+          <span class="meter-name">{{ row.provider }}</span>
           <span class="status {{ row.tone }}">
             {{ row.remaining }} of {{ row.limit }} {{ row.unit }} left {{ row.window_label }}
           </span>
         </li>
       {% endfor %}
     </ul>
-    <p class="muted hint flush">
+    <p class="hint flush">
       A stock search spends one <code>{{ quota.search_provider }}</code> request.
       Searching the same words twice is answered from the cache and costs nothing.
     </p>
@@ -285,18 +319,22 @@
 {% endmacro %}
 
 {% macro gate_card(gate) %}
-  <section id="gate-state" class="card gate storyboard-gate"
+  <section id="gate-state" class="card gate gate-panel storyboard-gate"
            data-gate="{{ gate.gate.name }}" data-approved="{{ gate.gate.marker }}"
            {% if gate.oob %}hx-swap-oob="true"{% endif %}>
-    <div class="row spread">
-      <strong>Gate 2 · {{ gate.gate.title }}</strong>
-      <span class="status {{ gate.gate.tone }}">{{ gate.gate.state_label }}</span>
+    <div class="gate-head">
+      <span class="eyebrow flush">Gate 2 · {{ gate.gate.title }}</span>
+      {% if not gate.gate.approved %}<span class="status {{ gate.gate.tone }}">{{ gate.gate.state_label }}</span>{% endif %}
     </div>
 
     {% if gate.gate.approved %}
-      <p class="muted flush">Approved {{ gate.gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC. Swapping a shot below will not un-approve it, but it will re-build what was made from it.</p>
+      <p class="stamp flush">
+        <span class="stamp-word">Approved</span>
+        <span class="stamp-date">{{ gate.gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+      </p>
+      <p class="hint flush">Swapping a shot below will not un-approve it, but it will re-build what was made from it.</p>
     {% else %}
-      <p class="muted flush">Nothing is captioned or assembled until this gate is stamped — that is the point of it.</p>
+      <p class="hint flush">Nothing is captioned or assembled until this gate is stamped — that is the point of it.</p>
     {% endif %}
 
     {% if gate.cleared %}
@@ -314,12 +352,12 @@
     {% if gate.short %}
       <div class="short-meter"
            data-short-state="{{ gate.short.state }}" data-short-seconds="{{ "%.1f"|format(gate.short.duration_s) }}">
-        <div class="row spread">
-          <strong>The Short</strong>
+        <div class="short-meter-head">
+          <span class="eyebrow flush">The Short</span>
           <span class="status {{ gate.short.tone }}">{{ gate.short.duration_label }} of {{ gate.short.limit_label }}</span>
         </div>
         <progress max="{{ gate.short.limit_s }}" value="{{ [gate.short.duration_s, gate.short.limit_s]|min }}"></progress>
-        <p class="muted hint flush">
+        <p class="hint flush">
           {{ gate.short.summary }}
           {% if gate.short.state == "over" %}
             The longest scenes in it are
@@ -334,11 +372,11 @@
       </div>
     {% endif %}
 
-    <p class="muted gate-others-head flush">The other two gates</p>
+    <p class="eyebrow flush gate-others-head">The other two gates</p>
     <ul class="gate-downstream card-list">
       {% for other in gate.others %}
-        <li class="row spread" data-gate="{{ other.name }}" data-approved="{{ other.marker }}">
-          <span class="muted">{{ other.title }}</span>
+        <li class="meter-row" data-gate="{{ other.name }}" data-approved="{{ other.marker }}">
+          <span class="meter-name">{{ other.title }}</span>
           <span class="status {{ other.tone }}">{{ other.state_label }}</span>
         </li>
       {% endfor %}
@@ -350,7 +388,7 @@
       <button type="submit" class="primary" {% if not gate.can_approve %}disabled{% endif %}>
         {{ "Re-approve and continue" if gate.gate.approved else "Approve storyboard and continue" }}
       </button>
-      <span class="muted">
+      <span class="hint">
         {% if gate.can_approve %}
           Stamps gate 2 and starts a run that stops at the next unapproved gate.
         {% else %}

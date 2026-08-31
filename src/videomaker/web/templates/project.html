@@ -1,44 +1,47 @@
 {#
-  One project's dashboard: where it has got to, what is running, and the one
-  button that moves it forward.
+  One project's dashboard: what to do next, where it has got to, what is running.
 
   Context: everything `_status.html` needs, plus `status`, `status_label`,
-  `status_tone`, `busy`, `advance_label`, and the `_job.html` context.
+  `status_tone`, `busy`, `advance_label`, `next` (a `guidance.NextStep`), and the
+  `_job.html` context.
 
-  The advance control is a real `<form method="post">` ending in a 303, not an
-  htmx button: the browser already does POST-then-redirect correctly, and the
-  page keeps working with JavaScript disabled (M2 global constraint). htmx is
-  used for exactly one thing here — polling the job fragment.
+  The next-step panel is the page's primary action. The advance control below it
+  stays as the quiet way to say "just run" — it is a real `<form method="post">`
+  ending in a 303, not an htmx button: the browser already does POST-then-redirect
+  correctly, and the page keeps working with JavaScript disabled (M2 global
+  constraint). htmx is used for exactly one thing here — polling the job fragment.
 #}
 {% extends "base.html" %}
 
 {% block title %}{{ project.topic }}{% endblock %}
+{% block eyebrow %}Project{% endblock %}
 {% block heading %}{{ project.topic }}{% endblock %}
 
 {% block content %}
-  <section class="card project-head">
-    <div class="row spread">
-      <p class="muted flush">
-        <code>{{ project.id }}</code> · {{ project.template }} ·
-        {{ "%.1f"|format(project.target_minutes) }} min · {{ project.voice }}
-      </p>
-      <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
-    </div>
+  {% include "_next_step.html" %}
 
-    <form class="advance" method="post" action="/projects/{{ project.id }}/advance">
-      <button type="submit" class="primary" {% if busy %}disabled{% endif %}>{{ advance_label }}</button>
-      <span class="muted">
-        {% if busy %}
-          A job is already in flight for this project; only one runs at a time.
-        {% else %}
-          Runs the pipeline until the next unapproved gate stops it.
-        {% endif %}
-      </span>
-    </form>
-  </section>
+  <p class="meta-strip">
+    <span class="status {{ status_tone }}" data-status="{{ status.value }}">{{ status_label }}</span>
+    <code>{{ project.id }}</code> · {{ project.template }} ·
+    {{ "%.1f"|format(project.target_minutes) }} min · voice {{ project.voice }}
+  </p>
 
   {% include "_job.html" %}
 
-  <h2>Pipeline</h2>
-  {% include "_status.html" %}
+  <section class="stack">
+    <div class="section-head">
+      <h2 class="section-title flush">Pipeline</h2>
+      <form class="advance" method="post" action="/projects/{{ project.id }}/advance">
+        <button type="submit" {% if busy %}disabled{% endif %}>{{ advance_label }}</button>
+        <span class="hint">
+          {% if busy %}
+            A job is already in flight; only one runs at a time.
+          {% else %}
+            Runs until the next unapproved gate stops it.
+          {% endif %}
+        </span>
+      </form>
+    </div>
+    {% include "_status.html" %}
+  </section>
 {% endblock %}

@@ -11,12 +11,13 @@
   refetching for as long as the browser is open.
 
   The response is a bare fragment: no `{% extends %}`, because htmx inserts it
-  into a page that already exists.
+  into a page that already exists. The fade on arrival is CSS on `.htmx-settling`
+  — no attribute here changes, so the polling contract is untouched.
 #}
 <section id="job" class="card job"
          {% if poll %}hx-get="/projects/{{ project_id }}/job" hx-trigger="every 1500ms" hx-swap="outerHTML"{% endif %}>
-  <div class="row spread">
-    <h3 class="flush">Latest run</h3>
+  <div class="job-head">
+    <p class="eyebrow flush">Latest run</p>
     {% if job %}
       <span class="status {{ job_tone }}" data-job-state="{{ job.state }}">{{ job.state }}</span>
     {% else %}
@@ -26,13 +27,13 @@
 
   {% if not job %}
     {# Only web jobs are tracked here; a CLI run leaves no JobState, so this must
-       not claim the project has never run — the stepper above is the truth. #}
-    <p class="muted">No run has been started from this page. Anything already
-      done was run from the command line — see the pipeline below.</p>
+       not claim the project has never run — the rail above is the truth. #}
+    <p class="job-line flush">No run has been started from this page. Anything
+      already done was run from the command line — see the pipeline below.</p>
   {% else %}
-    <p class="job-line">
+    <p class="job-line flush">
       <span class="job-kind">{{ job.kind }}</span>
-      {% if job.stage %}<span class="muted">· stage {{ job.stage }}</span>{% endif %}
+      {% if job.stage %}<span class="job-stage">stage {{ job.stage }}</span>{% endif %}
     </p>
 
     {# A bar for work in flight only. A finished job's bar tells nobody anything
@@ -42,7 +43,7 @@
     {% endif %}
 
     {% if job.message %}
-      <p class="muted">{{ job.message }}</p>
+      <p class="job-message flush">{{ job.message }}</p>
     {% endif %}
 
     {% if job.error %}
@@ -50,15 +51,15 @@
     {% endif %}
 
     {% if job.state == "blocked" and job.gate %}
-      <p>
-        <a class="button" href="/projects/{{ project_id }}/{{ job.gate }}">Open {{ gate_titles.get(job.gate, job.gate)|lower }}</a>
+      <p class="flush">
+        <a class="button button-primary" href="/projects/{{ project_id }}/{{ job.gate }}">Open {{ gate_titles.get(job.gate, job.gate)|lower }}</a>
       </p>
     {% endif %}
 
     {% if not poll %}
-      {# The stepper above was rendered before this job ended, so offer the one
+      {# The rail above was rendered before this job ended, so offer the one
          thing that refreshes it — a plain link, so it works with no JavaScript. #}
-      <p class="muted">Polling has stopped. <a href="/projects/{{ project_id }}">Reload the page</a> to see the updated stages.</p>
+      <p class="hint flush">Polling has stopped. <a href="/projects/{{ project_id }}">Reload the page</a> to see the updated stages.</p>
     {% endif %}
   {% endif %}
 </section>

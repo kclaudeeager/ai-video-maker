@@ -1,93 +1,61 @@
 {#
-  The project list and the create form.
+  The project list, the create form, and — on a workspace with nothing in it —
+  the first-run screen.
 
-  Context: `rows` (ProjectRow, newest first), `templates_available` (template
-  names), `form` (the values to prefill), `error` (a message, or "").
+  Context: `rows` (ProjectRow, newest first), `templates_available`, `form`,
+  `error`, `voices`, plus `first_run`/`free_tier`/`keys` for the empty state.
 
   The form is a plain `<form method="post">` with no htmx on it: creation ends in
   a 303 to another page, which is exactly what a browser does well on its own,
   and it keeps the page working with JavaScript disabled (M2 global constraint).
+
+  The first-run screen is this page's empty state rather than a separate
+  destination — the create form is the thing it argues for, and a redirect would
+  put a wall between reading it and using it. `/guide` serves the same partial
+  afterwards.
 #}
 {% extends "base.html" %}
 
 {% block title %}Projects{% endblock %}
+{% block eyebrow %}{% if first_run %}Welcome{% else %}Your workspace{% endif %}{% endblock %}
+{% block heading %}{% if first_run %}Start your first video{% else %}Projects{% endif %}{% endblock %}
 
 {% block content %}
-  <section>
-    <h2>New project</h2>
-    <form class="card" method="post" action="/projects">
-      {% if error %}
-        <p class="status status-failed" role="alert">{{ error }}</p>
-      {% endif %}
-      <div class="field">
-        <label for="topic">Topic</label>
-        <input type="text" id="topic" name="topic" required autofocus
-               placeholder="how solid state drives work"
-               value="{{ form.topic }}">
-      </div>
-      <div class="field">
-        <label for="template">Template</label>
-        <select id="template" name="template">
-          {% for name in templates_available %}
-            <option value="{{ name }}" {% if name == form.template %}selected{% endif %}>{{ name }}</option>
-          {% else %}
-            {# No templates on disk: say so rather than offering an empty menu. #}
-            <option value="" disabled selected>no templates found in templates/</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="minutes">Target length (minutes)</label>
-        <input type="number" id="minutes" name="minutes" min="0.1" step="0.1" value="{{ form.minutes }}">
-      </div>
-      <div class="field">
-        <label for="voice">Voice</label>
-        {# Kokoro's voice set is fixed and known, so this is a menu rather than a
-           free-text id nobody can remember. Grouped by language because 54 flat
-           options is not a menu. `voices` is `web.voices.available_voices`, which
-           falls back to a short static list rather than failing to render. #}
-        <select id="voice" name="voice">
-          {% if form.voice and form.voice not in voices.ids %}
-            {# A voice the catalogue does not list — an unreadable catalogue, or a
-               value typed by hand. The server accepts it, so the form keeps it. #}
-            <optgroup label="Submitted">
-              <option value="{{ form.voice }}" selected>{{ form.voice }}</option>
-            </optgroup>
-          {% endif %}
-          {% for group in voices.groups %}
-            <optgroup label="{{ group.language }}">
-              {% for voice in group.voices %}
-                <option value="{{ voice.id }}"{% if voice.id == form.voice %} selected{% endif %}>{{ voice.display_name }} — {{ voice.gender }}</option>
-              {% endfor %}
-            </optgroup>
-          {% endfor %}
-        </select>
-        {% if voices.note %}
-          <p class="muted">{{ voices.note }}</p>
-        {% endif %}
-      </div>
-      <button type="submit" class="primary">Create and write the script</button>
-    </form>
-  </section>
+  {% if first_run %}{% include "_welcome.html" %}{% endif %}
 
-  <section>
-    <h2>Projects</h2>
+  {# On a first run the form is the only thing to do, so it comes first. With
+     projects on disk they are what you came back for, so the list leads. #}
+  {% if first_run %}
+    <section class="stack">{% include "_new_project.html" %}</section>
+  {% endif %}
+
+  <section class="stack">
+    {# The page title already says "Projects" when the list leads; the heading is
+       only needed on a first run, where the list sits under the create form. #}
+    {% if first_run %}<h2 class="section-title">Projects</h2>{% endif %}
     {% if rows %}
-      <ul class="card-list">
+      <ul class="card-list project-list">
         {% for row in rows %}
-          <li class="card">
-            <div class="row spread">
-              <a href="/projects/{{ row.id }}"><strong>{{ row.topic }}</strong></a>
-              {# `data-status` carries the raw derived value; the pill text is the
-                 same value made readable. Nothing here is stored — see decision 3. #}
-              <span class="status {{ row.status_tone }}" data-status="{{ row.status.value }}">{{ row.status_label }}</span>
-            </div>
-            <p class="muted">{{ row.id }} · {{ row.template }} · created {{ row.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
+          <li class="card project-row">
+            <a class="project-link" href="/projects/{{ row.id }}">{{ row.topic }}</a>
+            {# `data-status` carries the raw derived value; the pill text is the
+               same value made readable. Nothing here is stored — see decision 3. #}
+            <span class="status {{ row.status_tone }}" data-status="{{ row.status.value }}">{{ row.status_label }}</span>
+            <p class="project-meta flush">
+              <code>{{ row.id }}</code> · {{ row.template }} · created {{ row.created_at.strftime("%Y-%m-%d %H:%M") }}
+            </p>
           </li>
         {% endfor %}
       </ul>
     {% else %}
-      <p class="muted">No projects yet. Create one above and it will appear here.</p>
+      <p class="card empty-state flush">
+        You have no projects yet. Fill in a topic above and it will appear here,
+        scripted and waiting at gate 1.
+      </p>
     {% endif %}
   </section>
+
+  {% if not first_run %}
+    <section class="stack">{% include "_new_project.html" %}</section>
+  {% endif %}
 {% endblock %}

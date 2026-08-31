@@ -11,17 +11,21 @@
   reload. `data-gate`/`data-approved` are kept adjacent, and named exactly as on
   the dashboard, so the two pages cannot describe one approval differently.
 #}
-<section id="gate-state" class="card gate script-gate" data-gate="{{ gate.name }}" data-approved="{{ gate.marker }}"
+<section id="gate-state" class="card gate gate-panel script-gate" data-gate="{{ gate.name }}" data-approved="{{ gate.marker }}"
          {% if oob %}hx-swap-oob="true"{% endif %}>
-  <div class="row spread">
-    <strong>Gate 1 · {{ gate.title }}</strong>
-    <span class="status {{ gate.tone }}">{{ gate.state_label }}</span>
+  <div class="gate-head">
+    <span class="eyebrow flush">Gate 1 · {{ gate.title }}</span>
+    {% if not gate.approved %}<span class="status {{ gate.tone }}">{{ gate.state_label }}</span>{% endif %}
   </div>
 
   {% if gate.approved %}
-    <p class="muted flush">Approved {{ gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC. Editing a scene below will not un-approve it, but it will invalidate anything already built from it.</p>
+    <p class="stamp flush">
+      <span class="stamp-word">Approved</span>
+      <span class="stamp-date">{{ gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+    </p>
+    <p class="hint flush">Editing a scene below will not un-approve it, but it will invalidate anything already built from it.</p>
   {% else %}
-    <p class="muted flush">Nothing is voiced until this gate is stamped — that is the point of it.</p>
+    <p class="hint flush">Nothing is voiced until this gate is stamped — that is the point of it.</p>
   {% endif %}
 
   {% if cleared %}
@@ -31,10 +35,11 @@
     </p>
   {% endif %}
 
+  <p class="eyebrow flush gate-others-head">The other two gates</p>
   <ul class="gate-downstream card-list">
     {% for other in downstream %}
-      <li class="row spread" data-gate="{{ other.name }}" data-approved="{{ other.marker }}">
-        <span class="muted">{{ other.title }}</span>
+      <li class="meter-row" data-gate="{{ other.name }}" data-approved="{{ other.marker }}">
+        <span class="meter-name">{{ other.title }}</span>
         <span class="status {{ other.tone }}">{{ other.state_label }}</span>
       </li>
     {% endfor %}
@@ -44,7 +49,7 @@
     <button type="submit" class="primary" {% if not can_approve %}disabled{% endif %}>
       {{ "Re-approve and continue" if gate.approved else "Approve script and continue" }}
     </button>
-    <span class="muted">
+    <span class="hint">
       {% if can_approve %}
         Stamps gate 1 and starts a run that stops at the next unapproved gate.
       {% else %}

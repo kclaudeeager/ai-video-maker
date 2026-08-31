@@ -1,0 +1,30 @@
+{#
+  The deterministic next-step panel: where you are, what you are judging, and the
+  one control that acts on it.
+
+  Context: `next` (a `guidance.NextStep`).
+
+  It is built from the same walk `derive_status` performs — see
+  `web/guidance.py` — so it costs no model call, adds no latency, and cannot
+  disagree with the pipeline about where the project has stopped.
+
+  The action is hidden when it points at the page you are already on: a gate page
+  offering "Review the script" while you are reading the script is noise, and the
+  approve button further down is the real action there.
+#}
+{% set here = request.url.path if request is defined and request else "" %}
+<section class="next-step {{ next.tone }}" data-next="{{ next.kind }}" aria-labelledby="next-step-ask">
+  <p class="eyebrow flush next-where">{{ next.where }}</p>
+  <p class="next-ask flush" id="next-step-ask">{{ next.ask }}</p>
+  {% if next.has_action and next.action_url != here %}
+    {% if next.action_method == "post" %}
+      {# A real form, so the primary action on every page works with JavaScript
+         switched off, exactly like the advance control it posts to. #}
+      <form class="next-action" method="post" action="{{ next.action_url }}">
+        <button type="submit" class="primary">{{ next.action_label }}</button>
+      </form>
+    {% else %}
+      <p class="next-action flush"><a class="button button-primary" href="{{ next.action_url }}">{{ next.action_label }}</a></p>
+    {% endif %}
+  {% endif %}
+</section>

@@ -1,10 +1,26 @@
 {#
-  The site header. Rendered by `base.html` on every page, including pages that
-  pass no context at all, so every variable it reads must have a default.
+  The masthead. Rendered by `base.html` on every page, including pages that pass
+  no context at all, so every variable it reads must have a default — hence the
+  guard on `request`, which is absent when the shell is rendered bare in
+  tests/unit/test_web_templates.py.
+
+  The mark is three crossbars on a rule: one rail, three stops, which is the
+  shape of the product and the same figure as the dashboard's stepper. It is
+  drawn in CSS from `currentColor`, so there is no image to ship and nothing to
+  fetch.
+
+  "Longhand" is the only place the product is named. See `docs/ui-design.md`:
+  automation is shorthand, this is the long way round on purpose — and one
+  project yields the long cut *and* the Short.
 #}
-<header class="site-header">
-  <a class="brand" href="/">AI Video Maker</a>
-  <nav class="site-nav">
-    <a href="/">Projects</a>
+{% set here = request.url.path if request is defined and request else "" %}
+<header class="masthead">
+  <a class="brand" href="/">
+    <span class="brand-mark" aria-hidden="true"></span>
+    <span class="brand-name">Longhand</span>
+  </a>
+  <nav class="masthead-nav" aria-label="Sections">
+    <a href="/"{% if here == "/" %} aria-current="page"{% endif %}>Projects</a>
+    <a href="/guide"{% if here == "/guide" %} aria-current="page"{% endif %}>How it works</a>
   </nav>
 </header>

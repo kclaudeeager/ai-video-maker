@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from videomaker import __version__
+from videomaker.assets import ASSETS_DIR
 from videomaker.config import Settings, load_settings
 from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
@@ -66,6 +67,10 @@ def create_app(settings: Settings | None = None, *, providers: str | None = None
     # to leave the directory, so `/static` needs no guard of its own — unlike
     # `/media`, which serves an arbitrary workspace path (see `web.media`).
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    # The bundled OFL fonts, in their own package directory rather than under
+    # `static/`: thumbnail rendering (M3 Task 15) reads the same files off disk
+    # and should not have to reach through the web package to find them.
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
     app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
     app.include_router(media.router)

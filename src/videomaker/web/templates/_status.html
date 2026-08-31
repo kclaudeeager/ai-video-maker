@@ -1,5 +1,5 @@
 {#
-  The stage stepper and the three gate rows.
+  The stage rail and the three gate cards.
 
   Context: `project`, `steps` (StageStep, in STAGE_ORDER), `gates` (GateRow, in
   pipeline order).
@@ -9,45 +9,61 @@
   caches a status (design decision 3). `data-stage`/`data-current` and
   `data-gate`/`data-approved` are the attributes the tests read, so keep each
   pair adjacent.
+
+  The rail is one hairline down the left with the stages hung off it and the
+  gates cutting across it, because that is where a run actually stops — and it is
+  the same figure as the mark in the masthead and the diagram on `/guide`.
 #}
-<ol class="stepper">
+<ol class="rail">
   {% for step in steps %}
     {% set gate = gates | selectattr("stage", "equalto", step.stage) | first %}
     {% if gate %}
       {# The gate sits *before* the stage it guards, which is where a run stops. #}
-      <li class="stepper-gate {% if gate.approved %}is-approved{% endif %}">
-        <span class="stepper-gate-label">Gate · {{ gate.title }}</span>
+      <li class="rail-gate {% if gate.approved %}is-approved{% elif gate.reachable %}is-waiting{% endif %}">
+        <span class="rail-gate-label">Gate · {{ gate.title }}</span>
         <span class="status {{ gate.tone }}">{{ gate.state_label }}</span>
       </li>
     {% endif %}
-    <li class="step {% if step.current %}is-current{% endif %}" data-stage="{{ step.stage }}" data-current="{{ step.marker }}">
-      <span class="step-mark" aria-hidden="true">{{ step.number }}</span>
-      <span class="step-body">
-        <span class="step-name">{{ step.label }}</span>
-        <span class="step-note muted">{{ step.note }}</span>
+    <li class="rail-step {% if step.current %}is-current{% endif %}" data-stage="{{ step.stage }}" data-current="{{ step.marker }}">
+      <span class="rail-mark" aria-hidden="true">{{ step.number }}</span>
+      <span class="rail-body">
+        <span class="rail-name">{{ step.label }}</span>
+        <span class="rail-note">{{ step.note }}</span>
       </span>
       <span class="status {% if step.current %}status-ok{% endif %}">{{ step.state_label }}</span>
     </li>
   {% endfor %}
 </ol>
 
-<h2>Review gates</h2>
-<ul class="card-list">
+<h2 class="section-title">Review gates</h2>
+<ul class="card-list gate-list">
   {% for gate in gates %}
     <li class="card gate" data-gate="{{ gate.name }}" data-approved="{{ gate.marker }}">
-      <div class="row spread">
-        <strong>{{ gate.title }}</strong>
-        <span class="status {{ gate.tone }}">{{ gate.state_label }}</span>
+      <div class="gate-head">
+        <span class="eyebrow flush">Gate {{ loop.index }} of {{ gates|length }}</span>
+        <h3 class="gate-title flush">{{ gate.title }}</h3>
       </div>
-      <p class="muted">Review {{ gate.review }}, before <code>{{ gate.stage }}</code> runs.</p>
+      <p class="gate-review flush">Review {{ gate.review }}, before <code>{{ gate.stage }}</code> runs.</p>
       {% if gate.approved %}
-        <p class="muted">Approved {{ gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC.</p>
+        {# The stamp: the one flourish in the design, spent on the one act only a
+           human can perform. Its text is the state, so a screen reader hears
+           "approved" and a date rather than "stamp". #}
+        <p class="stamp flush">
+          <span class="stamp-word">Approved</span>
+          <span class="stamp-date">{{ gate.approved_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+        </p>
       {% elif gate.reachable %}
         {# Only linked once a run would actually stop here: sending someone to a
            review screen for work that does not exist yet is worse than no link. #}
-        <a class="button" href="/projects/{{ project.id }}/{{ gate.name }}">Review now</a>
+        <p class="flush gate-action">
+          <span class="status {{ gate.tone }}">{{ gate.state_label }}</span>
+          <a class="button button-primary" href="/projects/{{ project.id }}/{{ gate.name }}">Review now</a>
+        </p>
       {% else %}
-        <p class="muted">Waiting for the earlier stages.</p>
+        <p class="flush gate-action">
+          <span class="status {{ gate.tone }}">{{ gate.state_label }}</span>
+          <span class="hint">Waiting for the earlier stages.</span>
+        </p>
       {% endif %}
     </li>
   {% endfor %}

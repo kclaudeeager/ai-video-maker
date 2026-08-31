@@ -7,10 +7,15 @@
   caret to the end of the text on every pause. The server still answers with the
   whole row partial, so the same response works for any other target.
 
+  The narration box is set in the serif, because it is the one place on the page
+  where a human's words are being read as words — see `docs/ui-design.md`.
+
   The scene operations sit *outside* the editing form, as siblings of it: HTML
   has no nested forms, and each of split/merge/move/delete is its own POST. They
   are plain forms with no htmx at all — every one of them changes the shape of
   the list, so the honest response is a fresh page rather than a partial swap.
+  They are folded into a `<details>` so that reading the script, which is what
+  this page is for, is not five rows of tooling per scene.
 #}
 <li id="scene-{{ row.scene.id }}" class="card scene" data-scene="{{ row.scene.id }}">
   <form class="scene-form"
@@ -21,14 +26,15 @@
         hx-target="#scene-{{ row.scene.id }}-state"
         hx-select="#scene-{{ row.scene.id }}-state"
         hx-swap="outerHTML">
-    <div class="row spread scene-head">
-      <h3 class="flush">Scene {{ row.number }} <code class="scene-id">{{ row.scene.id }}</code></h3>
+    <div class="scene-head">
+      <h3 class="scene-number flush">Scene {{ row.number }} <code class="scene-id">{{ row.scene.id }}</code></h3>
       {% include "_scene_state.html" %}
     </div>
 
     <div class="field">
       <label for="narration-{{ row.scene.id }}">Narration</label>
       <textarea id="narration-{{ row.scene.id }}"
+                class="prose-input"
                 name="narration"
                 rows="5"
                 spellcheck="true"
@@ -44,8 +50,8 @@
              autocomplete="off">
     </div>
 
-    <div class="row spread scene-foot">
-      <span class="muted scene-meta" id="meta-{{ row.scene.id }}">
+    <div class="scene-foot">
+      <span class="scene-meta" id="meta-{{ row.scene.id }}">
         {{ row.word_count }} words{% if row.scene.duration_s %} · {{ "%.1f"|format(row.scene.duration_s) }}s spoken{% endif %}
         {% if not row.visual_current %} · visual not chosen yet{% endif %}
       </span>
@@ -53,44 +59,47 @@
     </div>
   </form>
 
-  <div class="scene-ops">
-    <form method="post" action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}/split" class="op">
-      <label for="split-{{ row.scene.id }}">Split after word</label>
-      <input type="number"
-             id="split-{{ row.scene.id }}"
-             name="at_word"
-             min="1"
-             max="{{ row.max_split_word }}"
-             value="{{ row.default_split_word }}"
-             {% if not row.can_split %}disabled{% endif %}>
-      <button type="submit" {% if not row.can_split %}disabled{% endif %}>Split</button>
-    </form>
+  <details class="disclosure scene-ops-box">
+    <summary>Split, merge, move or delete this scene</summary>
+    <div class="scene-ops">
+      <form method="post" action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}/split" class="op">
+        <label for="split-{{ row.scene.id }}">Split after word</label>
+        <input type="number"
+               id="split-{{ row.scene.id }}"
+               name="at_word"
+               min="1"
+               max="{{ row.max_split_word }}"
+               value="{{ row.default_split_word }}"
+               {% if not row.can_split %}disabled{% endif %}>
+        <button type="submit" {% if not row.can_split %}disabled{% endif %}>Split</button>
+      </form>
 
-    <form method="post" action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}/merge" class="op">
-      {% if row.next_id %}<input type="hidden" name="second_id" value="{{ row.next_id }}">{% endif %}
-      <button type="submit" {% if not row.next_id %}disabled{% endif %}>Merge with next</button>
-    </form>
+      <form method="post" action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}/merge" class="op">
+        {% if row.next_id %}<input type="hidden" name="second_id" value="{{ row.next_id }}">{% endif %}
+        <button type="submit" {% if not row.next_id %}disabled{% endif %}>Merge with next</button>
+      </form>
 
-    {#
-      The move buttons post a whole new order, not a direction. The server then
-      never has to reconstruct "up" against a list that may have changed since
-      this page was rendered — a stale order is simply not a permutation of the
-      project's ids any more, and is refused instead of applied to the wrong list.
-    #}
-    <form method="post" action="/projects/{{ row.project_id }}/scenes/reorder" class="op">
-      <input type="hidden" name="focus" value="{{ row.scene.id }}">
-      {% for sid in row.up_order %}<input type="hidden" name="order" value="{{ sid }}">{% endfor %}
-      <button type="submit" {% if not row.can_move_up %}disabled{% endif %}>Move up</button>
-    </form>
+      {#
+        The move buttons post a whole new order, not a direction. The server then
+        never has to reconstruct "up" against a list that may have changed since
+        this page was rendered — a stale order is simply not a permutation of the
+        project's ids any more, and is refused instead of applied to the wrong list.
+      #}
+      <form method="post" action="/projects/{{ row.project_id }}/scenes/reorder" class="op">
+        <input type="hidden" name="focus" value="{{ row.scene.id }}">
+        {% for sid in row.up_order %}<input type="hidden" name="order" value="{{ sid }}">{% endfor %}
+        <button type="submit" {% if not row.can_move_up %}disabled{% endif %}>Move up</button>
+      </form>
 
-    <form method="post" action="/projects/{{ row.project_id }}/scenes/reorder" class="op">
-      <input type="hidden" name="focus" value="{{ row.scene.id }}">
-      {% for sid in row.down_order %}<input type="hidden" name="order" value="{{ sid }}">{% endfor %}
-      <button type="submit" {% if not row.can_move_down %}disabled{% endif %}>Move down</button>
-    </form>
+      <form method="post" action="/projects/{{ row.project_id }}/scenes/reorder" class="op">
+        <input type="hidden" name="focus" value="{{ row.scene.id }}">
+        {% for sid in row.down_order %}<input type="hidden" name="order" value="{{ sid }}">{% endfor %}
+        <button type="submit" {% if not row.can_move_down %}disabled{% endif %}>Move down</button>
+      </form>
 
-    <form method="post" action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}/delete" class="op op-danger">
-      <button type="submit" class="danger">Delete scene</button>
-    </form>
-  </div>
+      <form method="post" action="/projects/{{ row.project_id }}/scenes/{{ row.scene.id }}/delete" class="op op-danger">
+        <button type="submit" class="danger">Delete scene</button>
+      </form>
+    </div>
+  </details>
 </li>
