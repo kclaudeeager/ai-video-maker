@@ -187,3 +187,94 @@ def test_list_is_empty_but_successful_with_no_projects():
     result = runner.invoke(app, ["list"])
 
     assert result.exit_code == 0
+
+
+# ------------------------------------------------------- folders (M3 Task 23)
+
+
+def test_new_files_the_project_in_a_folder(workspace):
+    _new("--folder", "tech/office-basics")
+
+    saved = json.loads((workspace / "projects" / PROJECT_ID / "project.json").read_text())
+    assert saved["folder"] == "tech/office-basics"
+
+
+def test_new_without_a_folder_leaves_the_project_at_the_root(workspace):
+    _new()
+
+    saved = json.loads((workspace / "projects" / PROJECT_ID / "project.json").read_text())
+    assert saved["folder"] == ""
+
+
+def test_new_refuses_a_folder_label_that_could_be_read_as_a_path(workspace):
+    """The label is metadata, but it is metadata a person types. Refuse here rather
+    than writing `../../etc` into a `project.json` for some later code to trust."""
+    result = _new("--folder", "../../etc")
+
+    assert result.exit_code == 1
+    assert not (workspace / "projects" / PROJECT_ID).exists()
+
+
+def test_list_shows_the_folder_each_project_is_filed_in():
+    _new("--folder", "tech")
+
+    result = runner.invoke(app, ["list"])
+
+    assert result.exit_code == 0
+    assert "tech" in result.output
+
+
+def test_list_filtered_by_folder_shows_only_that_folder():
+    from videomaker.config import load_settings
+    from videomaker.project import ProjectStore
+
+    store = ProjectStore(load_settings().workspace_dir)
+    store.create("alpha", "tech_explainer", folder="tech")
+    store.create("bravo", "tech_explainer", folder="personal")
+    store.create("charlie", "tech_explainer")
+
+    result = runner.invoke(app, ["list", "--folder", "tech"])
+
+    assert result.exit_code == 0
+    assert "alpha" in result.output
+    assert "bravo" not in result.output
+    assert "charlie" not in result.output
+
+
+def test_list_filtered_by_a_parent_folder_includes_its_children():
+    """`--folder tech` means "the tech shelf", not "the tech shelf minus its boxes"."""
+    from videomaker.config import load_settings
+    from videomaker.project import ProjectStore
+
+    store = ProjectStore(load_settings().workspace_dir)
+    store.create("alpha", "tech_explainer", folder="tech")
+    store.create("bravo", "tech_explainer", folder="tech/office-basics")
+    store.create("charlie", "tech_explainer", folder="technology")
+
+    result = runner.invoke(app, ["list", "--folder", "tech"])
+
+    assert result.exit_code == 0
+    assert "alpha" in result.output
+    assert "bravo" in result.output
+    assert "charlie" not in result.output, "a prefix is not a parent folder"
+
+
+def test_list_filtered_by_the_root_shows_only_unfiled_projects():
+    from videomaker.config import load_settings
+    from videomaker.project import ProjectStore
+
+    store = ProjectStore(load_settings().workspace_dir)
+    store.create("alpha", "tech_explainer", folder="tech")
+    store.create("bravo", "tech_explainer")
+
+    result = runner.invoke(app, ["list", "--folder", ""])
+
+    assert result.exit_code == 0
+    assert "bravo" in result.output
+    assert "alpha" not in result.output
+
+
+def test_list_refuses_a_folder_filter_that_could_be_read_as_a_path():
+    result = runner.invoke(app, ["list", "--folder", "../etc"])
+
+    assert result.exit_code == 1

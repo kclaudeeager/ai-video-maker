@@ -95,9 +95,13 @@ def new(
     template: str = typer.Option("tech_explainer", "-t", "--template", help="Template name."),
     minutes: float = typer.Option(2.0, "-m", "--minutes", help="Target length in minutes."),
     voice: str = typer.Option("af_heart", "--voice", help="TTS voice id."),
+    folder: str = typer.Option(
+        "", "--folder", help="File it under this label, e.g. `tech/office-basics`."
+    ),
 ) -> None:
     """Create a new project folder and print its id."""
     from videomaker.config import load_settings
+    from videomaker.models import clean_folder
     from videomaker.project import ProjectStore
     from videomaker.templates import load_template
 
@@ -105,6 +109,14 @@ def new(
     try:
         # Fail here rather than three stages later, and list what is available.
         load_template(template)
+    except ValueError as exc:
+        _fail(str(exc))
+
+    # The label is metadata, but it is metadata a person types. Refusing a
+    # path-shaped one here means no `project.json` on disk ever carries `../..` for
+    # some later code to be careless with. See `models.clean_folder`.
+    try:
+        folder = clean_folder(folder)
     except ValueError as exc:
         _fail(str(exc))
 
@@ -118,7 +130,7 @@ def new(
         console.print(f"[yellow]warning:[/yellow] {refusal}")
 
     store = ProjectStore(settings.workspace_dir)
-    project = store.create(topic, template, target_minutes=minutes, voice=voice)
+    project = store.create(topic, template, target_minutes=minutes, voice=voice, folder=folder)
     console.print(f"created [bold]{project.id}[/bold] in {store.path_for(project.id)}")
     console.print(f"next: [bold]videomaker run {project.id} --yes[/bold]")
 
@@ -208,26 +220,55 @@ def status(
     console.print(table)
 
 
+def _in_folder(folder: str, wanted: str) -> bool:
+    """True when `folder` is `wanted` or sits under it.
+
+    `--folder tech` means "the tech shelf", boxes included, so `tech/office-basics`
+    matches. It is a level-wise prefix and not a string one: `technology` is a
+    different shelf that merely starts with the same letters. `--folder ""` is the
+    root, which is the one place that is *not* inclusive — it means the unfiled
+    projects, not all of them.
+    """
+    if not wanted:
+        return not folder
+    return folder == wanted or folder.startswith(f"{wanted}/")
+
+
 @app.command("list")
-def list_projects() -> None:
+def list_projects(
+    folder: str | None = typer.Option(
+        None, "--folder", help="Only projects filed here or below. Pass '' for the root."
+    ),
+) -> None:
     """List every project in the workspace with its derived status."""
     from videomaker.config import load_settings
+    from videomaker.models import clean_folder
     from videomaker.project import ProjectStore
     from videomaker.runner import derive_status, stage_cache_for
 
+    if folder is not None:
+        try:
+            folder = clean_folder(folder)
+        except ValueError as exc:
+            _fail(str(exc))
+
     store = ProjectStore(load_settings().workspace_dir)
-    table = Table(title="projects")
+    table = Table(title="projects" if folder is None else f"projects in {folder or 'the root'}")
     table.add_column("id")
     table.add_column("status")
+    table.add_column("folder")
     table.add_column("topic")
     for project_id in store.list_ids():
         try:
             project = store.load(project_id)
         except (FileNotFoundError, ValueError):
-            table.add_row(project_id, "[red]unreadable[/red]", "")
+            if folder is None:
+                table.add_row(project_id, "[red]unreadable[/red]", "", "")
+            continue
+        if folder is not None and not _in_folder(project.folder, folder):
             continue
         cache = stage_cache_for(store, project_id)
-        table.add_row(project_id, derive_status(project, cache).value, project.topic)
+        table.add_row(project_id, derive_status(project, cache).value, project.folder, project.topic)
     console.print(table)
 
 

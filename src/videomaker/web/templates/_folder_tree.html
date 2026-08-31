@@ -1,0 +1,72 @@
+{#
+  The project list as a tree of folders, and the control that files a project.
+
+  Context, via `subtree(tree, folders)`: a `routes.projects.FolderNode` and the
+  labels already in use.
+
+  Three things are deliberate here.
+
+  **Native `<details>`.** The tree is progressive disclosure, the same device gate 2
+  uses for its long scroll, and it needs no JavaScript — which the M2 global
+  constraint requires and which no scripted tree widget would satisfy. Folders open
+  by default: you came back to find a project, not to click your way to it.
+
+  **Grotesque, and nothing warm.** A folder is chrome — the machine's furniture — so
+  it is set in `--font-ui` in `--ink-soft`, and it borrows no colour. Amber on this
+  page still means one thing only: a project waiting for a human (`docs/ui-design.md`
+  §3). The only colour a folder carries is its status pills, which are the projects'.
+
+  **The move control is a plain form.** `method="post"` to `.../folder`, ending in a
+  303. No htmx: the browser already does POST-then-redirect correctly.
+#}
+
+{% macro move_form(project_id, current, folders, back) %}
+  <form class="move-form" method="post" action="/projects/{{ project_id }}/folder">
+    <input type="hidden" name="back" value="{{ back }}">
+    <label for="folder-{{ project_id }}">Folder</label>
+    {# Free text, because typing a new label *is* how a folder is created — with a
+       datalist so the tree does not sprout typo-siblings of what already exists. #}
+    <input type="text" id="folder-{{ project_id }}" name="folder" value="{{ current }}"
+           list="folder-labels" autocomplete="off" placeholder="tech/office-basics">
+    <button type="submit">Move</button>
+  </form>
+{% endmacro %}
+
+{% macro folder_datalist(folders) %}
+  <datalist id="folder-labels">
+    {% for label in folders %}<option value="{{ label }}"></option>{% endfor %}
+  </datalist>
+{% endmacro %}
+
+{% macro project_row(row, folders) %}
+  <li class="card project-row" data-project="{{ row.id }}">
+    <a class="project-link" href="/projects/{{ row.id }}">{{ row.topic }}</a>
+    {# `data-status` carries the raw derived value; the pill text is the same value
+       made readable. Nothing here is stored — see decision 3. #}
+    <span class="status {{ row.status_tone }}" data-status="{{ row.status.value }}">{{ row.status_label }}</span>
+    <p class="project-meta flush">
+      <code>{{ row.id }}</code> · {{ row.template }} · created {{ row.created_at.strftime("%Y-%m-%d %H:%M") }}
+    </p>
+    <details class="disclosure move-box">
+      <summary>Move</summary>
+      {{ move_form(row.id, row.folder, folders, "list") }}
+    </details>
+  </li>
+{% endmacro %}
+
+{% macro subtree(node, folders) %}
+  {% if node.rows %}
+    <ul class="card-list project-list">
+      {% for row in node.rows %}{{ project_row(row, folders) }}{% endfor %}
+    </ul>
+  {% endif %}
+  {% for child in node.children %}
+    <details class="folder" data-folder="{{ child.path }}" open>
+      <summary class="folder-summary">
+        <span class="folder-name">{{ child.name }}</span>
+        <span class="folder-count" data-folder-count="{{ child.count }}">{{ child.count_label }}</span>
+      </summary>
+      <div class="folder-body">{{ subtree(child, folders) }}</div>
+    </details>
+  {% endfor %}
+{% endmacro %}

@@ -38,7 +38,7 @@ from fastapi.templating import Jinja2Templates
 
 from videomaker.cache import STAGE_ORDER, StageCache
 from videomaker.config import Settings
-from videomaker.models import Project, Status
+from videomaker.models import Project, Status, clean_folder
 from videomaker.project import ProjectStore
 from videomaker.runner import (
     GATE_BEFORE,
@@ -89,6 +89,9 @@ class ProjectRow:
     template: str
     status: Status
     created_at: datetime
+    #: The label the tree files this row under. `""` is the root — see
+    #: `models.clean_folder` for why it is a label and not a directory.
+    folder: str = ""
 
     @property
     def status_label(self) -> str:
@@ -119,20 +122,82 @@ def project_rows(store: ProjectStore) -> list[ProjectRow]:
                 template=project.template,
                 status=derive_status(project, stage_cache_for(store, project_id)),
                 created_at=project.created_at,
+                folder=project.folder,
             )
         )
     rows.sort(key=lambda row: row.created_at, reverse=True)
     return rows
 
 
+@dataclass(frozen=True)
+class FolderNode:
+    """One node of the list page's tree, built fresh per request from the rows.
+
+    There is no folder object on disk and there is none here either: a node exists
+    because some project claims its label. That is the whole of "creating a folder is
+    just typing a new label, and an empty folder stops being rendered" — the emptying
+    is not handled anywhere, because an unclaimed label simply never appears.
+    """
+
+    #: The full label, e.g. `tech/office-basics`. `""` only for the root node.
+    path: str
+    #: The last level of `path`, which is what the disclosure is labelled with.
+    name: str
+    rows: list[ProjectRow]
+    children: list["FolderNode"]
+
+    @property
+    def count(self) -> int:
+        """Projects at or below this node — what the summary counts."""
+        return len(self.rows) + sum(child.count for child in self.children)
+
+    @property
+    def count_label(self) -> str:
+        return f"{self.count} project" + ("" if self.count == 1 else "s")
+
+
+def folder_tree(rows: list[ProjectRow]) -> FolderNode:
+    """Group `rows` into a tree by their labels, deepening a level per `/`.
+
+    Row order inside a node is whatever order it arrived in — `project_rows` has
+    already sorted newest-first — while folders sort alphabetically, because a tree
+    a person navigates by name should not reshuffle itself as projects are created.
+    """
+    root: dict = {"rows": [], "children": {}}
+    for row in rows:
+        node = root
+        for level in filter(None, row.folder.split("/")):
+            node = node["children"].setdefault(level, {"rows": [], "children": {}})
+        node["rows"].append(row)
+    return _freeze("", "", root)
+
+
+def _freeze(path: str, name: str, node: dict) -> FolderNode:
+    return FolderNode(
+        path=path,
+        name=name,
+        rows=node["rows"],
+        children=[
+            _freeze(f"{path}/{level}" if path else level, level, child)
+            for level, child in sorted(node["children"].items())
+        ],
+    )
+
+
 def _render_index(
     request: Request,
     *,
     error: str = "",
+    folder_error: str = "",
     form: dict[str, object] | None = None,
     status_code: int = 200,
 ):
-    """Render the list page, optionally with a rejected form's values and error."""
+    """Render the list page, optionally with a rejected form's values and error.
+
+    `error` belongs to the create form and `folder_error` to a rejected move; they
+    are two keys rather than one because the page shows them in two different
+    places, and a shared key would print a bad folder name over the create form too.
+    """
     templates: Jinja2Templates = request.app.state.templates
     names = list_templates()
     rows = project_rows(request.app.state.store)
@@ -141,6 +206,11 @@ def _render_index(
         "index.html",
         {
             "rows": rows,
+            # The same rows, grouped. Both are passed because the empty state and
+            # the "no projects yet" copy still ask a flat question of the list.
+            "tree": folder_tree(rows),
+            "folder_error": folder_error,
+            "folders": request.app.state.store.folders(),
             # The first-run screen is the list page's empty state rather than a
             # separate destination: the create form is the thing it argues for,
             # and a redirect would put a wall between reading it and using it.
@@ -483,6 +553,19 @@ def _job_context(request: Request, project_id: str) -> dict[str, object]:
 @router.get("/projects/{project_id}")
 def project_detail(request: Request, project_id: str):
     """The dashboard: derived status, the stage stepper, the gates, and the job."""
+    return _render_project(request, project_id)
+
+
+def _render_project(
+    request: Request, project_id: str, *, folder_error: str = "", status_code: int = 200
+):
+    """The dashboard, optionally carrying a rejected move's reason.
+
+    `POST .../folder` re-renders this page on a bad label rather than returning a
+    bare 422 body: it is reached by a browser posting a real `<form>`, and the
+    person who typed `../archive` needs to be told what a folder name may be while
+    still looking at the project they were filing.
+    """
     project = _load(request, project_id)
     store: ProjectStore = request.app.state.store
     stage_cache = stage_cache_for(store, project_id)
@@ -507,6 +590,8 @@ def project_detail(request: Request, project_id: str):
             "status": status,
             "status_label": status.value.replace("_", " "),
             "status_tone": _STATUS_TONES.get(status, ""),
+            "folders": store.folders(),
+            "folder_error": folder_error,
             "busy": busy,
             "advance_label": _advance_label(gates, busy=busy),
             # Read from the same walk `derive_status` performs, so the panel and
@@ -518,7 +603,58 @@ def project_detail(request: Request, project_id: str):
                 running_stage=job.stage if (job := job_context["job"]) is not None else None,
             ),
         },
+        status_code=status_code,
     )
+
+
+#: Where a move came from, and so where the 303 sends the browser back to. A closed
+#: pair rather than a URL: a `next=` parameter the handler pasted into `Location`
+#: would be an open redirect on a page anyone on the machine can POST to.
+LIST_ORIGIN = "list"
+
+
+@router.post("/projects/{project_id}/folder")
+def move_project(
+    request: Request,
+    project_id: str,
+    folder: str = Form(""),
+    back: str = Form(""),
+):
+    """File this project under a folder label, or (with an empty label) at the root.
+
+    Nothing on disk moves. A project holds 1-3 GB of intermediates and its id is the
+    basis of every cache key, so the folder is a string on the model and the tree is
+    built from it at render time — see `models.clean_folder`.
+
+    **Compare first, lock second.** Re-filing a project into the folder it is already
+    in is the common case (the field is pre-filled, and a person may just submit it),
+    and it must not queue behind a twenty-minute render for a `flock` it has no use
+    for. The comparison is against the *normalised* label, or a stray space would
+    make every no-op take the lock. Inside the lock the project is re-read and the
+    comparison redone, because the wait may have been long.
+
+    The label feeds no stage fingerprint, so nothing is staled and no approval is
+    cleared: filing a project changes nothing that was rendered.
+    """
+    project = _load(request, project_id)
+    try:
+        wanted = clean_folder(folder)
+    except ValueError as bad:
+        message = f"{bad} Folders are labels like `tech/office-basics`."
+        if back == LIST_ORIGIN:
+            return _render_index(request, folder_error=message, status_code=422)
+        return _render_project(request, project_id, folder_error=message, status_code=422)
+
+    store: ProjectStore = request.app.state.store
+    if project.folder != wanted:
+        with store.lock(project_id):
+            project = _load(request, project_id)
+            if project.folder != wanted:
+                project.folder = wanted
+                store.save(project)
+
+    destination = "/" if back == LIST_ORIGIN else f"/projects/{project_id}"
+    return RedirectResponse(url=destination, status_code=303)
 
 
 @router.get("/projects/{project_id}/job")

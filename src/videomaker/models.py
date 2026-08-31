@@ -1,7 +1,45 @@
+import re
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+#: Anything a terminal, a log line or a filename would rather not be handed.
+_FOLDER_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def clean_folder(label: str) -> str:
+    """Validate a folder label and return it normalised. `""` is the root.
+
+    **The folder is a label, not a location.** A project always lives at
+    `<workspace>/projects/<id>/`; this string only says where the *list page* draws
+    it. Nesting the workspace directories was considered and rejected in the M3
+    plan: all 24 routes take `{project_id}`, so nesting would make that a path and
+    hand `web/media.py` — the one security-critical module, where M2 Task 2 found
+    `project_id` is separately attacker-controlled — a traversal surface it does not
+    have today. A project also holds 1-3 GB of intermediates, and re-filing one
+    should be editing a string rather than moving gigabytes.
+
+    Because it is *shaped* like a path, some later code will eventually be careless
+    with it. So the shape is refused before it is stored: no leading `/`, no `..` or
+    `.` level, no empty level, no backslash, no control character. What survives is
+    one or more non-empty `/`-separated levels, each trimmed of surrounding space.
+    """
+    cleaned = label.strip()
+    if not cleaned:
+        return ""
+    if _FOLDER_CONTROL.search(cleaned):
+        raise ValueError("A folder name cannot contain control characters.")
+    if "\\" in cleaned:
+        raise ValueError("Separate folder levels with / rather than \\.")
+    if cleaned.startswith("/"):
+        raise ValueError("A folder name is a label, not a path: it cannot start with /.")
+    levels = [level.strip() for level in cleaned.split("/")]
+    if not all(levels):
+        raise ValueError("A folder name cannot have an empty level: no doubled or trailing /.")
+    if any(level in {".", ".."} for level in levels):
+        raise ValueError("A folder name cannot contain a . or .. level.")
+    return "/".join(levels)
 
 
 class Aspect(StrEnum):
@@ -144,6 +182,13 @@ class Project(BaseModel):
     language: str = "en"
     voice: str = "af_heart"
     target_minutes: float = 2.0
+    #: Where the project list files this project — `"tech/office-basics"`, or `""`
+    #: for the root. A **label**, validated by `clean_folder`; see its docstring for
+    #: why the workspace directories are deliberately not nested. It feeds no stage
+    #: fingerprint: filing a project changes nothing rendered, and staling
+    #: `script:all` would let the next run replace `scenes` wholesale (M3 Task 22).
+    #: Absent from every `project.json` written before M3 Task 23 — hence the default.
+    folder: str = ""
     created_at: datetime
     # No stored `status`: it is derived from the stage cache by runner.derive_status()
     # so it can never drift from the artifacts on disk (spec 4.4).
@@ -151,6 +196,11 @@ class Project(BaseModel):
     music: MusicSelection = Field(default_factory=MusicSelection)
     scenes: list[Scene] = Field(default_factory=list)
     outputs: dict[Aspect, OutputSpec] = Field(default_factory=dict)
+
+    @field_validator("folder")
+    @classmethod
+    def _validated_folder(cls, value: str) -> str:
+        return clean_folder(value)
 
     def scene_by_id(self, sid: str) -> Scene:
         for scene in self.scenes:

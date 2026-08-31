@@ -2,8 +2,12 @@
   The project list, the create form, and — on a workspace with nothing in it —
   the first-run screen.
 
-  Context: `rows` (ProjectRow, newest first), `templates_available`, `form`,
-  `error`, `voices`, plus `first_run`/`free_tier`/`keys` for the empty state.
+  Context: `rows` (ProjectRow, newest first), `tree` (the same rows grouped by
+  folder), `folders` (the labels in use), `templates_available`, `form`, `error`,
+  `voices`, plus `first_run`/`free_tier`/`keys` for the empty state.
+
+  The list is a tree of native `<details>` — see `_folder_tree.html` for why, and
+  for the move control each row carries.
 
   The form is a plain `<form method="post">` with no htmx on it: creation ends in
   a 303 to another page, which is exactly what a browser does well on its own,
@@ -15,6 +19,7 @@
   afterwards.
 #}
 {% extends "base.html" %}
+{% import "_folder_tree.html" as tree_ui with context %}
 
 {% block title %}Projects{% endblock %}
 {% block eyebrow %}{% if first_run %}Welcome{% else %}Your workspace{% endif %}{% endblock %}
@@ -34,19 +39,16 @@
        only needed on a first run, where the list sits under the create form. #}
     {% if first_run %}<h2 class="section-title">Projects</h2>{% endif %}
     {% if rows %}
-      <ul class="card-list project-list">
-        {% for row in rows %}
-          <li class="card project-row">
-            <a class="project-link" href="/projects/{{ row.id }}">{{ row.topic }}</a>
-            {# `data-status` carries the raw derived value; the pill text is the
-               same value made readable. Nothing here is stored — see decision 3. #}
-            <span class="status {{ row.status_tone }}" data-status="{{ row.status.value }}">{{ row.status_label }}</span>
-            <p class="project-meta flush">
-              <code>{{ row.id }}</code> · {{ row.template }} · created {{ row.created_at.strftime("%Y-%m-%d %H:%M") }}
-            </p>
-          </li>
-        {% endfor %}
-      </ul>
+      {% if folder_error %}
+        <p class="notice notice-bad" role="alert">{{ folder_error }}</p>
+      {% endif %}
+      {{ tree_ui.folder_datalist(folders) }}
+      {{ tree_ui.subtree(tree, folders) }}
+      <p class="hint flush folder-note">
+        A folder is a label on the project, not a place on disk — typing a new one
+        files the project there, and a folder with nothing left in it simply stops
+        appearing, so there is nothing to delete.
+      </p>
     {% else %}
       <p class="card empty-state flush">
         You have no projects yet. Fill in a topic above and it will appear here,

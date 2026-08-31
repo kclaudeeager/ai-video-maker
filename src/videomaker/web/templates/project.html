@@ -2,8 +2,8 @@
   One project's dashboard: what to do next, where it has got to, what is running.
 
   Context: everything `_status.html` needs, plus `status`, `status_label`,
-  `status_tone`, `busy`, `advance_label`, `next` (a `guidance.NextStep`), and the
-  `_job.html` context.
+  `status_tone`, `busy`, `advance_label`, `next` (a `guidance.NextStep`), the
+  `_job.html` context, and `folders`/`folder_error` for the move control.
 
   The next-step panel is the page's primary action. The advance control below it
   stays as the quiet way to say "just run" — it is a real `<form method="post">`
@@ -12,6 +12,7 @@
   constraint). htmx is used for exactly one thing here — polling the job fragment.
 #}
 {% extends "base.html" %}
+{% import "_folder_tree.html" as tree_ui with context %}
 
 {% block title %}{{ project.topic }}{% endblock %}
 {% block eyebrow %}Project{% endblock %}
@@ -27,6 +28,22 @@
   </p>
 
   {% include "_job.html" %}
+
+  <section class="stack">
+    <div class="card filing">
+      {% if folder_error %}
+        <p class="notice notice-bad" role="alert">{{ folder_error }}</p>
+      {% endif %}
+      {{ tree_ui.folder_datalist(folders) }}
+      {{ tree_ui.move_form(project.id, project.folder, folders, "project") }}
+      <p class="hint flush">
+        Where the project list files this one. A folder is a label, not a place on
+        disk — nothing is moved and nothing is re-rendered. Typing a new name creates
+        it; a folder with nothing left in it simply stops appearing, so there is
+        nothing to delete.
+      </p>
+    </div>
+  </section>
 
   <section class="stack">
     <div class="section-head">

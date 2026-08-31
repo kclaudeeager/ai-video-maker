@@ -1047,6 +1047,129 @@ video {
   color: var(--ink-soft);
 }
 
+/* --------------------------------------------------------------------------
+   FOLDERS. A folder is a label on a project, not a place on disk — and on the
+   page it is furniture, so it is set in the grotesque, in the soft ink, and it
+   borrows no colour at all. Amber on this page still means exactly one thing:
+   a project waiting for a human. The only colour inside a folder is the status
+   pills, which belong to the projects rather than to the folder.
+
+   The rule down the left of an open folder is the same hairline as the
+   stepper's rail: one line, things hanging off it, stated again at a third
+   size.
+   -------------------------------------------------------------------------- */
+
+.folder {
+  margin-bottom: var(--s3);
+}
+
+.folder-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: var(--s2) 0;
+  font-family: var(--font-ui);
+  font-size: var(--t-ui);
+  font-weight: 500;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+.folder-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Drawn rather than borrowed, so it can rotate on open and sit on the baseline
+   in both themes — the same marker gate 2's disclosures use. */
+.folder-summary::before {
+  content: "";
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentcolor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform var(--motion) ease;
+}
+
+.folder[open] > .folder-summary::before {
+  transform: rotate(90deg);
+}
+
+.folder-summary:hover {
+  color: var(--ink);
+}
+
+.folder-name {
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.folder-count {
+  font-size: var(--t-fine);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+}
+
+.folder-body {
+  margin-left: var(--s2);
+  padding-left: var(--s4);
+  border-left: 1px solid var(--rule);
+}
+
+.folder-note {
+  margin-top: var(--s4);
+  max-width: var(--measure-prose);
+}
+
+/* The move control. Closed at rest — filing is the rare act on this page, and
+   ten open forms would bury the ten projects they belong to. */
+.move-box {
+  grid-column: 1 / -1;
+  margin-top: var(--s2);
+}
+
+.move-box > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0;
+  border: 0;
+  font-size: var(--t-fine);
+  font-weight: 500;
+  color: var(--accent);
+  cursor: pointer;
+  list-style: none;
+}
+
+.move-box > summary::-webkit-details-marker {
+  display: none;
+}
+
+.move-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
+.move-form label {
+  font-size: var(--t-fine);
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.move-form input {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.filing .move-form {
+  margin-top: 0;
+}
+
 /* ==========================================================================
    GATE 1: THE SCRIPT PAGE
    ========================================================================== */

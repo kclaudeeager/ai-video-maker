@@ -42,6 +42,27 @@ class ProjectStore:
             return []
         return sorted(p.name for p in self.projects_dir.iterdir() if p.is_dir())
 
+    def folders(self) -> list[str]:
+        """Every folder label in use across the workspace, ancestors included, sorted.
+
+        There is no folder object anywhere: a folder exists because a project claims
+        it, and stops existing when the last one leaves. `tech` is therefore listed
+        whenever `tech/office-basics` is, or the tree would have a hole in it and the
+        move control would not offer the level a person is most likely to want.
+
+        A project that will not load is skipped for the same reason `project_rows`
+        skips it: one half-written `project.json` must not empty the menu.
+        """
+        labels: set[str] = set()
+        for project_id in self.list_ids():
+            try:
+                folder = self.load(project_id).folder
+            except (OSError, ValueError):
+                continue
+            levels = folder.split("/") if folder else []
+            labels.update("/".join(levels[: depth + 1]) for depth in range(len(levels)))
+        return sorted(labels)
+
     def _allocate_id(self, topic: str) -> str:
         base = slugify(topic) or "project"
         if not self.path_for(base).exists():
