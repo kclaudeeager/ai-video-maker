@@ -67,8 +67,14 @@ ZOOM_RATE = 0.15
 #: repeat a shorter window of the same clip instead.
 MAX_LOOP_FRAMES = 120
 
-#: M1 assembles wide only; M3 adds vertical with its own spec, never a scaled one.
+#: Which aspects this stage actually *encodes*. Vertical joins it once it can crop
+#: from source (Task 4); until then vertical exists as a spec and a timeline only,
+#: and is never a scaled copy of the wide render.
 ASSEMBLE_ASPECTS: tuple[Aspect, ...] = (Aspect.WIDE,)
+
+#: The longest a Short may run. YouTube Shorts, Reels and TikTok all accept three
+#: minutes; anything longer is not a Short at all, so `in_short` has to give way.
+MAX_SHORT_S = 180.0
 
 
 @dataclass(frozen=True)
@@ -92,8 +98,16 @@ class VideoSpec:
 
 SPECS: dict[Aspect, VideoSpec] = {
     Aspect.WIDE: VideoSpec(aspect=Aspect.WIDE, width=1920, height=1080),
+    Aspect.VERTICAL: VideoSpec(aspect=Aspect.VERTICAL, width=1080, height=1920),
 }
 WIDE_SPEC = SPECS[Aspect.WIDE]
+VERTICAL_SPEC = SPECS[Aspect.VERTICAL]
+
+#: Every aspect the tool authors a frame for. The per-stage tuples above and in
+#: `captions`/`render` are the subsets each stage can currently *produce*; they grow
+#: towards this one as the vertical tasks land. Status listing walks this tuple, so a
+#: vertical unit is visible — and visibly not current — before it can be built.
+ALL_ASPECTS: tuple[Aspect, ...] = tuple(SPECS)
 
 
 @dataclass(frozen=True)
@@ -152,21 +166,70 @@ def is_assemblable(scene: Scene) -> bool:
     return scene.duration_s is not None
 
 
-def scene_timeline(project: Project, *, gap_s: float) -> list[Segment]:
-    """Where each scene sits on the finished video.
+def aspect_scenes(project: Project, aspect: Aspect) -> list[Scene]:
+    """The scenes that belong to this aspect's cut, in the project's own order.
+
+    Wide is the whole project. Vertical is the `in_short` subset — the Short is a
+    shorter *edit*, not a re-frame of the long video, which is why `in_short` is a
+    per-scene flag and not a duration cap applied at the end.
+
+    Unvoiced scenes are still included here: this is the membership test, and
+    `scene_timeline` applies `is_assemblable` on top of it. Keeping the two apart is
+    what lets the wide fingerprints stay byte-identical to M1, which hashed every
+    scene whether or not it had been voiced.
+    """
+    if aspect is Aspect.WIDE:
+        return list(project.scenes)
+    return [scene for scene in project.scenes if scene.in_short]
+
+
+def scene_timeline(
+    project: Project, *, gap_s: float, aspect: Aspect = Aspect.WIDE
+) -> list[Segment]:
+    """Where each scene sits on this aspect's finished video.
 
     The starts must equal the offsets `captions.timeline_words` applies to its words;
     `tests/unit/test_stage_assemble.py` asserts the two agree.
     """
     segments: list[Segment] = []
     offset = 0.0
-    for scene in project.scenes:
+    for scene in aspect_scenes(project, aspect):
         if not is_assemblable(scene):
             continue
         duration = segment_duration(scene, gap_s=gap_s)
         segments.append(Segment(scene_id=scene.id, start_s=offset, duration_s=duration))
         offset += duration
     return segments
+
+
+def timeline_scene_ids(project: Project, aspect: Aspect) -> list[str]:
+    """The scenes this aspect's video is built from, in order."""
+    return [
+        segment.scene_id for segment in scene_timeline(project, gap_s=SCENE_GAP_S, aspect=aspect)
+    ]
+
+
+def timeline_duration_s(project: Project, aspect: Aspect) -> float:
+    """How long this aspect's cut runs, gaps included."""
+    return sum(
+        segment.duration_s
+        for segment in scene_timeline(project, gap_s=SCENE_GAP_S, aspect=aspect)
+    )
+
+
+def short_duration_s(project: Project) -> float:
+    """The running time of the `in_short` subset."""
+    return timeline_duration_s(project, Aspect.VERTICAL)
+
+
+def short_fits(project: Project) -> bool:
+    """Whether the `in_short` subset is short enough to publish as a Short.
+
+    A duration test only: a project with nothing marked `in_short` runs for 0 s and
+    so "fits" vacuously. Callers that need a Short to *exist* check the timeline is
+    non-empty; conflating the two here would hide an empty cut behind a green tick.
+    """
+    return short_duration_s(project) <= MAX_SHORT_S
 
 
 # ------------------------------------------------------------- the filter graph
@@ -482,7 +545,7 @@ def run_assemble(project: Project, deps: StageDeps) -> StageResult:
 
     for aspect in ASSEMBLE_ASPECTS:
         spec = SPECS[aspect]
-        segments = scene_timeline(project, gap_s=SCENE_GAP_S)
+        segments = scene_timeline(project, gap_s=SCENE_GAP_S, aspect=aspect)
         if not segments:
             # Nothing voiced yet: the runner voices before it assembles, so this is a
             # no-op rather than an error.

@@ -33,7 +33,12 @@ from videomaker.cache import STAGE_ORDER, ResponseCache, StageCache, hash_inputs
 from videomaker.config import Settings
 from videomaker.models import Aspect, Project, Status
 from videomaker.pipeline.align import run_align
-from videomaker.pipeline.assemble import ASSEMBLE_ASPECTS, run_assemble
+from videomaker.pipeline.assemble import (
+    ALL_ASPECTS,
+    ASSEMBLE_ASPECTS,
+    aspect_scenes,
+    run_assemble,
+)
 from videomaker.pipeline.base import SCENE_GAP_S, StageDeps, StageResult
 from videomaker.pipeline.captions import CAPTION_ASPECTS, aspect_hash, run_captions
 from videomaker.pipeline.render import RENDER_ASPECTS, run_render
@@ -155,11 +160,21 @@ def build_deps(settings: Settings, project_id: str, *, cache_dir: Path | None = 
 
 @dataclass(frozen=True)
 class Unit:
-    """One cache unit as the status view sees it: its inputs, and whether it ran."""
+    """One cache unit as the status view sees it: its inputs, and whether it ran.
+
+    `required` is what keeps a *listed* unit from being a *blocking* one. The vertical
+    aspect has a spec, a timeline and a fingerprint before any stage can build it, so
+    its units are listed — a caller can see the Short is not made yet — but they do not
+    hold `derive_status` back. Without that, adding the aspect would have made every
+    finished project, the owner's included, report itself unfinished forever. A unit
+    becomes required the moment its stage's aspect tuple learns to produce it, so this
+    unblocks itself as Tasks 3, 4 and 6 land; nothing has to be remembered and flipped.
+    """
 
     unit: str
     fingerprint: str
     produced: bool
+    required: bool = True
 
 
 def status_key(stage: str, unit: str = "all") -> str:
@@ -233,10 +248,18 @@ def _visuals_units(project: Project) -> list[Unit]:
 def _captions_units(project: Project) -> list[Unit]:
     # The caption files are written from the words, so the stage's own aspect hash
     # is already the project-visible fingerprint — no second definition to drift.
-    produced = bool(project.scenes) and all(scene.words for scene in project.scenes)
-    return [
-        Unit(aspect.value, aspect_hash(project, aspect), produced) for aspect in CAPTION_ASPECTS
-    ]
+    units = []
+    for aspect in ALL_ASPECTS:
+        scenes = aspect_scenes(project, aspect)
+        units.append(
+            Unit(
+                aspect.value,
+                aspect_hash(project, aspect),
+                aspect in CAPTION_ASPECTS and bool(scenes) and all(s.words for s in scenes),
+                required=aspect in CAPTION_ASPECTS,
+            )
+        )
+    return units
 
 
 def _assemble_fingerprint(project: Project, aspect: Aspect) -> str:
@@ -252,20 +275,21 @@ def _assemble_fingerprint(project: Project, aspect: Aspect) -> str:
                 "crop_focus_x": scene.visual.crop_focus_x,
                 "trim_start_s": scene.visual.trim_start_s,
             }
-            for scene in project.scenes
+            for scene in aspect_scenes(project, aspect)
         ],
     )
 
 
 def _assemble_units(project: Project) -> list[Unit]:
     units = []
-    for aspect in ASSEMBLE_ASPECTS:
+    for aspect in ALL_ASPECTS:
         spec = project.outputs.get(aspect)
         units.append(
             Unit(
                 aspect.value,
                 _assemble_fingerprint(project, aspect),
                 spec is not None and bool(spec.scene_ids),
+                required=aspect in ASSEMBLE_ASPECTS,
             )
         )
     return units
@@ -273,7 +297,7 @@ def _assemble_units(project: Project) -> list[Unit]:
 
 def _render_units(project: Project) -> list[Unit]:
     units = []
-    for aspect in RENDER_ASPECTS:
+    for aspect in ALL_ASPECTS:
         spec = project.outputs.get(aspect)
         units.append(
             Unit(
@@ -283,6 +307,7 @@ def _render_units(project: Project) -> list[Unit]:
                     captions=aspect_hash(project, aspect),
                 ),
                 spec is not None and bool(spec.video_path),
+                required=aspect in RENDER_ASPECTS,
             )
         )
     return units
@@ -300,8 +325,12 @@ STAGE_UNITS: dict[str, Callable[[Project], list[Unit]]] = {
 
 
 def stage_is_current(project: Project, stage_cache: StageCache, stage: str) -> bool:
-    """True when every unit of `stage` has run and none of its inputs has moved."""
-    units = STAGE_UNITS[stage](project)
+    """True when every *required* unit of `stage` has run and no input has moved.
+
+    Units the stage cannot produce yet (see `Unit.required`) are listed but ignored
+    here: a status view that waited on them would call every finished project stale.
+    """
+    units = [unit for unit in STAGE_UNITS[stage](project) if unit.required]
     if not units:
         return False
     return all(

@@ -19,13 +19,14 @@ from pathlib import Path
 from videomaker.cache import hash_inputs, stage_key
 from videomaker.media.ass import STYLES, write_ass
 from videomaker.models import Aspect, Project, WordTiming
-from videomaker.pipeline.assemble import SPECS
+from videomaker.pipeline.assemble import SPECS, aspect_scenes
 from videomaker.pipeline.base import SCENE_GAP_S, StageDeps, StageResult, project_root
 
 STAGE = "captions"
 CAPTIONS_DIRNAME = "captions"
 
-#: M1 renders wide only; nothing here assumes a single aspect (M3 adds vertical).
+#: Which aspects this stage actually writes an `.ass` file for. Vertical joins it
+#: once its style is authored (Task 3) — never by scaling the wide layout.
 CAPTION_ASPECTS: tuple[Aspect, ...] = (Aspect.WIDE,)
 
 #: Timeline resolution the ASS coordinates are authored against, taken from the frame
@@ -92,6 +93,16 @@ def timeline_word_groups(project: Project) -> list[list[WordTiming]]:
 
 
 def aspect_hash(project: Project, aspect: Aspect) -> str:
+    """This aspect's caption inputs: its own scenes, its own style, its own frame.
+
+    The scene list is the aspect's cut, so re-marking a scene `in_short` restages the
+    vertical captions and leaves the wide ones alone. The style is looked up rather
+    than indexed: an aspect whose layout has not been authored yet hashes as `None`
+    instead of raising, which is what lets a vertical unit be *listed* before the
+    vertical style exists. Wide is unaffected either way — its hash must stay
+    byte-identical to M1's or every rendered project restages.
+    """
+    style = STYLES.get(aspect)
     return hash_inputs(
         scenes=[
             {
@@ -100,9 +111,9 @@ def aspect_hash(project: Project, aspect: Aspect) -> str:
                 "duration_s": scene.duration_s,
                 "words": [word.model_dump() for word in scene.words],
             }
-            for scene in project.scenes
+            for scene in aspect_scenes(project, aspect)
         ],
-        style=asdict(STYLES[aspect]),
+        style=asdict(style) if style is not None else None,
         aspect=aspect.value,
         play_res=list(PLAY_RES[aspect]),
         gap_s=SCENE_GAP_S,
