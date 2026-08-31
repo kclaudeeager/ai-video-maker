@@ -1,0 +1,12 @@
+{#
+  The htmx answer to a music write: the picker, plus the two preview panels
+  swapped out of band.
+
+  Both, not just the picker. A new bed does not move a byte inside the project
+  folder, but it does change what the finished cut sounds like — so the proxies on
+  disk stop being what would ship the moment Apply is pressed. Sending only the
+  picker back would leave the page contradicting itself: a new track named above
+  two players still stamped "ready".
+#}
+{% include "_music_picker.html" %}
+{% with oob = true %}{% include "_preview_cuts.html" %}{% endwith %}

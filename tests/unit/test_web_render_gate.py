@@ -31,26 +31,37 @@ The other properties pinned here:
 Everything is on the mock provider chain: no network, no `ml` extra.
 """
 
+import json
 import re
+import subprocess
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from videomaker import runner as runner_module
+from videomaker.audio import MUSIC_KIND
 from videomaker.config import Settings
 from videomaker.media.ffmpeg import FFmpegError
-from videomaker.models import Aspect
+from videomaker.models import Aspect, MusicSelection
 from videomaker.pipeline import render as render_module
-from videomaker.pipeline.assemble import scene_timeline
-from videomaker.pipeline.render import RENDER_ASPECTS, output_relpath
-from videomaker.preview import build_preview, preview_relpath
+from videomaker.pipeline.assemble import (
+    narration_relpath,
+    scene_timeline,
+    video_relpath,
+)
+from videomaker.pipeline.captions import caption_relpath
+from videomaker.pipeline.render import RENDER_ASPECTS, music_bed, output_relpath
+from videomaker.preview import PREVIEW_ASPECTS, build_preview, preview_relpath
 from videomaker.project import ProjectStore
-from videomaker.runner import build_deps, run_pipeline
+from videomaker.runner import build_deps, run_pipeline, stage_cache_for, stage_is_current
 from videomaker.web.app import create_app
 from videomaker.web.routes.render import (
     ENCODE_FLOOR,
+    MUSIC_README,
     encode_fraction,
     encode_progress,
+    music_selection,
     timeline_seconds,
 )
 from videomaker.web.worker import JobProgress
@@ -590,8 +601,6 @@ def test_the_download_name_identifies_the_project():
     Downloading three projects would give `final_wide.mp4`, `final_wide(1).mp4`
     and `final_wide(2).mp4` with no way to tell them apart in a Downloads folder.
     """
-    from pathlib import Path
-
     from videomaker.web.routes.render import ArtefactView
 
     view = ArtefactView(
@@ -603,3 +612,450 @@ def test_the_download_name_identifies_the_project():
     )
     assert view.download_name == "how-ssds-work-final_wide.mp4"
     assert view.url == "/media/how-ssds-work/output/final_wide.mp4"
+
+
+# ======================================================================
+# M3 Task 11: the music picker, and both cuts side by side
+# ======================================================================
+#
+# Two properties carry this section.
+#
+# **A no-op write must not even reach for the `flock`.** `run_pipeline` holds
+# that lock for the length of a whole render, so a picker that locked before
+# comparing would park a request thread behind a twenty-minute encode every time
+# someone re-submitted the choice already on the project. M2 Task 9's mutant 5
+# caught exactly this, and `locks_taken == []` is the assertion that keeps it
+# caught.
+#
+# **Changing the music invalidates the render and nothing else.** The audio
+# layer's whole reach into the cache engine is `render_hash` (Task 9): the
+# track's key, its levels and its bytes. Nothing upstream hashes
+# `project.music`, so a new bed re-encodes `output/final_*.mp4` and re-assembles,
+# re-captions and re-voices nothing. `test_changing_the_track_re_renders_and_
+# restages_nothing_earlier` proves that over real FFmpeg, by mtime.
+#
+# The empty library is the default path, not an edge case: `assets/music/` is
+# empty on every fresh clone, so the first test here is the one that runs for
+# everybody.
+
+#: Each panel's own marker. Adjacent, like every other `data-*` pair on the gates.
+_CUT = re.compile(r'data-preview-aspect="([a-z]+)" data-preview-state="([a-z]+)"')
+#: The picker's marker: is there a library at all, and how much is in it?
+_LIBRARY = re.compile(r'data-music-library="([a-z]+)" data-music-tracks="(\d+)"')
+
+CALM = f"{MUSIC_KIND}/calm/rain.wav"
+UPBEAT = f"{MUSIC_KIND}/upbeat/pulse.wav"
+
+
+def _cuts(body: str) -> dict[str, str]:
+    return dict(_CUT.findall(body))
+
+
+@pytest.fixture(scope="module")
+def tone(tmp_path_factory):
+    """One generated track. The project ships no audio, so neither may its tests."""
+    path = tmp_path_factory.mktemp("gate_library") / "tone.wav"
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=44100",
+            "-t", "6", "-ac", "2", str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return path
+
+
+@pytest.fixture
+def library(app, tmp_path, tone) -> Path:
+    """Two real tracks in two moods, with the app's settings pointed at them.
+
+    `app.state.settings` rather than the `settings` fixture: `create_app` forces
+    the provider chain, and `provider_override` returns a *new* `Settings`. The
+    app's copy is the one every handler reads.
+    """
+    root = tmp_path / "library" / "music"
+    for key in (CALM, UPBEAT):
+        path = root / key.removeprefix(f"{MUSIC_KIND}/")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(tone.read_bytes())
+    app.state.settings.music_dir = root
+    app.state.settings.sfx_dir = tmp_path / "library" / "sfx"
+    return root
+
+
+def _pick(**overrides) -> dict[str, str]:
+    """A full picker submission — every field, as the one form really posts it."""
+    return {
+        "enabled": "on",
+        "track_key": "",
+        "volume_db": str(-18.0),
+        "duck_db": str(12.0),
+        "sfx": "on",
+        **overrides,
+    }
+
+
+def _stamp(path: Path) -> int:
+    return path.stat().st_mtime_ns if path.is_file() else 0
+
+
+def _other_track(app, project_id: str) -> str:
+    """A track key that really changes the bed, whatever the mood picked on its own.
+
+    With a library present and `enabled` defaulted on, a project already *has* a
+    bed before anybody touches the picker — `select_track` chose it from the
+    template's mood. Naming that same track is not a change, and the cache is right
+    to skip the encode, so a test that wants a change has to ask for the other one.
+    """
+    deps = build_deps(app.state.settings, project_id)
+    bed = music_bed(deps.store.load(project_id), deps)
+    return UPBEAT if bed is not None and bed.key == CALM else CALM
+
+
+# ------------------------------------------------------------ the empty library
+
+
+def test_an_empty_library_is_an_honest_empty_state_pointing_at_the_readme(
+    app, client, store
+):
+    """Every fresh clone. Not an edge case — the default path through this page."""
+    project = _previewed(app, store)
+
+    body = client.get(f"/projects/{project.id}/preview").text
+
+    assert _LIBRARY.search(body).groups() == ("empty", "0")
+    assert MUSIC_README in body
+    assert "<option" not in body.split('id="music-picker"')[1].split("</section>")[0]
+    assert not _ABSOLUTE_URL.search(body)
+
+
+def test_an_empty_library_still_renders_and_still_approves(app, client, store):
+    """Absence of a library is never an error (docs/audio-design.md)."""
+    project = _previewed(app, store)
+
+    body = client.get(f"/projects/{project.id}/preview").text
+
+    assert _gates(body)["preview"] == "false"
+    assert f"/projects/{project.id}/approve/preview" in body
+
+
+# ------------------------------------------------------------------ the picker
+
+
+def test_the_picker_lists_every_track_in_the_library(app, client, store, library):
+    project = _previewed(app, store)
+
+    body = client.get(f"/projects/{project.id}/preview").text
+
+    assert _LIBRARY.search(body).groups() == ("ready", "2")
+    assert CALM in body
+    assert UPBEAT in body
+    assert f"/projects/{project.id}/music" in body
+
+
+def test_choosing_a_track_writes_it_onto_the_project(app, client, store, library):
+    project = _previewed(app, store)
+
+    response = client.post(
+        f"/projects/{project.id}/music", data=_pick(track_key=CALM), follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/projects/{project.id}/preview#music"
+    assert store.load(project.id).music.track_key == CALM
+    assert store.load(project.id).music.enabled is True
+
+
+def test_re_submitting_the_choice_it_already_has_takes_no_lock_and_writes_nothing(
+    app, client, store, library, locks_taken
+):
+    """`run_pipeline` holds this `flock` for a whole render. A no-op must not want it."""
+    project = _previewed(app, store)
+    client.post(f"/projects/{project.id}/music", data=_pick(track_key=CALM))
+    written = _stamp(store.path_for(project.id) / "project.json")
+    locks_taken.clear()
+
+    client.post(f"/projects/{project.id}/music", data=_pick(track_key=CALM))
+
+    assert locks_taken == [], "a no-op music write took the lock a render could hold"
+    assert _stamp(store.path_for(project.id) / "project.json") == written
+
+
+def test_a_real_change_does_take_the_lock(app, client, store, library, locks_taken):
+    project = _previewed(app, store)
+    locks_taken.clear()
+
+    client.post(f"/projects/{project.id}/music", data=_pick(track_key=UPBEAT))
+
+    assert locks_taken == [project.id]
+
+
+def test_a_track_that_is_not_in_the_library_is_refused_and_nothing_is_written(
+    app, client, store, library, locks_taken
+):
+    """A stale option — a renamed or deleted file — must not silently lose the bed."""
+    project = _previewed(app, store)
+    locks_taken.clear()
+
+    response = client.post(
+        f"/projects/{project.id}/music",
+        data=_pick(track_key=f"{MUSIC_KIND}/calm/gone.wav"),
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 200
+    assert 'data-music-problem="unknown-track"' in response.text
+    assert store.load(project.id).music.track_key == ""
+    assert locks_taken == []
+
+
+def test_turning_the_music_off_is_a_decision_the_project_records(
+    app, client, store, library
+):
+    project = _previewed(app, store)
+    client.post(f"/projects/{project.id}/music", data=_pick(track_key=CALM))
+
+    client.post(f"/projects/{project.id}/music", data={**_pick(track_key=CALM), "enabled": ""})
+
+    stored = store.load(project.id).music
+    assert stored.enabled is False
+    # The choice is kept, so switching it back on does not lose the track.
+    assert stored.track_key == CALM
+
+
+def test_a_level_equal_to_the_configured_default_is_stored_as_no_opinion(
+    app, client, store, library
+):
+    """Empty means "no opinion" on every field of `MusicSelection`, and the slider
+    has to be able to get back there — otherwise the first drag pins the project to
+    a number `config.yaml` can never move again."""
+    settings = app.state.settings
+    project = _previewed(app, store)
+
+    client.post(
+        f"/projects/{project.id}/music",
+        data=_pick(track_key=CALM, volume_db="-24", duck_db="18"),
+    )
+    louder = store.load(project.id).music
+    client.post(
+        f"/projects/{project.id}/music",
+        data=_pick(
+            track_key=CALM,
+            volume_db=str(settings.music_volume_db),
+            duck_db=str(settings.duck_amount_db),
+        ),
+    )
+
+    assert (louder.volume_db, louder.duck_db) == (-24.0, 18.0)
+    back = store.load(project.id).music
+    assert back.volume_db is None
+    assert back.duck_db is None
+
+
+def test_the_sfx_toggle_is_a_project_override_that_the_default_clears(
+    app, client, store, library
+):
+    project = _previewed(app, store)
+    assert store.load(project.id).music.sfx_enabled is None
+
+    client.post(f"/projects/{project.id}/music", data={**_pick(), "sfx": ""})
+    off = store.load(project.id).music.sfx_enabled
+    client.post(f"/projects/{project.id}/music", data=_pick())
+
+    assert off is False
+    assert store.load(project.id).music.sfx_enabled is None
+
+
+def test_the_picker_answers_htmx_with_its_own_section_and_the_panels_out_of_band(
+    app, client, store, library
+):
+    """A new bed makes both proxies stale, and the page has to say so at once.
+
+    Nothing inside the project folder moves when the track changes, so an htmx swap
+    of the picker alone would leave two panels still stamped `ready` under a
+    freshly-named track — the page contradicting itself at the moment it was used.
+    """
+    project = _previewed(app, store)
+
+    response = client.post(
+        f"/projects/{project.id}/music",
+        data=_pick(track_key=_other_track(app, project.id)),
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 200
+    assert 'id="music-picker"' in response.text
+    assert 'id="preview-cuts"' in response.text
+    assert "hx-swap-oob" in response.text
+    assert _cuts(response.text)["wide"] == "stale"
+    # A fragment, not a whole page: the swap replaces two known elements.
+    assert "<html" not in response.text.lower()
+
+
+def test_the_form_selection_is_decided_once_and_purely(app):
+    """The parsing is a pure function, so the route has no second opinion in it."""
+    settings = app.state.settings
+
+    unchanged = music_selection(
+        MusicSelection(),
+        settings,
+        enabled="on",
+        track_key="",
+        volume_db=str(settings.music_volume_db),
+        duck_db=str(settings.duck_amount_db),
+        sfx="on",
+    )
+    junk = music_selection(
+        MusicSelection(),
+        settings,
+        enabled="on",
+        track_key="",
+        volume_db="not a number",
+        duck_db="",
+        sfx="on",
+    )
+    clamped = music_selection(
+        MusicSelection(), settings, enabled="on", track_key="", volume_db="900",
+        duck_db="-40", sfx="",
+    )
+
+    assert unchanged == MusicSelection()
+    assert junk == MusicSelection()
+    assert clamped.volume_db == 0.0
+    assert clamped.duck_db == 0.0
+    assert clamped.sfx_enabled is False
+
+
+def test_changing_the_music_leaves_every_approval_alone(app, client, store, library):
+    """Music is downstream of every gate: it changes the render, not what was judged.
+
+    `clear_stale_approvals` walks the stages *upstream* of each gate, and nothing
+    upstream of any gate hashes `project.music`. The preview panel going stale is
+    what tells the reviewer to listen again — clearing a stamp would not.
+    """
+    project = _previewed(app, store)
+    client.post(f"/projects/{project.id}/approve/preview", follow_redirects=False)
+    stamped = store.load(project.id).approvals
+
+    client.post(f"/projects/{project.id}/music", data=_pick(track_key=CALM))
+
+    assert store.load(project.id).approvals == stamped
+
+
+# ------------------------------------------------------- both cuts, side by side
+
+
+def test_the_page_shows_both_cuts_with_their_own_states(app, client, store):
+    project = _assembled(app, store)
+    deps = build_deps(app.state.settings, project.id)
+    for aspect in PREVIEW_ASPECTS:
+        build_preview(deps.store.load(project.id), deps, aspect=aspect)
+
+    body = client.get(f"/projects/{project.id}/preview").text
+
+    assert _cuts(body) == {"wide": "ready", "vertical": "ready"}
+    for aspect in PREVIEW_ASPECTS:
+        assert f"/media/{project.id}/{preview_relpath(aspect)}" in body
+        assert client.get(f"/media/{project.id}/{preview_relpath(aspect)}").status_code == 200
+    # The wide cut still answers the marker every other test on this page reads.
+    assert 'data-preview="ready"' in body
+
+
+def test_an_empty_short_says_why_there_is_no_vertical_preview(app, client, store):
+    """Task 6's `ShortNotRenderable`, surfaced on the page instead of a 500."""
+    project = _assembled(app, store)
+    for scene in project.scenes:
+        scene.in_short = False
+    store.save(project)
+
+    response = client.get(f"/projects/{project.id}/preview")
+
+    assert response.status_code == 200
+    assert _cuts(response.text)["vertical"] == "blocked"
+    assert "nothing is marked for the Short" in response.text
+    assert _cuts(response.text)["wide"] in {"missing", "ready", "stale"}
+
+
+def test_the_build_job_encodes_both_proxies(app, store):
+    project = _assembled(app, store)
+
+    with TestClient(app) as client:
+        client.post(f"/projects/{project.id}/preview/build")
+        assert app.state.jobs.wait_idle(600)
+        job = app.state.jobs.state_for(project.id)
+        assert job.state == "done", job.error
+
+    root = store.path_for(project.id)
+    for aspect in PREVIEW_ASPECTS:
+        assert (root / preview_relpath(aspect)).is_file(), aspect
+
+
+def test_the_build_job_still_finishes_the_wide_cut_when_the_short_is_empty(app, store):
+    """One unrenderable aspect must not cost the reviewer the cut that *is* ready."""
+    project = _assembled(app, store)
+    for scene in project.scenes:
+        scene.in_short = False
+    store.save(project)
+
+    with TestClient(app) as client:
+        client.post(f"/projects/{project.id}/preview/build")
+        assert app.state.jobs.wait_idle(600)
+        job = app.state.jobs.state_for(project.id)
+        assert job.state == "done", job.error
+
+    root = store.path_for(project.id)
+    assert (root / preview_relpath(Aspect.WIDE)).is_file()
+    assert not (root / preview_relpath(Aspect.VERTICAL)).is_file()
+
+
+# ------------------------------------------- what a new track does, and does not do
+
+
+def test_changing_the_track_re_renders_and_restages_nothing_earlier(app, store, library):
+    """The audio layer's whole reach into the cache is `render_hash` — proved by mtime."""
+    project = _previewed(app, store)
+    root = store.path_for(project.id)
+    watched = {
+        "video": root / video_relpath(Aspect.WIDE),
+        "narration": root / narration_relpath(Aspect.WIDE),
+        "captions": root / caption_relpath(Aspect.WIDE),
+        "wide": root / output_relpath(Aspect.WIDE),
+        "vertical": root / output_relpath(Aspect.VERTICAL),
+    }
+
+    with TestClient(app) as client:
+        client.post(f"/projects/{project.id}/approve/preview")
+        assert app.state.jobs.wait_idle(900)
+        assert app.state.jobs.state_for(project.id).state == "done"
+
+        before = {name: _stamp(path) for name, path in watched.items()}
+        cache_path = stage_cache_for(store, project.id).path
+        status_before = {
+            key: value
+            for key, value in json.loads(cache_path.read_text()).items()
+            if key.startswith("status:")
+        }
+
+        other = _other_track(app, project.id)
+        client.post(f"/projects/{project.id}/music", data=_pick(track_key=other))
+        deps = build_deps(app.state.settings, project.id)
+        run_pipeline(deps.store.load(project.id), deps)
+
+    after = {name: _stamp(path) for name, path in watched.items()}
+    assert after["wide"] != before["wide"], "a new bed must re-encode the deliverable"
+    assert after["vertical"] != before["vertical"]
+    for name in ("video", "narration", "captions"):
+        assert after[name] == before[name], f"{name} was rebuilt for a music change"
+
+    reloaded = deps.store.load(project.id)
+    fresh_cache = stage_cache_for(store, project.id)
+    status_after = {
+        key: value
+        for key, value in json.loads(cache_path.read_text()).items()
+        if key.startswith("status:")
+    }
+    assert status_after == status_before, "a music change moved an upstream fingerprint"
+    for stage in ("script", "voice", "align", "visuals", "captions", "assemble"):
+        assert stage_is_current(reloaded, fresh_cache, stage), stage

@@ -1,0 +1,135 @@
+{#
+  Gate 3's music picker — the fourth and finest of the four levels of control in
+  `docs/audio-design.md`, and the one that doc says matters day to day.
+
+  Context: `project` and `music` (a MusicView from routes/render.py).
+
+  **The empty state is the default path.** The project ships no audio files and
+  never will — a licensing decision, stated as binding — so `assets/music/` is
+  empty on every fresh clone, the owner's included. What renders here for most
+  people, most of the time, is the paragraph that says so and points at the README
+  which lists where claim-safe tracks come from.
+
+  **This is chrome, not a summons.** Nothing in here is amber: `docs/ui-design.md`
+  reserves warm colour for the one thing on the page that is waiting for a human,
+  and choosing a backing track is a preference, not a gate.
+
+  The form is a real `<form method="post">` first and an `hx-post` second, so it
+  still works with JavaScript switched off; the htmx path swaps this one section
+  back in place. `data-music-library` and `data-music-tracks` are adjacent, and
+  `data-music-problem` appears only when something was refused — the same
+  attribute contract the other gates use.
+#}
+<section id="music-picker" class="card music"
+         data-music-library="{{ music.state }}" data-music-tracks="{{ music.count }}"
+         {%- if music.problem %} data-music-problem="{{ music.problem }}"{% endif %}>
+  <div class="artefact-head">
+    <h2 class="section-title flush">Music and effects</h2>
+    {% if music.note %}
+      <span class="status {{ music.tone }}" data-music-note="{{ music.note }}">{{ music.note }}</span>
+    {% endif %}
+  </div>
+
+  {% if music.problem %}
+    <p class="notice" role="status">
+      That track is not in your library any more — it may have been renamed or
+      removed since this page was loaded. Nothing was changed. Pick another one,
+      or reload the page to see what is there now.
+    </p>
+  {% endif %}
+
+  {% if music.state == "empty" %}
+    <p class="artefact-empty flush">
+      Your music library is empty, so this renders as narration only — a finished
+      video, not a fault. To add a bed, drop licence-clear audio into
+      <code>assets/music/&lt;mood&gt;/</code> and record each file in
+      <code>assets/music/library.yaml</code> so it can be credited.
+      <code>{{ music.readme }}</code> lists where free, claim-safe tracks come
+      from. This tool ships no audio itself, on purpose.
+    </p>
+  {% else %}
+    <form class="music-form" method="post" action="/projects/{{ project.id }}/music"
+          hx-post="/projects/{{ project.id }}/music"
+          hx-target="#music-picker" hx-swap="outerHTML">
+      <label class="toggle">
+        <input type="checkbox" name="enabled" value="on"
+               {% if music.selection.enabled %}checked{% endif %}>
+        Play a music bed under the narration
+      </label>
+
+      <div class="field">
+        <label for="music-track">Track</label>
+        <select id="music-track" name="track_key">
+          <option value="" {% if not music.selection.track_key %}selected{% endif %}>
+            Automatic{% if music.mood %} — from “{{ music.mood }}”{% endif %}
+          </option>
+          {% for option in music.options %}
+            <option value="{{ option.key }}" {% if option.chosen %}selected{% endif %}>
+              {{ option.key }}{% if option.duration %} · {{ option.duration }}{% endif %}{% if option.unreadable %} · unreadable{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+        <p class="hint" data-music-playing="{{ music.playing }}">
+          {% if music.playing %}
+            Plays <code>{{ music.playing }}</code>{% if music.playing_credit %} — {{ music.playing_credit }}{% endif %}.
+          {% else %}
+            Nothing plays under this project — the render is narration only.
+          {% endif %}
+          Automatic picks from the template's mood and stays the same for this
+          project every run. A short track loops; a long one is trimmed and faded.
+          Lengths appear here once <code>videomaker music scan</code> has measured
+          the library.
+        </p>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="music-volume">Bed level</label>
+          <input class="crop-range" id="music-volume" type="range" name="volume_db"
+                 min="{{ music.volume_range[0] }}" max="{{ music.volume_range[1] }}"
+                 step="{{ music.step }}" value="{{ music.volume_db }}">
+          <p class="crop-ends flush">
+            <span>{{ music.volume_range[0]|round|int }} dB</span>
+            <span>now {{ '%.1f'|format(music.volume_db) }} dB</span>
+            <span>{{ music.volume_range[1]|round|int }} dB</span>
+          </p>
+        </div>
+
+        <div class="field">
+          <label for="music-duck">Duck under speech</label>
+          <input class="crop-range" id="music-duck" type="range" name="duck_db"
+                 min="{{ music.duck_range[0] }}" max="{{ music.duck_range[1] }}"
+                 step="{{ music.step }}" value="{{ music.duck_db }}">
+          <p class="crop-ends flush">
+            <span>{{ music.duck_range[0]|round|int }} dB</span>
+            <span>now {{ '%.1f'|format(music.duck_db) }} dB</span>
+            <span>{{ music.duck_range[1]|round|int }} dB</span>
+          </p>
+        </div>
+      </div>
+
+      <label class="toggle">
+        <input type="checkbox" name="sfx" value="on"
+               {% if music.sfx_enabled %}checked{% endif %}>
+        Play transition and beat effects from <code>assets/sfx/</code>
+      </label>
+
+      <p class="flush artefact-actions">
+        <button type="submit">Apply</button>
+        <span class="hint">
+          Saves onto this project only. Nothing upstream is rebuilt — rebuild the
+          preview above to hear the change, and the final render will use it.
+          Dragging a slider back to the configured default
+          ({{ '%.1f'|format(music.default_volume_db) }} dB and
+          {{ '%.1f'|format(music.default_duck_db) }} dB) clears the override.
+        </span>
+      </p>
+    </form>
+  {% endif %}
+
+  {% if music.warnings %}
+    <ul class="hint music-warnings">
+      {% for warning in music.warnings %}<li>{{ warning }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+</section>

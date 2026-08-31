@@ -26,6 +26,7 @@ from pathlib import Path
 
 from videomaker import audio as music_library
 from videomaker.cache import hash_inputs, stage_key
+from videomaker.config import Settings
 from videomaker.media.audio import (
     DEFAULT_SFX_PROFILE,
     SFX_PROFILES,
@@ -206,7 +207,7 @@ def render_hash(
     return hash_inputs(**parts)
 
 
-def _mood(project: Project) -> str:
+def music_mood_for(project: Project) -> str:
     """The template's `music_mood`, or none at all if the template cannot be read.
 
     A template that has been renamed or edited into invalidity must not stop a render
@@ -223,9 +224,9 @@ def _mood(project: Project) -> str:
 def sfx_profile_for(project: Project) -> SfxProfile:
     """How loud this project's effects sit, per the template's `sfx_profile`.
 
-    Falls back rather than raising, for `_mood`'s reason: a template renamed out from
-    under a finished project must not stop a render that is otherwise ready. The
-    profile only decides how loud a whoosh is.
+    Falls back rather than raising, for `music_mood_for`'s reason: a template renamed
+    out from under a finished project must not stop a render that is otherwise ready.
+    The profile only decides how loud a whoosh is.
     """
     try:
         name = load_template(project.template).sfx_profile
@@ -251,6 +252,17 @@ def scan_library(deps: StageDeps) -> music_library.Library:
     )
 
 
+def sfx_wanted(project: Project, settings: Settings) -> bool:
+    """Whether this project plays effects at all.
+
+    `MusicSelection.sfx_enabled` is an override in the same sense as its levels:
+    `None` means "no opinion", so `config.yaml` decides, and gate 3's toggle can
+    silence one video without changing the default for every other one.
+    """
+    override = project.music.sfx_enabled
+    return settings.sfx_enabled if override is None else override
+
+
 def sfx_plan(
     project: Project,
     deps: StageDeps,
@@ -270,7 +282,7 @@ def sfx_plan(
     `structure` beats each scene was written for. Nothing here calls a model or looks
     at the footage.
     """
-    if not deps.settings.sfx_enabled:
+    if not sfx_wanted(project, deps.settings):
         return SfxPlan()
     scanned = scan_library(deps) if library is None else library
     segments = scene_timeline(project, gap_s=SCENE_GAP_S, aspect=aspect)
@@ -293,7 +305,10 @@ def music_bed(
 
     scanned = scan_library(deps) if library is None else library
     track = music_library.select_track(
-        scanned, mood=_mood(project), track_key=selection.track_key, seed=project.id
+        scanned,
+        mood=music_mood_for(project),
+        track_key=selection.track_key,
+        seed=project.id,
     )
     if track is None:
         return None

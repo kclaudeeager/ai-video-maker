@@ -21,12 +21,34 @@ import pytest
 from videomaker.cache import STAGE_ORDER, ResponseCache, StageCache, stage_key
 from videomaker.config import Settings
 from videomaker.media.ass import write_ass
-from videomaker.media.ffmpeg import probe_dimensions
-from videomaker.models import Aspect, WordTiming
-from videomaker.pipeline.assemble import WIDE_SPEC, narration_relpath, video_relpath
+from videomaker.media.audio import MusicBed, MusicMix, SfxPlan
+from videomaker.media.ffmpeg import probe_dimensions, probe_duration
+from videomaker.models import (
+    Aspect,
+    MusicSelection,
+    Scene,
+    SceneVisual,
+    WordTiming,
+)
+from videomaker.pipeline.assemble import (
+    VERTICAL_SPEC,
+    WIDE_SPEC,
+    narration_relpath,
+    video_relpath,
+)
 from videomaker.pipeline.base import StageDeps
 from videomaker.pipeline.captions import PLAY_RES, STYLES, caption_relpath
-from videomaker.preview import PREVIEW_HEIGHT, build_preview, preview_relpath
+from videomaker.pipeline.render import LOUDNORM, ShortNotRenderable
+from videomaker.preview import (
+    PREVIEW_ASPECTS,
+    PREVIEW_HEIGHT,
+    _preview_args,
+    build_preview,
+    mix_is_current,
+    preview_hash,
+    preview_relpath,
+    short_problem,
+)
 from videomaker.project import ProjectStore
 from videomaker.providers.ratelimit import QuotaTracker
 
@@ -155,3 +177,253 @@ def test_the_preview_is_cached_outside_the_stage_order(assembled):
     assert key == "preview:wide"
     assert key in json.loads(deps.stage_cache.path.read_text())
     assert "preview" not in STAGE_ORDER
+
+
+# ======================================================================
+# M3 Task 11: the vertical proxy beside the wide one, and the mix
+# ======================================================================
+#
+# Gate 3 shows both cuts side by side, so there are now two proxies rather than
+# one. They are still outside `STAGE_ORDER` and still cached per aspect — the
+# whole design decision the section above pins — and the vertical one is
+# refused, not crashed, for a project with nothing in its Short.
+#
+# The preview also carries the *mix* now, because a music picker whose choice
+# cannot be heard until after the gate is stamped is a picker nobody would use.
+# The bed and the effects come out of the same functions the real render uses,
+# so the two cannot drift; only the loudness pass differs (one, not two — this
+# is a throwaway file, and `_plan_mix`'s own docstring says a single pass is
+# what a no-music render does anyway).
+
+
+@pytest.fixture(scope="module")
+def portrait_media(tmp_path_factory):
+    """A real 1080x1920 video, for the vertical proxy's own encode."""
+    root = tmp_path_factory.mktemp("preview_portrait")
+    video = root / "vertical.mp4"
+    _ffmpeg([
+        "-f", "lavfi",
+        "-i",
+        f"testsrc=size={VERTICAL_SPEC.width}x{VERTICAL_SPEC.height}:rate=30:d={SOURCE_SECONDS}",
+        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+        str(video),
+    ])
+    return video
+
+
+@pytest.fixture(scope="module")
+def bed_file(tmp_path_factory):
+    """A generated track. The project ships no audio, so a test may not either."""
+    path = tmp_path_factory.mktemp("preview_library") / "bed.wav"
+    _ffmpeg([
+        "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=44100",
+        "-t", str(SOURCE_SECONDS * 2), "-ac", "2", str(path),
+    ])
+    return path
+
+
+@pytest.fixture
+def assembled_short(assembled, portrait_media):
+    """The wide fixture plus everything the *vertical* proxy is made from.
+
+    One voiced scene, ticked into the Short: `check_short_limit` reads the
+    vertical timeline, and a project with nothing on it is the error state this
+    task has to surface rather than crash on.
+    """
+    project, deps, root = assembled
+    (root / video_relpath(Aspect.VERTICAL)).write_bytes(portrait_media.read_bytes())
+    (root / narration_relpath(Aspect.VERTICAL)).write_bytes(
+        (root / narration_relpath(Aspect.WIDE)).read_bytes()
+    )
+    project.scenes = [
+        Scene(
+            id="s01",
+            narration="Drives store bytes",
+            duration_s=SOURCE_SECONDS,
+            in_short=True,
+            visual=SceneVisual(query="ssd b-roll"),
+        )
+    ]
+    deps.store.save(project)
+    return project, deps, root
+
+
+# ------------------------------------------------------- the second aspect
+
+
+def test_the_two_previews_are_named_and_ordered_per_aspect():
+    assert preview_relpath(Aspect.VERTICAL) == "build/preview_vertical.mp4"
+    assert PREVIEW_ASPECTS == (Aspect.WIDE, Aspect.VERTICAL)
+
+
+def test_the_vertical_preview_is_portrait_at_480_lines(assembled_short):
+    project, deps, root = assembled_short
+
+    path = build_preview(project, deps, aspect=Aspect.VERTICAL)
+
+    assert path == root / preview_relpath(Aspect.VERTICAL)
+    width, height = probe_dimensions(path)
+    assert height == PREVIEW_HEIGHT
+    # 1080x1920 at `scale=-2:480` is 270x480 — portrait, not the wide 854x480.
+    assert (width, height) == (270, PREVIEW_HEIGHT)
+
+
+def test_each_aspect_is_cached_under_its_own_key_outside_the_stage_order(assembled_short):
+    project, deps, _root = assembled_short
+
+    wide = build_preview(project, deps, aspect=Aspect.WIDE)
+    vertical = build_preview(project, deps, aspect=Aspect.VERTICAL)
+    stamp = wide.stat().st_mtime_ns
+
+    cached = json.loads(deps.stage_cache.path.read_text())
+    assert stage_key("preview", "wide") in cached
+    assert stage_key("preview", "vertical") in cached
+    assert "preview" not in STAGE_ORDER
+    # Building the Short must not re-encode the long cut.
+    assert wide.stat().st_mtime_ns == stamp
+    assert vertical.is_file()
+
+
+def test_a_project_with_nothing_in_the_short_has_no_vertical_preview(assembled_short):
+    """Task 6's error state, surfaced rather than crashed on: no file, a message."""
+    project, deps, root = assembled_short
+    for scene in project.scenes:
+        scene.in_short = False
+    deps.store.save(project)
+
+    with pytest.raises(ShortNotRenderable, match="nothing is marked for the Short"):
+        build_preview(project, deps, aspect=Aspect.VERTICAL)
+
+    assert not (root / preview_relpath(Aspect.VERTICAL)).is_file()
+    assert "nothing is marked for the Short" in short_problem(project)
+    # The long cut is unaffected: an empty Short is not a broken project.
+    assert short_problem(project, aspect=Aspect.WIDE) == ""
+    assert build_preview(project, deps, aspect=Aspect.WIDE).is_file()
+
+
+def test_a_renderable_short_reports_no_problem(assembled_short):
+    project, _deps, _root = assembled_short
+
+    assert short_problem(project) == ""
+
+
+# ------------------------------------------------------------------ the mix
+
+
+def test_with_no_music_the_preview_arguments_carry_nothing_about_a_mix(tmp_path):
+    args = _preview_args(tmp_path, Aspect.WIDE, burn_captions=True, mix=None)
+
+    assert "-filter_complex" not in args
+    assert "-stream_loop" not in args
+    assert args.count("-af") == 1
+    assert args[args.index("-af") + 1] == f"loudnorm={LOUDNORM}"
+    assert args[args.index("-map") + 1] == "0:v:0"
+
+
+def test_with_no_music_the_preview_hash_is_the_one_it_shipped_with(assembled):
+    """A fresh clone must not re-encode a preview because this task landed."""
+    _project, _deps, root = assembled
+    video = root / video_relpath(Aspect.WIDE)
+    narration = root / narration_relpath(Aspect.WIDE)
+    captions = root / caption_relpath(Aspect.WIDE)
+
+    without = preview_hash(
+        root, Aspect.WIDE, video=video, narration=narration, captions=captions
+    )
+    explicit_none = preview_hash(
+        root,
+        Aspect.WIDE,
+        video=video,
+        narration=narration,
+        captions=captions,
+        music=None,
+        sfx=SfxPlan(),
+    )
+
+    assert without == explicit_none
+
+
+def test_the_bed_reaches_the_preview_encode_as_an_input_not_a_filter_argument(
+    tmp_path, bed_file
+):
+    """M0's rule: a path in a filter graph breaks the parser on a colon."""
+    bed = MusicBed(path=bed_file, key="music/calm/bed.wav")
+    mix = MusicMix(bed=bed, duration_s=4.0)
+
+    args = _preview_args(tmp_path, Aspect.WIDE, burn_captions=False, mix=mix)
+
+    assert args[args.index("-stream_loop") + 1] == "-1"
+    assert args[args.index("-stream_loop") + 3] == str(bed_file)
+    graph = args[args.index("-filter_complex") + 1]
+    assert "sidechaincompress" in graph
+    assert str(bed_file) not in graph
+    assert "-af" not in args
+    assert args[args.index("-map") + 1] == "0:v:0"
+    assert args[args.index("-map") + 3] == "[aout]"
+
+
+def test_the_preview_measures_no_loudness_pass_of_its_own(tmp_path, bed_file):
+    """One pass for a throwaway file. Two is the deliverable's price, not this one's."""
+    mix = MusicMix(bed=MusicBed(path=bed_file, key="music/calm/bed.wav"), duration_s=4.0)
+
+    args = _preview_args(tmp_path, Aspect.WIDE, burn_captions=False, mix=mix)
+    graph = args[args.index("-filter_complex") + 1]
+
+    assert "measured_I" not in graph
+    assert graph.count("loudnorm") == 1
+
+
+def test_the_preview_hash_moves_with_the_chosen_bed(assembled, bed_file):
+    _project, _deps, root = assembled
+    video = root / video_relpath(Aspect.WIDE)
+    narration = root / narration_relpath(Aspect.WIDE)
+    common = {"video": video, "narration": narration, "captions": None}
+
+    silent = preview_hash(root, Aspect.WIDE, **common)
+    one = preview_hash(
+        root, Aspect.WIDE, **common, music=MusicBed(path=bed_file, key="music/calm/one.wav")
+    )
+    louder = preview_hash(
+        root,
+        Aspect.WIDE,
+        **common,
+        music=MusicBed(path=bed_file, key="music/calm/one.wav", volume_db=-6.0),
+    )
+
+    assert len({silent, one, louder}) == 3
+
+
+def test_a_preview_with_a_bed_really_encodes(assembled, bed_file, monkeypatch):
+    """Real FFmpeg accepts the preview's complex graph, scaling and subtitles included."""
+    project, deps, _root = assembled
+    library = bed_file.parent
+    monkeypatch.setattr(deps.settings, "music_dir", library)
+    monkeypatch.setattr(deps.settings, "sfx_dir", library / "no-effects")
+    project.music = MusicSelection(track_key=f"music/{bed_file.name}")
+    deps.store.save(project)
+
+    path = build_preview(project, deps)
+
+    assert path.is_file()
+    assert probe_duration(path) > 0
+
+
+def test_changing_the_track_makes_the_built_preview_stale(assembled, bed_file, monkeypatch):
+    """The picker's whole point: a new choice is a preview you have not heard yet."""
+    project, deps, _root = assembled
+    library = bed_file.parent
+    monkeypatch.setattr(deps.settings, "music_dir", library)
+    monkeypatch.setattr(deps.settings, "sfx_dir", library / "no-effects")
+    project.music = MusicSelection(track_key=f"music/{bed_file.name}")
+    deps.store.save(project)
+    build_preview(project, deps)
+    assert mix_is_current(project, deps, Aspect.WIDE)
+
+    # The picker's other two knobs move the mix without moving a single byte
+    # inside the project folder, which is exactly why mtime cannot answer this.
+    project.music = MusicSelection(track_key=f"music/{bed_file.name}", volume_db=-6.0)
+    deps.store.save(project)
+
+    assert not mix_is_current(project, deps, Aspect.WIDE)
+    build_preview(project, deps)
+    assert mix_is_current(project, deps, Aspect.WIDE)

@@ -881,7 +881,10 @@ button[disabled]:hover {
 
 .meter-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* The Short's column is bounded rather than fractional: a 9:16 player is narrow
+     whatever the page is, and letting it take a third of the width would leave the
+     long cut — the thing most of the review is about — smaller than it needs. */
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 13rem);
   align-items: baseline;
   column-gap: var(--s3);
   padding: var(--s2) 0;
@@ -1658,6 +1661,121 @@ video {
   aspect-ratio: 16 / 9;
   background: #000;
   border: 1px solid var(--rule);
+}
+
+/* The Short is drawn at its own ratio rather than letterboxed inside a 16:9 box.
+   The point of showing the two side by side is that they are different edits in
+   different frames; a 9:16 file in a 16:9 window would show two black thirds and
+   make the Short look like a mistake. */
+/* Both dimensions written out rather than one plus `aspect-ratio`: a `<video>` has
+   an intrinsic size, so `width: auto` takes *that* and `aspect-ratio` never gets to
+   fill the gap — which leaves the 9:16 file pillarboxed inside a box the column's
+   width. Sized to land near the long cut's own rendered height, so the pair reads as
+   two cuts of one project rather than two unrelated players. */
+.artefact-video[data-orientation="portrait"] {
+  --short-height: 22rem;
+
+  height: var(--short-height);
+  width: calc(var(--short-height) * 9 / 16);
+  max-width: 100%;
+}
+
+/* ---- gate 3: the two cuts, side by side ---- */
+
+/* Two columns while there is room for two, one below that. The Short is narrow
+   by nature, so the long cut takes the space it does not need. */
+.preview-pair {
+  display: grid;
+  /* The Short's column is bounded rather than fractional: a 9:16 player is narrow
+     whatever the page is, and letting it take a third of the width would leave the
+     long cut — the thing most of the review is about — smaller than it needs. */
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 13rem);
+  gap: var(--s4);
+  align-items: start;
+}
+
+@media (max-width: 46rem) {
+  .preview-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.artefact-cut {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+}
+
+.cut-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+.cut-title {
+  font-size: var(--t-ui);
+  font-weight: 500;
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* ---- gate 3: the music picker ---- */
+
+/* Chrome, not a summons: nothing here takes `--warn`. Amber on this page belongs
+   to the gate that is waiting for a signature, and a backing track is a
+   preference. See §3 of docs/ui-design.md. */
+.music {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.music > * {
+  margin: 0;
+}
+
+.music-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  margin: 0;
+}
+
+.music-form .field {
+  margin: 0;
+}
+
+.music .toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  font-size: var(--t-ui);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.music .toggle input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* Three stops rather than two: the middle one is the current reading, and it is
+   the only number on the row that changes, so it is set in tabular figures. */
+.music .crop-ends {
+  margin: var(--s1) 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.music-warnings {
+  margin: 0;
+  padding-left: var(--s4);
 }
 
 /* An empty state has to be as visible as the video it stands in for, or the

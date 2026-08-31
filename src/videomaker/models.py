@@ -173,6 +173,11 @@ class MusicSelection(BaseModel):
     volume_db: float | None = None
     #: How far it drops under speech, in dB. `None` means `Settings.duck_amount_db`.
     duck_db: float | None = None
+    #: Whether this project's transition and beat effects play. `None` means
+    #: `Settings.sfx_enabled` decides — the same "no opinion" rule as the levels
+    #: above, and the reason gate 3 can turn effects off for one video without
+    #: touching `config.yaml` for every other one.
+    sfx_enabled: bool | None = None
 
 
 class Project(BaseModel):

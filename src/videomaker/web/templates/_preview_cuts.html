@@ -1,0 +1,58 @@
+{#
+  The two cuts gate 3 shows, side by side — the long cut, then the Short.
+
+  Context: `previews` (one ArtefactView per aspect), `writing`, and `oob`.
+
+  Its own partial because two different responses put it on the page: the preview
+  page renders it inside `#preview-live`, and the music picker sends it back
+  **out of band** after a write. That second path is the point of the split —
+  choosing a different bed makes both proxies stale, and a picker that swapped
+  only itself would leave two panels on screen still claiming to be current.
+
+  `data-preview-aspect` and `data-preview-state` are adjacent, and stay adjacent.
+#}
+  <div class="preview-pair" id="preview-cuts"{% if oob %} hx-swap-oob="true"{% endif %}>
+    {% for cut in previews %}
+      {# Not merely `cut.exists`: FFmpeg writes in place, so a rebuild leaves a
+         file on disk that will not play until it finishes. #}
+      <div class="artefact-cut"
+           data-preview-aspect="{{ cut.aspect.value }}" data-preview-state="{{ cut.state }}">
+        <div class="cut-head">
+          <h3 class="cut-title flush">{{ cut.label }}</h3>
+          <span class="hint flush">{{ cut.note }}</span>
+        </div>
+
+        {% if cut.problem %}
+          <p class="artefact-empty flush">{{ cut.problem }}</p>
+        {% elif cut.exists and not writing %}
+          <video class="artefact-video" data-orientation="{{ cut.orientation }}"
+                 controls preload="metadata" playsinline src="{{ cut.url }}">
+            Your browser cannot play this file. It is at
+            <code>{{ cut.relpath }}</code> inside the project folder.
+          </video>
+          <p class="hint flush"><code>{{ cut.relpath }}</code></p>
+        {% elif writing %}
+          <p class="artefact-empty flush">
+            Encoding now. It will appear here on its own when it is finished —
+            this page is watching.
+          </p>
+        {% elif not assembled %}
+          <p class="artefact-empty flush">
+            Nothing has been assembled yet, so there is nothing to preview. The
+            button below assembles it first.
+          </p>
+        {% else %}
+          <p class="artefact-empty flush">
+            Assembled, but not encoded from yet. It takes a few seconds.
+          </p>
+        {% endif %}
+
+        {% if cut.state == "stale" and not writing %}
+          <p class="notice notice-warn" role="status">
+            Something this was made from — a shot, the narration, the music —
+            has changed since it was encoded, so it is not what would ship.
+          </p>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>

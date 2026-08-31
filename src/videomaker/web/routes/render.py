@@ -39,6 +39,20 @@ words would be an absurd price. mtime errs in the safe direction: an input
 rewritten with identical bytes reads as stale, which costs one no-op rebuild,
 while a changed input can never read as fresh.
 
+**Gate 3 shows two cuts and a music picker (M3 Task 11).** One project yields the
+long cut and the Short, and the Short is a different *edit* rather than a reframe of
+the same one, so judging it means watching it — hence a proxy per aspect, side by
+side, and `preview.short_problem`'s own sentence in place of the Short when its
+`in_short` set is empty. The picker under them is the fourth and finest level of
+control `docs/audio-design.md` describes; it writes `Project.music` and nothing else.
+
+That adds a second freshness question the mtime rule above cannot answer. The bed
+lives in the user's own `assets/music/`, outside the project folder, so choosing a
+different track moves no mtime inside it at all — `preview.mix_is_current` settles
+that half by fingerprinting the mix's knobs, which costs no ffprobe and no file
+digest. Both answers land on the same `stale` state, because to the reviewer they
+mean the same thing: what you are watching is not what would ship.
+
 **The pages poll themselves rather than `/job`.** `_job.html` is the dashboard's
 partial and reports only the job; these pages have to reveal a `<video>` element
 the moment the file behind it exists, which a job fragment cannot do. So the live
@@ -55,13 +69,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from videomaker.audio import Library, format_duration, select_track
 from videomaker.cache import STAGE_ORDER
 from videomaker.config import Settings
-from videomaker.models import Aspect, Project
+from videomaker.models import Aspect, MusicSelection, Project
 from videomaker.pipeline import render as render_stage
 from videomaker.pipeline.assemble import (
     SCENE_GAP_S,
@@ -69,10 +84,23 @@ from videomaker.pipeline.assemble import (
     scene_timeline,
     video_relpath,
 )
+from videomaker.pipeline.base import StageDeps
 from videomaker.pipeline.captions import caption_relpath
-from videomaker.pipeline.render import RENDER_ASPECTS, output_relpath
+from videomaker.pipeline.render import (
+    RENDER_ASPECTS,
+    music_mood_for,
+    output_relpath,
+    scan_library,
+    sfx_wanted,
+)
+from videomaker.preview import (
+    PREVIEW_ASPECTS,
+    build_previews,
+    mix_is_current,
+    preview_relpath,
+    short_problem,
+)
 from videomaker.preview import STAGE as PREVIEW_STAGE
-from videomaker.preview import build_preview, preview_relpath
 from videomaker.project import ProjectStore
 from videomaker.runner import (
     GATE_BEFORE,
@@ -111,8 +139,46 @@ router = APIRouter()
 GATE = "preview"
 GATED_STAGE = next(stage for stage, gate in GATE_BEFORE.items() if gate == GATE)
 
-#: M2 is wide only (global constraint); 9:16 is M3.
+#: The aspect every *single-artefact* view on these pages means: the deliverable
+#: the render page offers, and the wide half of gate 3's pair. The pair itself is
+#: `preview.PREVIEW_ASPECTS`, which is `RENDER_ASPECTS` — one proxy per file the
+#: render really writes, so a panel can never advertise a cut that does not exist.
 ASPECT = Aspect.WIDE
+
+#: What each panel is called, and which way round it stands. Both are read by the
+#: template alone; keeping them here means the words appear once.
+ASPECT_LABELS: dict[Aspect, str] = {
+    Aspect.WIDE: "The long cut",
+    Aspect.VERTICAL: "The Short",
+}
+ASPECT_NOTES: dict[Aspect, str] = {
+    Aspect.WIDE: "16:9 — every scene, in project order.",
+    Aspect.VERTICAL: "9:16 — only the scenes ticked into the Short.",
+}
+
+#: Where a fresh clone is sent to learn how to fill an empty library. A path inside
+#: the repository, not a URL: the sources are listed *in* that file, and `docs/
+#: audio-design.md` is explicit that the project ships no audio and links to nothing
+#: it does not control.
+MUSIC_README = "assets/music/README.md"
+
+#: What the two sliders may ask for. Wide enough to be useful, bounded so a
+#: hand-written POST cannot hand FFmpeg a level that makes the mix meaningless.
+VOLUME_RANGE = (-40.0, 0.0)
+DUCK_RANGE = (0.0, 30.0)
+LEVEL_STEP = 0.5
+
+#: How close to `config.yaml`'s value counts as *being* it. A slider dragged back to
+#: the default has to be able to clear the override — otherwise the first touch pins
+#: the project to a number the config can never move again, which is the opposite of
+#: what "empty means no opinion" promises (`MusicSelection`).
+LEVEL_TOLERANCE = 1e-6
+
+#: The picker's two answers, in the storyboard's words, so one vocabulary covers
+#: every form on the three gates.
+SAVED_NOTE = "updated"
+UNCHANGED_NOTE = "no change"
+UNKNOWN_TRACK = "unknown-track"
 
 #: Where the bar stands when the final encode is about to begin: the fraction
 #: `on_stage` reported for the stage before the gated one. Derived from
@@ -264,7 +330,7 @@ def encode_progress(
 
 
 def preview_job(settings: Settings, project_id: str) -> JobFn:
-    """Bring the project up to `assemble`, then encode the 480p proxy.
+    """Bring the project up to `assemble`, then encode **both** 480p proxies.
 
     Running the pipeline first is not belt and braces: the preview is a picture of
     the *assembled* timeline, so previewing a project whose narration moved since
@@ -272,19 +338,39 @@ def preview_job(settings: Settings, project_id: str) -> JobFn:
     ship. `run_pipeline` skips everything already current, so the usual cost of
     this line is nothing, and a project that has not cleared gates 1 and 2 stops
     at the right one with the right message rather than failing here.
+
+    Two encodes, one bar. Each file reports output seconds from zero, so what the
+    previous aspect reached is banked and used as the next one's offset — exactly
+    the arithmetic `encode_progress` does for the render stage, and for the same
+    reason: a bar that rewinds to the floor halfway through reads as a crash.
+
+    An aspect that *cannot* be previewed is skipped rather than raised
+    (`build_previews`): an empty Short must not cost the reviewer the long cut,
+    which is finished and sitting there. The page says why the panel is empty.
     """
 
     def job(progress: JobProgress) -> None:
         deps = build_deps(settings, project_id)
         run_pipeline(deps.store.load(project_id), deps, until="assemble", on_stage=progress)
         project = deps.store.load(project_id)
-        build_preview(
-            project,
-            deps,
-            on_progress=encode_reporter(
-                progress, timeline_seconds(project), stage=PREVIEW_STAGE
-            ),
-        )
+        total = timeline_seconds(project)
+        banked = 0.0
+        reached = 0.0
+
+        def on_aspect(_aspect: Aspect) -> Callable[[float], None]:
+            nonlocal banked, reached
+            banked += reached
+            reached = 0.0
+            report = encode_reporter(progress, total, stage=PREVIEW_STAGE, offset=banked)
+
+            def hook(seconds: float) -> None:
+                nonlocal reached
+                reached = max(reached, seconds)
+                report(seconds)
+
+            return hook
+
+        build_previews(project, deps, on_aspect=on_aspect)
 
     return job
 
@@ -350,12 +436,33 @@ class ArtefactView:
     path: Path
     exists: bool
     fresh: bool
+    aspect: Aspect = Aspect.WIDE
+    #: Why this artefact cannot exist at all, in the words the pipeline refuses in
+    #: (`preview.short_problem`). Empty for every artefact that is merely unbuilt —
+    #: "you have not made this yet" and "this cut cannot be made" are different
+    #: sentences, and only the second one is worth a paragraph on the page.
+    problem: str = ""
 
     @property
     def state(self) -> str:
+        if self.problem:
+            return "blocked"
         if not self.exists:
             return "missing"
         return "ready" if self.fresh else "stale"
+
+    @property
+    def label(self) -> str:
+        return ASPECT_LABELS.get(self.aspect, self.aspect.value)
+
+    @property
+    def note(self) -> str:
+        return ASPECT_NOTES.get(self.aspect, "")
+
+    @property
+    def orientation(self) -> str:
+        """`landscape` or `portrait` — the frame the `<video>` box is drawn at."""
+        return "portrait" if self.aspect is Aspect.VERTICAL else "landscape"
 
     @property
     def url(self) -> str:
@@ -378,37 +485,77 @@ class ArtefactView:
         return f"{self.project_id}-{Path(self.relpath).name}"
 
 
-def _newest_input(root: Path) -> float:
-    """The mtime of the most recently written thing the preview is made from."""
+def _newest_input(root: Path, aspect: Aspect = ASPECT) -> float:
+    """The mtime of the most recently written thing this proxy is made from."""
     inputs = (
-        root / video_relpath(ASPECT),
-        root / narration_relpath(ASPECT),
-        root / caption_relpath(ASPECT),
+        root / video_relpath(aspect),
+        root / narration_relpath(aspect),
+        root / caption_relpath(aspect),
     )
     stamps = [path.stat().st_mtime_ns for path in inputs if path.is_file()]
     return max(stamps) if stamps else 0.0
 
 
-def assembled(root: Path) -> bool:
+def assembled(root: Path, aspect: Aspect = ASPECT) -> bool:
     """True when `assemble` has left the two files a preview needs."""
-    return (root / video_relpath(ASPECT)).is_file() and (
-        root / narration_relpath(ASPECT)
+    return (root / video_relpath(aspect)).is_file() and (
+        root / narration_relpath(aspect)
     ).is_file()
 
 
-def preview_view(store: ProjectStore, project: Project) -> ArtefactView:
-    """The 480p proxy: present, and newer than everything it was made from?"""
+def preview_view(
+    store: ProjectStore,
+    project: Project,
+    aspect: Aspect = ASPECT,
+    *,
+    problem: str = "",
+    mixed_as_asked: bool = True,
+) -> ArtefactView:
+    """One 480p proxy: present, newer than its inputs, and mixed with today's bed?
+
+    Two freshness questions, and they are answered by different means for a reason.
+    The *inputs* are files inside the project, so mtime settles them cheaply — see
+    the module docstring for why this page must not re-hash a hundred megabytes on
+    every 1.5 s poll. The *bed* is not: it lives in the user's own `assets/music/`,
+    so nothing inside the project moves when the picker changes the choice, and
+    `preview.mix_is_current` answers that half by fingerprinting knobs instead.
+    Either one going stale means the same thing to the reviewer — what you are
+    watching is not what would ship — so they land on the same `stale` state.
+    """
     root = store.path_for(project.id)
-    path = root / preview_relpath(ASPECT)
+    path = root / preview_relpath(aspect)
     exists = path.is_file()
-    fresh = exists and path.stat().st_mtime_ns >= _newest_input(root)
+    fresh = exists and mixed_as_asked and path.stat().st_mtime_ns >= _newest_input(root, aspect)
     return ArtefactView(
         project_id=project.id,
-        relpath=preview_relpath(ASPECT),
+        relpath=preview_relpath(aspect),
         path=path,
         exists=exists,
         fresh=fresh,
+        aspect=aspect,
+        problem=problem,
     )
+
+
+def preview_views(
+    store: ProjectStore, project: Project, deps: StageDeps, *, library: Library
+) -> list[ArtefactView]:
+    """Both cuts, in the order gate 3 shows them: the long one, then the Short.
+
+    A Short that could not ship gets `short_problem`'s sentence rather than a panel
+    that says "not built yet" about a file nothing would ever build — that is Task
+    6's `ShortNotRenderable`, surfaced instead of raised.
+    """
+    return [
+        preview_view(
+            store,
+            project,
+            aspect,
+            problem=short_problem(project, aspect=aspect),
+            mixed_as_asked=mix_is_current(project, deps, aspect, library=library),
+        )
+        for aspect in PREVIEW_ASPECTS
+    ]
 
 
 def output_view(store: ProjectStore, project: Project) -> ArtefactView:
@@ -423,6 +570,190 @@ def output_view(store: ProjectStore, project: Project) -> ArtefactView:
         path=path,
         exists=exists,
         fresh=exists and stage_is_current(project, stage_cache, GATED_STAGE),
+    )
+
+
+# ------------------------------------------------------------ the music picker
+#
+# The fourth and finest of the four levels of control `docs/audio-design.md`
+# describes — template, then `config.yaml`, then the project, then this — and the
+# one the design doc says matters day to day. It writes `Project.music` and
+# nothing else.
+#
+# **An empty library is the default path, not an edge case.** The project ships no
+# audio files and never will (a licensing decision, stated as binding), so
+# `assets/music/` is empty on every fresh clone including the owner's. The empty
+# state therefore has to be a plain sentence pointing at the README that explains
+# how to fill it, not an apology and not a disabled form pretending there is
+# something to choose.
+#
+# **Every field is an override, and the empty value means "no opinion".** That is
+# `MusicSelection`'s own contract, and it is what keeps the four levels in order.
+# It has one consequence worth stating: a slider dragged back onto the configured
+# default must *clear* the override rather than freeze the project at a number
+# `config.yaml` can no longer move. `_level` is where that happens, and it is also
+# why re-submitting an untouched form is a no-op rather than a write.
+
+
+@dataclass(frozen=True)
+class TrackOption:
+    """One track as the picker offers it.
+
+    The key carries its own mood — `music/calm/rain.wav` — so there is no second
+    field for it, and no second place for the two to disagree.
+    """
+
+    key: str
+    #: `""` when nothing has measured this file yet. `scan_library` deliberately
+    #: runs with `probe=None` — the whole audio layer costs no ffprobe — so a length
+    #: is known only when `videomaker music scan` has filled the index. Showing
+    #: `?` for every track would read as "unreadable", which is a different fact.
+    duration: str
+    unreadable: bool
+    chosen: bool
+
+
+@dataclass(frozen=True)
+class MusicView:
+    """Gate 3's picker: what is in the library, and what this project asks for."""
+
+    options: tuple[TrackOption, ...]
+    selection: MusicSelection
+    volume_db: float
+    duck_db: float
+    sfx_enabled: bool
+    default_volume_db: float
+    default_duck_db: float
+    mood: str
+    #: The track that would really play if the render started now — the answer to
+    #: "Automatic, but automatically *what*?". Resolved through `audio.select_track`,
+    #: the same function `render.music_bed` calls, so the page cannot promise a bed
+    #: the render would not choose.
+    playing: str = ""
+    playing_credit: str = ""
+    warnings: tuple[str, ...] = ()
+    note: str = ""
+    problem: str = ""
+    readme: str = MUSIC_README
+    volume_range: tuple[float, float] = VOLUME_RANGE
+    duck_range: tuple[float, float] = DUCK_RANGE
+    step: float = LEVEL_STEP
+
+    @property
+    def state(self) -> str:
+        return "ready" if self.options else "empty"
+
+    @property
+    def count(self) -> int:
+        return len(self.options)
+
+    @property
+    def tone(self) -> str:
+        """The picker is chrome, never a summons. See §3 of `docs/ui-design.md`:
+        amber is reserved for the one thing waiting on a human, and choosing a
+        backing track is not it."""
+        return "status-ok" if self.note == SAVED_NOTE else ""
+
+
+def _level(raw: str, default: float, bounds: tuple[float, float]) -> float | None:
+    """One slider reading as an override, or `None` for "no opinion".
+
+    Unparseable is `None` rather than a 400: the field is a `range` input, so the
+    only way to get junk here is a hand-written POST, and the honest reading of a
+    level nobody can interpret is that nobody expressed one. Equalling the default
+    is `None` too — that is how the override is cleared again.
+    """
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    low, high = bounds
+    value = min(max(value, low), high)
+    return None if abs(value - default) <= LEVEL_TOLERANCE else value
+
+
+def _checked(value: str) -> bool:
+    """Whether a checkbox arrived ticked. An unticked box sends no field at all."""
+    return value.strip().lower() in {"on", "true", "1", "yes"}
+
+
+def music_selection(
+    current: MusicSelection,
+    settings: Settings,
+    *,
+    enabled: str,
+    track_key: str,
+    volume_db: str,
+    duck_db: str,
+    sfx: str,
+) -> MusicSelection:
+    """What the posted form means, as a `MusicSelection`. Pure — no I/O, no writes.
+
+    Pure so the route has no second opinion in it: the comparison that decides
+    whether to take the `flock` reads exactly what the write would have stored.
+
+    `mood` is carried through untouched. The picker chooses a *track*; the mood is
+    the template's job, and offering both would be two controls for one decision.
+    """
+    return MusicSelection(
+        enabled=_checked(enabled),
+        track_key=track_key.strip(),
+        mood=current.mood,
+        volume_db=_level(volume_db, settings.music_volume_db, VOLUME_RANGE),
+        duck_db=_level(duck_db, settings.duck_amount_db, DUCK_RANGE),
+        sfx_enabled=None if _checked(sfx) == settings.sfx_enabled else _checked(sfx),
+    )
+
+
+def track_options(library: Library, selection: MusicSelection) -> tuple[TrackOption, ...]:
+    """The library as a list of choices, moods first, then names."""
+    return tuple(
+        TrackOption(
+            key=track.key,
+            duration=format_duration(track.duration_s) if track.duration_s > 0 else "",
+            unreadable=bool(track.probe_error),
+            chosen=track.key == selection.track_key,
+        )
+        for track in sorted(library.music(), key=lambda t: (t.group, t.key))
+    )
+
+
+def music_view(
+    project: Project,
+    settings: Settings,
+    library: Library,
+    *,
+    note: str = "",
+    problem: str = "",
+) -> MusicView:
+    """Everything the picker renders, derived — nothing here is stored."""
+    selection = project.music
+    mood = music_mood_for(project)
+    playing = (
+        select_track(library, mood=mood, track_key=selection.track_key, seed=project.id)
+        if selection.enabled
+        else None
+    )
+    return MusicView(
+        options=track_options(library, selection),
+        selection=selection,
+        volume_db=(
+            settings.music_volume_db if selection.volume_db is None else selection.volume_db
+        ),
+        duck_db=settings.duck_amount_db if selection.duck_db is None else selection.duck_db,
+        sfx_enabled=sfx_wanted(project, settings),
+        default_volume_db=settings.music_volume_db,
+        default_duck_db=settings.duck_amount_db,
+        mood=mood,
+        playing=playing.key if playing is not None else "",
+        playing_credit=(
+            playing.attribution.credit_line()
+            if playing is not None and playing.attribution is not None
+            else ""
+        ),
+        warnings=library.warnings(),
+        note=note,
+        problem=problem,
     )
 
 
@@ -495,6 +826,13 @@ def preview_page(request: Request, project_id: str):
     """
     project = _load(request, project_id)
     store: ProjectStore = request.app.state.store
+    settings: Settings = request.app.state.settings
+    deps = build_deps(settings, project_id)
+    # One walk of `assets/` for the whole page: the picker lists it and each panel
+    # asks whether its proxy was mixed from it, and this page polls itself every
+    # 1.5 s while a job runs.
+    library = scan_library(deps)
+    previews = preview_views(store, project, deps, library=library)
 
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(
@@ -502,9 +840,117 @@ def preview_page(request: Request, project_id: str):
         "preview.html",
         {
             **_page_context(request, project),
-            "preview": preview_view(store, project),
+            "previews": previews,
+            # The wide cut, by name, for the render page and for every `data-preview`
+            # contract written before there were two of them.
+            "preview": previews[0],
             "assembled": assembled(store.path_for(project_id)),
             "seconds": timeline_seconds(project),
+            "music": music_view(project, settings, library),
+            "writing": writing(
+                request.app.state.jobs.state_for(project_id), PREVIEW_KINDS
+            ),
+        },
+    )
+
+
+@router.post("/projects/{project_id}/music")
+def set_music(
+    request: Request,
+    project_id: str,
+    enabled: str = Form(""),
+    track_key: str = Form(""),
+    volume_db: str = Form(""),
+    duck_db: str = Form(""),
+    sfx: str = Form(""),
+):
+    """Write gate 3's music choice onto the project. Nothing is encoded here.
+
+    **Compare first, lock second.** `run_pipeline` holds the project `flock` for the
+    length of a whole render, so a picker that locked before comparing would park a
+    request thread behind a twenty-minute encode every time somebody re-submitted the
+    settings already on the project — which a form with two sliders in it does
+    constantly. The comparison is against the exact object the write would store, so
+    it cannot disagree with what is saved (M2 Task 9's mutant 5).
+
+    **Nothing upstream is invalidated, and no approval is cleared.** The audio layer's
+    entire reach into the cache engine is `render_hash`: a new bed re-encodes
+    `output/final_*.mp4` and re-assembles, re-captions and re-voices nothing. Gate 3's
+    stamp stays where it is for the same reason — `clear_stale_approvals` walks the
+    stages *upstream* of a gate, and music is downstream of every one of them. What
+    tells the reviewer to listen again is the proxy going `stale`, which it does
+    (`preview.mix_is_current`), with the notice that panel already carries.
+
+    A `track_key` that is not in the library is **refused** rather than stored: a
+    renamed or deleted file would otherwise be written onto the project and then
+    silently fall back to another track at render time, which is how a bed disappears
+    without anybody being told.
+    """
+    store: ProjectStore = request.app.state.store
+    settings: Settings = request.app.state.settings
+    project = _load(request, project_id)
+    library = scan_library(build_deps(settings, project_id))
+
+    posted = {
+        "enabled": enabled,
+        "track_key": track_key,
+        "volume_db": volume_db,
+        "duck_db": duck_db,
+        "sfx": sfx,
+    }
+    wanted = music_selection(project.music, settings, **posted)
+    if wanted.track_key and wanted.track_key not in {t.key for t in library.music()}:
+        return _music_reply(request, project_id, library, problem=UNKNOWN_TRACK)
+
+    note = UNCHANGED_NOTE
+    if wanted != project.music:
+        with store.lock(project_id):
+            project = _load(request, project_id)
+            fresh = music_selection(project.music, settings, **posted)
+            if fresh != project.music:
+                project.music = fresh
+                store.save(project)
+                note = SAVED_NOTE
+
+    return _music_reply(request, project_id, library, note=note)
+
+
+def _music_reply(
+    request: Request,
+    project_id: str,
+    library: Library,
+    *,
+    note: str = "",
+    problem: str = "",
+):
+    """The picker plus an out-of-band pair of panels, or a 303 for a plain browser.
+
+    Same dual response gate 2 uses, for the same reason: every control on these
+    pages is a real form first, so the whole product still works with JavaScript
+    switched off (`docs/ui-design.md` §10).
+
+    **Both fragments, not just the picker.** A new bed moves no byte inside the
+    project folder, so nothing on the page would notice on its own — yet the two
+    proxies stop being what would ship the instant Apply is pressed. Swapping the
+    picker alone would leave the page contradicting itself, with a new track named
+    above two players still stamped `ready`. The out-of-band swap is the storyboard's
+    `#gate-state` trick, pointed at `#preview-cuts`.
+    """
+    project = _load(request, project_id)
+    settings: Settings = request.app.state.settings
+    if request.headers.get("HX-Request", "").lower() != "true":
+        return RedirectResponse(url=f"/projects/{project_id}/preview#music", status_code=303)
+
+    store: ProjectStore = request.app.state.store
+    deps = build_deps(settings, project_id)
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "_music_reply.html",
+        {
+            "project": project,
+            "music": music_view(project, settings, library, note=note, problem=problem),
+            "previews": preview_views(store, project, deps, library=library),
             "writing": writing(
                 request.app.state.jobs.state_for(project_id), PREVIEW_KINDS
             ),
