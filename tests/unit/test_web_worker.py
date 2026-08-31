@@ -402,7 +402,6 @@ def test_the_lifespan_starts_and_stops_the_worker(tmp_path):
     from videomaker.web.app import create_app
 
     app = create_app(Settings(workspace_dir=tmp_path))
-    before = threading.active_count()
     with TestClient(app) as client:
         assert client.get("/healthz").status_code == 200
         thread = app.state.jobs._thread
@@ -411,4 +410,9 @@ def test_the_lifespan_starts_and_stops_the_worker(tmp_path):
         app.state.jobs.submit("demo", "run", lambda progress: ran.set())
         waited(ran, "the job to run under the lifespan")
     assert not thread.is_alive()
-    assert threading.active_count() == before, "the lifespan leaked a thread"
+    # Name the worker rather than counting threads globally: `active_count()` is
+    # shared with the whole session, and a dependency spawns `tqdm_monitor`
+    # threads during the ml contract tests, so a global count fails this on
+    # suite ordering alone while proving nothing about the lifespan.
+    survivors = [t for t in threading.enumerate() if t.name == "videomaker-worker" and t.is_alive()]
+    assert survivors == [], f"the lifespan leaked a worker thread: {survivors}"
