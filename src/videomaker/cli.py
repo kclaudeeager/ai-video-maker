@@ -431,6 +431,109 @@ def music_list() -> None:
         )
 
 
+def _print_clean_plan(plan, *, detailed: bool) -> None:
+    """The whole plan, then its total. Printed before anything is deleted, always.
+
+    The table names a folder rather than three hundred file paths, because "every
+    file in `build/`" is a more honest description of what goes than a list long
+    enough that nobody reads it. `--dry-run` prints the paths as well, so the
+    exact list is always one flag away and never has to be guessed at.
+    """
+    from videomaker.cleanup import human_bytes
+
+    table = Table(title="clean")
+    table.add_column("project")
+    table.add_column("what")
+    table.add_column("files", justify="right")
+    table.add_column("size", justify="right")
+    for group in plan.groups:
+        table.add_row(
+            group.project_id, group.label, str(len(group.paths)), human_bytes(group.total_bytes)
+        )
+    console.print(table)
+
+    if detailed:
+        for group in plan.groups:
+            for path in group.paths:
+                line = f"  {group.project_id}/{path.relative_to(group.root)}"
+                console.print(line, style="dim", markup=False, soft_wrap=True)
+
+    console.print(f"total: {plan.file_count} file(s), [bold]{human_bytes(plan.total_bytes)}[/bold]")
+
+
+@app.command()
+def clean(
+    project_id: str | None = typer.Argument(None, help="Project id, as printed by `new`."),
+    everything: bool = typer.Option(
+        False, "--everything", help="Every project in the workspace, instead of one."
+    ),
+    remove_all: bool = typer.Option(
+        False, "--all", help="Also remove downloaded footage and the finished videos."
+    ),
+    keep_outputs: bool = typer.Option(
+        False, "--keep-outputs", help="With --all: keep output/, remove everything else."
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Skip the confirmation prompt."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the plan and delete nothing."),
+) -> None:
+    """Delete rebuildable files (build/ intermediates, optionally footage and outputs).
+
+    Prints exactly what will go and what it weighs, then asks. `--yes` skips the
+    question; nothing skips the printing. `output/` is never touched without
+    `--all`, and `project.json`, the takes in `scenes/<id>/narration.wav`, their
+    alignment and the stage ledger are never touched at all.
+    """
+    from videomaker import cleanup
+    from videomaker.config import load_settings
+    from videomaker.project import ProjectStore
+
+    if bool(project_id) == everything:
+        _fail("name one project to clean, or pass --everything.")
+
+    store = ProjectStore(load_settings().workspace_dir)
+    ids = store.list_ids() if everything else [str(project_id)]
+    try:
+        plan = cleanup.plan_clean(
+            store,
+            ids,
+            remove_assets=remove_all,
+            remove_outputs=remove_all and not keep_outputs,
+        )
+    except cleanup.UnknownProject as exc:
+        _fail(str(exc))
+
+    if not plan:
+        console.print("nothing to remove.")
+        return
+
+    _print_clean_plan(plan, detailed=dry_run)
+    if keep_outputs and not remove_all:
+        console.print("[dim]--keep-outputs is redundant without --all.[/dim]")
+    if remove_all:
+        console.print(
+            "[yellow]warning[/yellow] the footage goes too: rebuilding it re-downloads "
+            "every clip and spends provider quota."
+        )
+    if any(group.category == cleanup.OUTPUT for group in plan.groups):
+        console.print(
+            "[bold red]warning[/bold red] this includes the finished videos. "
+            "Pass --keep-outputs to keep them."
+        )
+
+    if dry_run:
+        console.print("[dim]dry run: nothing was deleted.[/dim]")
+        return
+
+    question = f"delete {plan.file_count} file(s), {cleanup.human_bytes(plan.total_bytes)}?"
+    if not yes and not typer.confirm(question):
+        console.print("cancelled — nothing was deleted.")
+        raise typer.Exit(code=EXIT_ERROR)
+
+    reclaimed = cleanup.apply_clean(store, plan)
+    console.print(f"[green]reclaimed[/green] {cleanup.human_bytes(reclaimed)}")
+    console.print("[dim]re-run the pipeline to rebuild; the script, takes and words stay.[/dim]")
+
+
 def _print_library_warnings(library) -> None:
     """Everything the library wants to say. All of it advisory — none of it fails."""
     for line in library.warnings():
