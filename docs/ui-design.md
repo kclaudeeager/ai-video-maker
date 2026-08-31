@@ -28,7 +28,8 @@ AI-startup neon gradient.
 
 The nav currently says **AI Video Maker**, which describes the category, not the
 product — and the category is exactly what this tool is positioned *against*.
-Proposed instead:
+
+**Decided — the owner approved this name on 2026-08-31:**
 
 > ### Longhand
 
@@ -46,8 +47,8 @@ stepper rail on the dashboard. The stepper *is* the logo at a larger size.
 
 Only the displayed brand string changes. No package, route, module or config key
 is renamed — that is out of scope for a visual pass, and `videomaker` stays
-`videomaker`. If the owner prefers a different word, it is one string in
-`_nav.html` plus the `<title>` fallback in `base.html`.
+`videomaker`. Should it ever change, it is one string in `_nav.html`
+plus the `<title>` fallback in `base.html`.
 
 ## 3. Palette
 
