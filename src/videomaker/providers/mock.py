@@ -273,6 +273,10 @@ class MockStock(StockProvider):
                     # The only clip on hand is 8 s; a longer `min_duration_s` is reported
                     # honestly rather than faked, so callers exercise their own trimming.
                     duration_s=CLIP_DURATION_S if video else None,
+                    # The mock library has exactly what was asked for, so the ranker
+                    # sees every candidate as equally good and its stable sort keeps
+                    # this order — which is what the offline tests assert against.
+                    tags=sorted(set(query.lower().split())),
                     attribution="Mock Fixtures",
                     license="CC0 (synthetic test fixture)",
                 )

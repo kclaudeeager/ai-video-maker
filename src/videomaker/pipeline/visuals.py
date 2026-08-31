@@ -23,6 +23,7 @@ from videomaker.pipeline.base import (
     call_chain,
     project_root,
 )
+from videomaker.pipeline.ranking import drop_cliches, query_ladder, rank_candidates
 from videomaker.providers.base import ImageProvider, StockProvider
 from videomaker.providers.errors import ProviderConfigError, ProviderError
 from videomaker.templates import load_template
@@ -30,6 +31,15 @@ from videomaker.templates import load_template
 STAGE = "visuals"
 #: Enough for a storyboard picker (M2) without downloading footage nobody watches.
 MAX_CANDIDATES = 4
+#: How many results to *ask* for before ranking down to `MAX_CANDIDATES`. Pexels
+#: charges per request, not per result, so a wider page costs nothing extra and is
+#: the difference between `candidates[0]` being a choice and being an accident.
+SEARCH_POOL = 12
+#: Below this many survivors, a query is treated as having failed and the ladder
+#: climbs. It is `MAX_CANDIDATES` because that is what "enough to fill the
+#: storyboard picker" means — a scene offering one option is a scene the gate has
+#: to repair by hand, which is the cost this whole task exists to remove.
+MIN_USABLE_CANDIDATES = MAX_CANDIDATES
 ASSET_STEM = "asset"
 VIDEO_SUFFIX = ".mp4"
 PHOTO_SUFFIX = ".jpg"
@@ -79,8 +89,19 @@ def provider_names(deps: StageDeps, kinds: list[VisualKind]) -> list[str]:
 
 
 def scene_hash(scene: Scene, kinds: list[VisualKind], providers: list[str]) -> str:
+    """This scene's visuals inputs.
+
+    `alt_queries` is included **only when it has something in it**, and that is a
+    compatibility guarantee, not an oversight. `hash_inputs` digests its keyword
+    names as well as its values, so writing the key unconditionally would move
+    every `visuals:sNN` hash on disk the moment the field appeared — re-fetching
+    the footage of ten finished projects to arrive back at the same answer. Every
+    project written before M3 Task 12 has an empty list, so "absent" and "empty"
+    describe exactly the same search and are allowed to hash the same.
+    """
     return hash_inputs(
         query=scene.visual.query,
+        **({"alt_queries": scene.visual.alt_queries} if scene.visual.alt_queries else {}),
         # The resolved order, so editing a template's `visual_kind_order` invalidates.
         kind=[kind.value for kind in kinds],
         # A longer scene needs a longer clip: `duration_s` is a search filter.
@@ -120,19 +141,52 @@ def _clear_old_assets(scene_dir: Path, keep: Path) -> None:
             path.unlink()
 
 
+def _search_ladder(
+    stock: StockProvider, scene: Scene, kind: VisualKind
+) -> list[StockResult]:
+    """Climb this scene's queries until one of them answers properly.
+
+    Each rung is searched wide, stripped of the business-stock clichés Pexels falls
+    back on when it has understood nothing, and ranked by
+    `pipeline.ranking.rank_candidates`. A rung that clears `MIN_USABLE_CANDIDATES`
+    ends the climb immediately — the ladder is a fallback, not a habit, and every
+    extra rung is a real request against a 190/hour soft budget.
+
+    Nothing is thrown away on the way down: if no rung fills the floor, the fullest
+    one still wins. A thin answer beats no answer, and it certainly beats falling
+    through to Workers AI, which bills automatically past its free cap.
+    """
+    best: list[StockResult] = []
+    for query in query_ladder(scene.visual.query, scene.visual.alt_queries):
+        results = rank_candidates(
+            drop_cliches(
+                stock.search(
+                    query=query,
+                    kind=kind,
+                    min_duration_s=scene.duration_s or 0.0,
+                    orientation=ORIENTATION,
+                    per_page=SEARCH_POOL,
+                ),
+                query=query,
+            ),
+            query=query,
+            narration=scene.narration,
+            min_duration_s=scene.duration_s or 0.0,
+        )
+        if len(results) > len(best):
+            best = results
+        if len(best) >= MIN_USABLE_CANDIDATES:
+            break
+    return best[:MAX_CANDIDATES]
+
+
 def _fetch_stock(
     deps: StageDeps, project: Project, scene: Scene, kind: VisualKind
 ) -> list[AssetRef]:
     scene_dir = deps.store.scene_dir(project, scene.id)
 
     def call(name: str, stock: StockProvider) -> list[AssetRef]:
-        results = stock.search(
-            query=scene.visual.query,
-            kind=kind,
-            min_duration_s=scene.duration_s or 0.0,
-            orientation=ORIENTATION,
-            per_page=MAX_CANDIDATES,
-        )[:MAX_CANDIDATES]
+        results = _search_ladder(stock, scene, kind)
         if not results:
             raise NoResults(f"{name} has no {kind.value} for {scene.visual.query!r}")
         # Search and download share one provider instance: a `StockResult` is only

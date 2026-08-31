@@ -246,6 +246,13 @@ def _visuals_units(project: Project) -> list[Unit]:
                 scene.id,
                 hash_inputs(
                     query=scene.visual.query,
+                    # Written only when it holds something — the same compatibility
+                    # guarantee, for the same reason, as `visuals.scene_hash`.
+                    **(
+                        {"alt_queries": scene.visual.alt_queries}
+                        if scene.visual.alt_queries
+                        else {}
+                    ),
                     kind=scene.visual.kind.value,
                     duration_s=scene.duration_s,
                 ),

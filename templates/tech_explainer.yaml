@@ -51,6 +51,16 @@ system_prompt: |
   "the future of storage"). Concrete objects and places only; no abstract
   concepts, no text on screen, no named people or brands.
 
+# NOTE: the rules for *how to write* a visual search query — the few-shot good and
+# bad examples added in M3 Task 12, including the "capacity sticker" failure — live
+# in `pipeline/script.py::_OUTPUT_CONTRACT`, not above. Two reasons, and they agree.
+# `Template.script_fingerprint()` hashes `system_prompt`, so a single edited byte
+# here stales `script:all` for every project on disk and the next run replaces its
+# scenes wholesale, destroying the voiced takes, chosen shots and approvals built on
+# them. And what makes a good query is a property of the stock library the search
+# hits, not of this template's editorial voice — every template wants the same rule.
+# A comment is free: only the parsed fields reach `Template`.
+
 structure:
   - hook
   - context

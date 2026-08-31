@@ -12,7 +12,7 @@ import json
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from videomaker.cache import hash_inputs, stage_key
 from videomaker.models import Project, Scene, SceneVisual
@@ -29,11 +29,49 @@ SCENE_ID_FORMAT = "s{:02d}"
 #: A malformed reply is a *response* problem, so it also advances the chain.
 _SCRIPT_ADVANCE_ON = (*ADVANCE_ON, ProviderResponseError)
 
+#: How many stock searches one scene is given, written in one call at no extra cost.
+#: Two is the floor because the ladder needs somewhere to go; three is the ceiling
+#: because a fourth would be past `ranking.MAX_QUERY_ATTEMPTS` and never searched.
+MIN_QUERIES_PER_SCENE = 2
+MAX_QUERIES_PER_SCENE = 3
+
+#: The output contract, few-shot examples and all.
+#:
+#: **This lives here and not in `tech_explainer.yaml`, deliberately.**
+#: `Template.script_fingerprint()` is `model_dump_json` minus two fields, so a
+#: single edited byte of a template's `system_prompt` stales `script:all` for every
+#: project on disk — and `run_script` then replaces `project.scenes` **wholesale**,
+#: taking every voiced take, chosen shot and approval built on them with it. M3
+#: Task 22 walked into that trap once already. The output contract is in no
+#: fingerprint at all: it is versioned with the code, which is the honest place for
+#: it, because what makes a good query is a property of the *stock library* the
+#: search hits, not of a template's editorial voice.
+#:
+#: The examples are not decoration. M1's prompt already said "concrete, literal,
+#: filmable nouns" and the model still wrote "capacity sticker" for a scene about
+#: NAND cells wearing out — Pexels answered with a warehouse shelf stencilled
+#: "LOAD CAPACITY PER SHELF 200 KG". An instruction the model can satisfy while
+#: being wrong needs a counter-example, not a firmer adjective.
 _OUTPUT_CONTRACT = (
     "Reply with a single JSON object and nothing else: no prose, no markdown fence. "
-    'It has one key, "scenes", an array of objects with exactly two string keys: '
-    '"narration" (what the narrator says, spoken prose only) and "visual_query" '
-    "(three to six concrete filmable nouns for a stock-footage search)."
+    'It has one key, "scenes", an array of objects with exactly two keys: '
+    '"narration" (what the narrator says, spoken prose only) and "visual_queries" '
+    f"(an array of {MIN_QUERIES_PER_SCENE} to {MAX_QUERIES_PER_SCENE} stock-footage "
+    "search strings for this scene).\n\n"
+    "Order the queries from most specific to most generic, and write each as three "
+    "to six concrete filmable nouns. They are typed into a stock library that "
+    "matches words in clip titles and tags, not meaning, so a query only works if "
+    "real footage of that exact object plausibly exists.\n\n"
+    "Good, for a scene about flash memory wearing out:\n"
+    '  ["nand flash memory wafer", "silicon chip macro close up", "microscope circuit"]\n'
+    "Bad, for the same scene:\n"
+    '  ["capacity sticker"] - a literal keyword match for nothing in the scene; a '
+    "stock library returns a warehouse shelf labelled with a weight limit.\n"
+    '  ["data degradation"] - abstract; nothing can be filmed.\n'
+    '  ["the future of storage"] - a headline, not a shot.\n'
+    '  ["business team handshake"] - generic stock filler that fits any topic.\n\n'
+    "Concrete objects, places and actions only. No abstract concepts, no text on "
+    "screen, no named people or brands."
 )
 
 
@@ -43,7 +81,25 @@ class DraftScene(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     narration: str = Field(min_length=1)
-    visual_query: str = Field(min_length=1)
+    visual_queries: list[str] = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_a_single_query(cls, data: Any) -> Any:
+        """Promote a bare `visual_query` string to the list this now expects.
+
+        Structured output is a request, not a guarantee: several free-tier endpoints
+        honour the schema loosely, and a model that answers the M1 shape would
+        otherwise fail validation, burn the repair retry, and cost the whole
+        provider its turn in the chain — for a reply that is perfectly usable with
+        one rung of ladder instead of three.
+        """
+        if isinstance(data, dict) and "visual_query" in data and "visual_queries" not in data:
+            promoted = dict(data)
+            single = promoted.pop("visual_query")
+            promoted["visual_queries"] = [single] if isinstance(single, str) else single
+            return promoted
+        return data
 
 
 class DraftScript(BaseModel):
@@ -66,10 +122,15 @@ def scene_schema(scene_count: int) -> dict[str, Any]:
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["narration", "visual_query"],
+                    "required": ["narration", "visual_queries"],
                     "properties": {
                         "narration": {"type": "string"},
-                        "visual_query": {"type": "string"},
+                        "visual_queries": {
+                            "type": "array",
+                            "minItems": MIN_QUERIES_PER_SCENE,
+                            "maxItems": MAX_QUERIES_PER_SCENE,
+                            "items": {"type": "string"},
+                        },
                     },
                 },
             }
@@ -233,17 +294,31 @@ def pinned_short_choices(scenes: Iterable[Scene]) -> dict[str, bool]:
     return {scene.id: scene.in_short for scene in scenes if scene.short_pinned}
 
 
+def _scene_queries(item: DraftScene) -> list[str]:
+    """The scene's searches, trimmed, blanks dropped, order kept.
+
+    A model that pads its array with `""` must not hand the visuals stage a rung
+    that searches for nothing — it would spend a Pexels request to learn that.
+    """
+    queries = [text for text in (query.strip() for query in item.visual_queries) if text]
+    return queries or [item.narration.strip()]
+
+
 def _to_scenes(draft: DraftScript, template: Template) -> list[Scene]:
     beats = assign_beats(template.structure, len(draft.scenes))
-    return [
-        Scene(
-            id=SCENE_ID_FORMAT.format(index),
-            narration=item.narration.strip(),
-            visual=SceneVisual(query=item.visual_query.strip()),
-            beat=beat,
+    scenes = []
+    for index, (item, beat) in enumerate(zip(draft.scenes, beats, strict=True), start=1):
+        query, *alternates = _scene_queries(item)
+        scenes.append(
+            Scene(
+                id=SCENE_ID_FORMAT.format(index),
+                narration=item.narration.strip(),
+                # The first query is the scene's own; the rest are the ladder's rungs.
+                visual=SceneVisual(query=query, alt_queries=alternates),
+                beat=beat,
+            )
         )
-        for index, (item, beat) in enumerate(zip(draft.scenes, beats, strict=True), start=1)
-    ]
+    return scenes
 
 
 def run_script(project: Project, deps: StageDeps) -> StageResult:

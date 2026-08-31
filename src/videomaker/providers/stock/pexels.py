@@ -18,7 +18,9 @@ Three rules drive everything here:
   and carried through `download` rather than re-derived later.
 """
 
+import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
@@ -61,6 +63,34 @@ REQUEST_TIMEOUT_S = 30.0
 DOWNLOAD_TIMEOUT_S = 120.0
 
 _AUTH_STATUSES = frozenset({401, 403})
+
+#: The trailing numeric id in a Pexels slug — `.../close-up-of-a-wafer-12345/`.
+_SLUG_ID = re.compile(r"-\d+$")
+_SLUG_WORD = re.compile(r"[a-z]+")
+
+
+def _slug_words(url: str) -> list[str]:
+    """The descriptive words Pexels puts in a result's own URL.
+
+    The `tags` array on a video is very often empty, and a photo has no tags field
+    at all — but every result has a slug, and the slug is the human-readable title.
+    It is the only place some results say what they show, so the ranker gets it.
+    """
+    segments = [part for part in urlparse(url).path.split("/") if part]
+    if not segments:
+        return []
+    return _SLUG_WORD.findall(_SLUG_ID.sub("", segments[-1]).lower())
+
+
+def _tags(*sources: object) -> list[str]:
+    """Lowercased, de-duplicated words from any mix of strings and string lists."""
+    words: list[str] = []
+    for source in sources:
+        items = source if isinstance(source, list) else [source]
+        for item in items:
+            if isinstance(item, str):
+                words.extend(_SLUG_WORD.findall(item.lower()))
+    return list(dict.fromkeys(words))
 
 
 
@@ -225,6 +255,7 @@ class PexelsProvider(StockProvider):
             width=width,
             height=height,
             duration_s=duration_s,
+            tags=_tags(item.get("tags"), _slug_words(str(item.get("url") or ""))),
             attribution=str(user.get("name") or "") if isinstance(user, dict) else "",
             license=PEXELS_LICENSE,
         )
@@ -253,6 +284,8 @@ class PexelsProvider(StockProvider):
             width=width,
             height=height,
             duration_s=None,
+            # A photo carries no `tags`; `alt` is Pexels' own description of it.
+            tags=_tags(item.get("alt"), _slug_words(str(item.get("url") or ""))),
             attribution=str(item.get("photographer") or ""),
             license=PEXELS_LICENSE,
         )

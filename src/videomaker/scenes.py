@@ -185,6 +185,7 @@ def split_scene(
         narration=tail_text,
         visual=SceneVisual(
             query=original.visual.query,
+            alt_queries=list(original.visual.alt_queries),
             kind=original.visual.kind,
             motion=original.visual.motion,
             crop_focus_x=original.visual.crop_focus_x,

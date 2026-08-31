@@ -101,12 +101,23 @@ class StockResult(BaseModel):
     width: int
     height: int
     duration_s: float | None = None
+    #: Whatever words the library said this result is about, lowercased: its own
+    #: tags, its alt text, the words in its URL slug. `pipeline.ranking` is the only
+    #: reader, and it is the only free signal there is about what the clip *shows* —
+    #: so a provider that has none leaves this empty rather than inventing any.
+    tags: list[str] = Field(default_factory=list)
     attribution: str = ""
     license: str = ""
 
 
 class SceneVisual(BaseModel):
     query: str
+    #: Further searches for the same scene, most specific first, written by the same
+    #: script call that wrote `query`. The visuals stage climbs them only when the
+    #: one before it came back thin — see `pipeline.ranking.query_ladder`. Empty on
+    #: every project written before M3 Task 12, which is why the ladder can still
+    #: derive a last rung from `query` alone.
+    alt_queries: list[str] = Field(default_factory=list)
     kind: VisualKind = VisualKind.AUTO
     chosen: AssetRef | None = None
     candidates: list[AssetRef] = Field(default_factory=list)
