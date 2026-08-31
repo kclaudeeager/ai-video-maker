@@ -4,3 +4,11 @@ paths:
   models_dir: ~/.cache/ai-video-maker/models
   music_dir: ./assets/music
   sfx_dir: ./assets/sfx
+
+# The music bed, when assets/music/ has anything in it. With an empty library the
+# render is narration only and these are never read. See docs/audio-design.md.
+audio:
+  # How loud the bed sits under the narration, in dB.
+  music_volume_db: -18
+  # How far it drops while someone is talking, in dB. 0 turns the ducking off.
+  duck_amount_db: 12

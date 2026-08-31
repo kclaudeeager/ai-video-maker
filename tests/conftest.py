@@ -12,6 +12,15 @@ the session value is restored afterwards.
 The music index (`audio.DEFAULT_INDEX_PATH`) lives in the same user-wide directory
 and is redirected for the same reason: `videomaker music scan` writes it, and a
 test that forgot would clobber the developer's real one.
+
+The library itself is redirected too, and that one is about *results* rather than
+tidiness. `Settings.music_dir` defaults to `assets/music` relative to the working
+directory, and `.gitignore` keeps that folder out of the repository — so it is empty
+on CI and may hold anything at all on the machine of whoever is working on this. A
+render test that did not name its own music directory would put the developer's own
+tracks under its output and measure something nobody else can reproduce. Setting the
+environment variables rather than patching means any `Settings()` picks it up, while
+a test that passes `music_dir=` explicitly still wins.
 """
 
 import pytest
@@ -22,9 +31,12 @@ from videomaker import runner as runner_module
 
 @pytest.fixture(autouse=True, scope="session")
 def _isolate_user_cache(tmp_path_factory):
-    """Point the user-wide caches (responses, quota, music index) at throwaway paths."""
+    """Point the caches and the audio library at throwaway paths."""
     cache_dir = tmp_path_factory.mktemp("user_cache")
+    library_dir = tmp_path_factory.mktemp("empty_library")
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(runner_module, "USER_CACHE_DIR", cache_dir)
         patch.setattr(audio_module, "DEFAULT_INDEX_PATH", cache_dir / audio_module.INDEX_FILENAME)
+        patch.setenv("MUSIC_DIR", str(library_dir / "music"))
+        patch.setenv("SFX_DIR", str(library_dir / "sfx"))
         yield

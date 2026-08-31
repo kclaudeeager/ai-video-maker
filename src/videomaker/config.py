@@ -4,7 +4,12 @@ import yaml
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from videomaker.media.audio import DEFAULT_DUCK_DB, DEFAULT_VOLUME_DB
+
 DEFAULT_CONFIG_FILE = Path("config.yaml")
+
+#: The `audio:` keys `config.yaml` may set. Anything else there is ignored.
+AUDIO_LEVELS = frozenset({"music_volume_db", "duck_amount_db"})
 
 
 class Settings(BaseSettings):
@@ -14,6 +19,11 @@ class Settings(BaseSettings):
     models_dir: Path = Path.home() / ".cache" / "ai-video-maker" / "models"
     music_dir: Path = Path("assets/music")
     sfx_dir: Path = Path("assets/sfx")
+
+    #: How loud the music bed sits before ducking, and how far it drops under speech.
+    #: Defaults live in `media/audio.py`, which is what reads them.
+    music_volume_db: float = DEFAULT_VOLUME_DB
+    duck_amount_db: float = DEFAULT_DUCK_DB
 
     groq_api_key: str = Field(default="", validation_alias=AliasChoices("GROQ_API_KEY"))
     gemini_api_key: str = Field(default="", validation_alias=AliasChoices("GEMINI_API_KEY"))
@@ -44,6 +54,9 @@ def load_settings(config_file: Path | None = None) -> Settings:
         for key, value in (raw.get("paths") or {}).items():
             if key in {"workspace_dir", "models_dir", "music_dir", "sfx_dir"}:
                 overrides[key] = Path(str(value)).expanduser()
+        for key, value in (raw.get("audio") or {}).items():
+            if key in AUDIO_LEVELS:
+                overrides[key] = float(value)
         chains = {
             str(kind): [str(name) for name in names]
             for kind, names in (raw.get("providers") or {}).items()

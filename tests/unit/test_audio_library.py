@@ -104,16 +104,21 @@ class CliEnv:
 
 @pytest.fixture
 def cli_env(tmp_path, monkeypatch):
-    """A cwd-relative `assets/` tree and a throwaway index, so the CLI touches nothing real.
+    """An `assets/` tree and a throwaway index, so the CLI touches nothing real.
 
-    `Settings.music_dir`/`sfx_dir` default to relative paths, so chdir is all the
-    commands need; the index is user-wide and has to be redirected explicitly.
+    The chdir gives the commands a working directory of their own; the environment
+    variables then point `Settings.music_dir`/`sfx_dir` at it, overriding the
+    session-wide empty library `tests/conftest.py` sets up to keep every *other* test
+    away from the developer's own tracks. The index is user-wide and is redirected
+    explicitly for the same reason.
     """
     monkeypatch.chdir(tmp_path)
     music = tmp_path / "assets" / "music"
     sfx = tmp_path / "assets" / "sfx"
     music.mkdir(parents=True)
     sfx.mkdir(parents=True)
+    monkeypatch.setenv("MUSIC_DIR", str(music))
+    monkeypatch.setenv("SFX_DIR", str(sfx))
     index = tmp_path / "cache" / "music_index.json"
     monkeypatch.setattr(audio, "DEFAULT_INDEX_PATH", index)
     return CliEnv(music=music, sfx=sfx, index=index)

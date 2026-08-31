@@ -113,6 +113,30 @@ class OutputSpec(BaseModel):
     video_path: str | None = None
 
 
+class MusicSelection(BaseModel):
+    """Which track sits under this project's narration, and how it is placed.
+
+    Every field is an **override**, and the empty value means "no opinion": `""` for
+    the track and the mood, `None` for the levels. That is what keeps the four levels
+    of control in `docs/audio-design.md` in order — the template's `music_mood` and
+    `config.yaml`'s levels apply until someone overrides them here or at gate 3 — and
+    it is why a project written before this field existed loads unchanged.
+
+    `enabled=False` is the only way to say "no music on this one" as a decision
+    rather than an accident; an empty `assets/music/` says the same thing by default.
+    """
+
+    enabled: bool = True
+    #: A library key — `music/calm/rain.mp3`. Empty means "pick one from the mood".
+    track_key: str = ""
+    #: Overrides the template's `music_mood`. Empty means the template decides.
+    mood: str = ""
+    #: How loud the bed sits, in dB. `None` means `Settings.music_volume_db`.
+    volume_db: float | None = None
+    #: How far it drops under speech, in dB. `None` means `Settings.duck_amount_db`.
+    duck_db: float | None = None
+
+
 class Project(BaseModel):
     id: str
     topic: str
@@ -124,6 +148,7 @@ class Project(BaseModel):
     # No stored `status`: it is derived from the stage cache by runner.derive_status()
     # so it can never drift from the artifacts on disk (spec 4.4).
     approvals: Approvals = Field(default_factory=Approvals)
+    music: MusicSelection = Field(default_factory=MusicSelection)
     scenes: list[Scene] = Field(default_factory=list)
     outputs: dict[Aspect, OutputSpec] = Field(default_factory=dict)
 

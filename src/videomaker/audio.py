@@ -27,6 +27,7 @@ Mixing, ducking and loudness are Task 9; SFX placement is Task 10. This module
 only knows what is on disk and who owns it.
 """
 
+import hashlib
 import json
 import os
 import time
@@ -440,6 +441,48 @@ def scan(
         probed=counts.probed,
         reused=counts.reused,
     )
+
+
+# ---------------------------------------------------------------- choosing a bed
+
+
+def select_track(
+    library: Library, *, mood: str = "", track_key: str = "", seed: str = ""
+) -> Track | None:
+    """The music track that plays under one render, or `None` for narration only.
+
+    Four rules, coarsest last, matching the levels of control `docs/audio-design.md`
+    describes:
+
+    * A track ffprobe could not read is never chosen. It would fail the render, and
+      the library already reports it.
+    * An explicit `track_key` (the per-project choice, and gate 3's picker) wins —
+      **unless it names a file that is no longer on disk**, in which case the render
+      falls back rather than silently losing its bed to a rename.
+    * Otherwise the template's `mood` picks the pool. A mood with nothing in it falls
+      back to the whole library: someone who has just dropped their first three files
+      into `assets/music/upbeat/` should hear them under a `calm` template rather
+      than wonder why nothing plays.
+    * Within the pool the choice is `seed`-stable — same project, same track, every
+      run — but varies across projects, so a library of ten tracks is not a library
+      of one. Pass the project id.
+
+    An empty library yields `None`, which is the default on every fresh clone and is
+    never an error.
+    """
+    usable = [track for track in library.music() if not track.probe_error]
+    if not usable:
+        return None
+
+    if track_key:
+        exact = next((track for track in usable if track.key == track_key), None)
+        if exact is not None:
+            return exact
+
+    pool = [track for track in usable if track.group == mood] if mood else []
+    pool = sorted(pool or usable, key=lambda track: track.key)
+    digest = hashlib.sha256(seed.encode()).hexdigest()
+    return pool[int(digest, 16) % len(pool)]
 
 
 #: Below this, a duration is shown in tenths. SFX are routinely under a second,

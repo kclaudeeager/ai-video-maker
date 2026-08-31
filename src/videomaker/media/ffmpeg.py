@@ -77,18 +77,23 @@ def run_ffmpeg(
     *,
     cwd: Path | None = None,
     on_progress: Callable[[float], None] | None = None,
-) -> None:
+    keep_stderr_lines: int = STDERR_TAIL_LINES,
+) -> str:
     """Run ffmpeg with ``args``, raising :class:`FFmpegError` on failure.
 
     When ``on_progress`` is given, ffmpeg is asked for machine-readable progress
     and the callback receives the number of output seconds encoded so far.
+
+    Returns the tail of stderr on success. Most callers ignore it; the two-pass
+    loudness measurement reads its JSON block out of it, and raises
+    ``keep_stderr_lines`` so a chattier ffmpeg cannot push that block off the end.
     """
     cmd = ["ffmpeg", "-hide_banner", "-nostdin", "-y"]
     if on_progress is not None:
         cmd += ["-progress", "pipe:1", "-nostats", "-stats_period", str(STATS_PERIOD_S)]
     cmd += args
 
-    tail: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
+    tail: deque[str] = deque(maxlen=max(keep_stderr_lines, STDERR_TAIL_LINES))
     process = subprocess.Popen(
         cmd,
         cwd=str(cwd) if cwd is not None else None,
@@ -118,13 +123,14 @@ def run_ffmpeg(
         returncode = process.wait()
         reader.join()
 
+    stderr_tail = "\n".join(tail)
     if returncode != 0:
-        stderr_tail = "\n".join(tail)
         raise FFmpegError(
             f"ffmpeg exited with status {returncode}:\n{stderr_tail}",
             returncode=returncode,
             stderr_tail=stderr_tail,
         )
+    return stderr_tail
 
 
 def probe_json(path: Path) -> dict:
