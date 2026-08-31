@@ -29,6 +29,24 @@ uv run videomaker doctor     # everything should be OK/WARN, no FAIL
 
 macOS users (including Intel Macs): see `docs/macos-intel-notes.md`.
 
+## Music and sound effects
+
+**The project ships no audio files, ever.** Content ID issues false claims against
+Creative Commons music routinely, and a claim on a monetised video is the outcome
+this project exists to avoid — shipping nothing means it can never be the source
+of one. Your library is your own: drop tracks into `assets/music/<mood>/` and
+effects into `assets/sfx/<role>/`, and record each one's licence in
+`assets/music/library.yaml` so video descriptions can credit them.
+
+```bash
+uv run videomaker music scan   # ffprobe the library, cache the durations
+uv run videomaker music list   # print it, flagging anything uncredited
+```
+
+An empty library is **not an error** — the pipeline renders narration only. See
+`assets/music/README.md` for where to get licence-clear audio (and for why you must
+never rip audio from a YouTube video), and `docs/audio-design.md` for the design.
+
 ## License
 
 AGPL-3.0-only. The project name is reserved by the maintainer; forks should

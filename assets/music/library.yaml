@@ -1,0 +1,52 @@
+# The licence record for everything under assets/music/ and assets/sfx/.
+#
+# The project ships no audio, so this file ships empty. It is the one file in the
+# audio tree that IS committed: it is a record about your library, not the library
+# itself, and it is what lets the tool generate a correct attribution block for a
+# video description automatically.
+#
+# One entry per file, keyed by path:
+#
+#   music/<mood>/<file>   or   sfx/<role>/<file>
+#
+# Inside this file `calm/rain.mp3` is accepted as shorthand for
+# `music/calm/rain.mp3`, since this file lives in assets/music/.
+#
+# Fields (all optional, all plain strings):
+#
+#   title         what the track is called
+#   artist        who made it
+#   licence       the SPDX-ish identifier, e.g. CC-BY-4.0, CC0-1.0, "Pixabay"
+#   attribution   the EXACT credit line to print, when the licence dictates
+#                 wording. Leave it out and one is composed from the fields above.
+#   source_url    where you downloaded it — write this down at download time;
+#                 reconstructing it six months later is miserable.
+#
+# A file with no entry here still works: it plays and it mixes. It is only
+# *reported* as unattributed by `videomaker music list` and `videomaker doctor`,
+# because nothing can credit it. See assets/music/README.md for where to get
+# licence-clear audio — and for why you must never rip audio from a YouTube video.
+#
+# Example entries, commented out because the files they name do not exist:
+#
+# tracks:
+#   music/calm/rain-on-glass.mp3:
+#     title: Rain On Glass
+#     artist: Kevin MacLeod
+#     licence: CC-BY-4.0
+#     attribution: '"Rain On Glass" by Kevin MacLeod (incompetech.com), licensed under CC BY 4.0'
+#     source_url: https://incompetech.com/music/royalty-free/
+#
+#   music/upbeat/city-drive.mp3:
+#     title: City Drive
+#     artist: Some Artist
+#     licence: Pixabay
+#     source_url: https://pixabay.com/music/
+#
+#   sfx/transition/whoosh-soft.wav:
+#     title: Soft Whoosh
+#     artist: someuser
+#     licence: CC0-1.0
+#     source_url: https://freesound.org/s/000000/
+
+tracks: {}

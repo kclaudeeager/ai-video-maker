@@ -2,6 +2,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 
+from videomaker.audio import LIBRARY_FILENAME, scan
 from videomaker.config import Settings
 from videomaker.languages import OFFERED_CODES
 from videomaker.media import fonts
@@ -15,6 +16,10 @@ SETUP_FIX = "uv run videomaker setup"
 FONTCONFIG_FIX = (
     "install fontconfig so libass can find fonts — Debian/Ubuntu: "
     "'sudo apt install fontconfig'"
+)
+LIBRARY_FIX = (
+    "record them in assets/music/library.yaml (title, artist, licence, attribution, "
+    "source_url) so the video description can credit them"
 )
 MODEL_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
 MIN_FREE_GB = 20
@@ -143,6 +148,38 @@ def _check_disk(settings: Settings) -> CheckResult:
     )
 
 
+def _check_audio_library(settings: Settings) -> CheckResult:
+    """What is in the user's own music/SFX library, and whether it can be credited.
+
+    An empty library is `ok`, not a warning: the project ships no audio
+    (`docs/audio-design.md`), so empty is the state of every fresh clone and the
+    pipeline renders narration only. The one thing worth nagging about is a file
+    with no `library.yaml` entry — usable, but nothing can credit it, and M5
+    generates the attribution block from that record.
+
+    `probe=None` keeps this off ffprobe: `doctor` is run to get a quick answer,
+    not to measure a hundred tracks.
+    """
+    library = scan(settings.music_dir, settings.sfx_dir, probe=None)
+    if not library:
+        return CheckResult(
+            "audio library", "ok",
+            f"empty ({settings.music_dir}, {settings.sfx_dir}) — renders are narration only",
+        )
+    summary = (
+        f"{len(library.music())} track(s) in {', '.join(library.moods()) or 'no mood'}; "
+        f"{len(library.sfx())} sfx in {', '.join(library.roles()) or 'no role'}"
+    )
+    missing = library.unattributed()
+    if not missing:
+        return CheckResult("audio library", "ok", f"{summary}; all recorded in {LIBRARY_FILENAME}")
+    return CheckResult(
+        "audio library", "warn",
+        f"{summary}; {len(missing)} not recorded in {LIBRARY_FILENAME}",
+        fix=LIBRARY_FIX,
+    )
+
+
 def _check_models(settings: Settings) -> CheckResult:
     missing = [f for f in MODEL_FILES if not (settings.models_dir / f).exists()]
     if not missing:
@@ -179,6 +216,7 @@ def run_checks(settings: Settings, caps: FFmpegCaps) -> list[CheckResult]:
     results.append(_check_caption_font())
     results.append(_check_caption_scripts())
     results.append(_check_disk(settings))
+    results.append(_check_audio_library(settings))
     results.append(_check_models(settings))
     results.extend(_check_api_keys(settings))
     return results

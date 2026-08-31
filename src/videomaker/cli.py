@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import NoReturn
 
 import typer
@@ -289,6 +290,105 @@ def serve(
         )
         return
     uvicorn.run(create_app(providers=providers), host=host, port=port)
+
+
+# --------------------------------------------------------------------------- M3
+
+music_app = typer.Typer(
+    no_args_is_help=True,
+    help="Inspect your own music and SFX library (the project ships no audio).",
+)
+app.add_typer(music_app, name="music")
+
+EMPTY_LIBRARY_LINES = (
+    "an empty library is [bold]not an error[/bold]: the pipeline renders narration only.",
+    (
+        "the project ships no audio files — drop your own into "
+        "[bold]assets/music/<mood>/[/bold] and [bold]assets/sfx/<role>/[/bold], "
+        "then record them in assets/music/library.yaml."
+    ),
+    "where to get licence-clear audio: see [bold]assets/music/README.md[/bold].",
+)
+
+
+def _scan_library(*, index_path: Path | None):
+    """The library as it is on disk right now, with the index used only for durations."""
+    from videomaker.audio import scan
+    from videomaker.config import load_settings
+
+    settings = load_settings()
+    return settings, scan(settings.music_dir, settings.sfx_dir, index_path=index_path)
+
+
+@music_app.command("scan")
+def music_scan() -> None:
+    """Index assets/music and assets/sfx (ffprobe for duration) into the local cache."""
+    from videomaker import audio
+
+    index_path = audio.DEFAULT_INDEX_PATH
+    settings, library = _scan_library(index_path=index_path)
+    audio.write_index(library, index_path)
+
+    console.print(f"scanned {settings.music_dir} and {settings.sfx_dir}")
+    if not library:
+        console.print("  [yellow]no audio found[/yellow]")
+        for line in EMPTY_LIBRARY_LINES:
+            console.print(f"  {line}")
+    else:
+        console.print(
+            f"  [green]indexed[/green] {len(library.tracks)} file(s) "
+            f"({library.probed} probed, {library.reused} from the cache)"
+        )
+        console.print(
+            f"  music: {len(library.music())} in {', '.join(library.moods()) or '-'}   "
+            f"sfx: {len(library.sfx())} in {', '.join(library.roles()) or '-'}"
+        )
+    _print_library_warnings(library)
+    console.print(f"index: {index_path}")
+
+
+@music_app.command("list")
+def music_list() -> None:
+    """Print the music and SFX library. Reads the index when it is fresh, disk always."""
+    from videomaker import audio
+
+    _, library = _scan_library(index_path=audio.DEFAULT_INDEX_PATH)
+    if not library:
+        console.print("the audio library is [bold]empty[/bold].")
+        for line in EMPTY_LIBRARY_LINES:
+            console.print(line)
+        return
+
+    table = Table(title="audio library")
+    table.add_column("kind")
+    table.add_column("group")
+    table.add_column("file")
+    table.add_column("length", justify="right")
+    table.add_column("licence")
+    table.add_column("credit")
+    for track in library.tracks:
+        credit = track.attribution.credit_line() if track.attribution else ""
+        table.add_row(
+            track.kind,
+            track.group or "[dim]-[/dim]",
+            track.name,
+            audio.format_duration(track.duration_s),
+            track.attribution.licence if track.attribution else "",
+            credit or "[yellow]not in library.yaml[/yellow]",
+        )
+    console.print(table)
+    _print_library_warnings(library)
+    if library.probed:
+        console.print(
+            f"[dim]{library.probed} file(s) were probed because the index is stale or "
+            "missing; run [bold]videomaker music scan[/bold] to refresh it.[/dim]"
+        )
+
+
+def _print_library_warnings(library) -> None:
+    """Everything the library wants to say. All of it advisory — none of it fails."""
+    for line in library.warnings():
+        console.print(f"[yellow]warning[/yellow] {line}")
 
 
 def main() -> None:

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     workspace_dir: Path = Path("workspace")
     models_dir: Path = Path.home() / ".cache" / "ai-video-maker" / "models"
     music_dir: Path = Path("assets/music")
+    sfx_dir: Path = Path("assets/sfx")
 
     groq_api_key: str = Field(default="", validation_alias=AliasChoices("GROQ_API_KEY"))
     gemini_api_key: str = Field(default="", validation_alias=AliasChoices("GEMINI_API_KEY"))
@@ -41,7 +42,7 @@ def load_settings(config_file: Path | None = None) -> Settings:
     if path.exists():
         raw = yaml.safe_load(path.read_text()) or {}
         for key, value in (raw.get("paths") or {}).items():
-            if key in {"workspace_dir", "models_dir", "music_dir"}:
+            if key in {"workspace_dir", "models_dir", "music_dir", "sfx_dir"}:
                 overrides[key] = Path(str(value)).expanduser()
         chains = {
             str(kind): [str(name) for name in names]

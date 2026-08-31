@@ -9,3 +9,18 @@ workspace/
 config.yaml
 *.part
 .DS_Store
+
+# The audio library is the user's own and the project ships no audio files ever
+# (docs/audio-design.md), so nothing under assets/music or assets/sfx is
+# committable by accident. Only the docs, the licence record and the empty
+# directory skeleton are tracked; the directories are re-included first so git
+# will descend into them to find those.
+assets/music/**
+assets/sfx/**
+!assets/music/**/
+!assets/sfx/**/
+!assets/music/README.md
+!assets/music/library.yaml
+!assets/sfx/README.md
+!assets/music/*/.gitkeep
+!assets/sfx/*/.gitkeep
