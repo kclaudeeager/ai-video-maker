@@ -41,6 +41,7 @@ from videomaker.config import Settings
 from videomaker.media.ffmpeg import FFmpegError
 from videomaker.models import Aspect
 from videomaker.pipeline import render as render_module
+from videomaker.pipeline.assemble import scene_timeline
 from videomaker.pipeline.render import RENDER_ASPECTS, output_relpath
 from videomaker.preview import build_preview, preview_relpath
 from videomaker.project import ProjectStore
@@ -323,9 +324,18 @@ def test_the_timeline_length_is_what_assemble_built(app, store):
     total = timeline_seconds(project)
 
     assert total > 0
+    # Every aspect `run_render` encodes, not just wide: the bar covers the stage,
+    # and the stage writes one file per aspect.
     assert total == pytest.approx(
-        sum(scene.duration_s + 0.5 for scene in project.scenes if scene.duration_s)
+        sum(
+            segment.duration_s
+            for aspect in RENDER_ASPECTS
+            for segment in scene_timeline(project, gap_s=0.5, aspect=aspect)
+        )
     )
+    assert total > sum(
+        segment.duration_s for segment in scene_timeline(project, gap_s=0.5, aspect=Aspect.WIDE)
+    ), "a wide-only denominator is what made the bar sweep twice"
 
 
 def test_the_timeline_is_measured_when_the_encode_starts_not_when_the_job_does(monkeypatch):
@@ -379,13 +389,25 @@ def test_the_substitution_is_undone_even_when_the_encode_raises(monkeypatch):
     assert render_module.run_ffmpeg is stub_ffmpeg
 
 
+def _reported_runs(values: list[float]) -> list[list[float]]:
+    """The raw FFmpeg second-readings, split per aspect (each restarts at zero)."""
+    runs: list[list[float]] = [[]]
+    for value in values:
+        if runs[-1] and value < runs[-1][-1]:
+            runs.append([])
+        runs[-1].append(value)
+    return runs
+
+
 def _ascending_runs(values: list[float]) -> list[list[float]]:
     """Split `values` at every point the bar goes backwards.
 
-    `run_render` encodes one aspect after another and `encode_reporter` measures each
-    from the same floor, so the bar climbs, rewinds once, and climbs again. Each run
-    is what has to be monotonic; the seam between them is the second aspect starting,
-    and smoothing it over belongs to the render page rather than to the pipeline.
+    `run_render` encodes one aspect after another, each reporting output seconds from
+    zero. `encode_progress` banks what each aspect reached and offsets the next, and
+    `timeline_seconds` denominates on every aspect in `RENDER_ASPECTS`, so the bar
+    climbs **once** across the whole stage. Before that fix it rewound to the floor
+    when the second file started — a bar that visibly restarts reads as a hang or a
+    crash, which is worse than a coarse bar.
     """
     runs: list[list[float]] = [[]]
     for value in values:
@@ -419,7 +441,7 @@ def test_progress_moves_while_the_encode_runs_not_only_between_stages(
     # produce, since it ticks once at the end of the stage and lands on 1.0.
     assert len(set(encode)) >= 3, encode
     runs = _ascending_runs(encode)
-    assert len(runs) == len(RENDER_ASPECTS), encode  # one climb per aspect encoded
+    assert len(runs) == 1, encode  # one climb for the whole stage, not one per aspect
     assert all(run == sorted(run) for run in runs), encode
     assert all(ENCODE_FLOOR <= value <= 1.0 for value in encode), encode
     assert any(ENCODE_FLOOR < value < 1.0 for value in encode), encode
@@ -451,10 +473,17 @@ def test_the_encode_fraction_is_mapped_onto_the_bar_exactly(app, store, monkeypa
         if stage == "render" and value is not None and (message or "").startswith(ENCODE_NOTE)
     ]
     span = 1.0 - ENCODE_FLOOR
-    one_encode = [ENCODE_FLOOR + span * encode_fraction(seconds, total) for seconds in reported]
-    # The same sweep once per aspect: `run_render` calls the instrumented `run_ffmpeg`
-    # for the Short as well, and both are measured against the wide timeline.
-    assert encode == pytest.approx(one_encode * len(RENDER_ASPECTS))
+    # One continuous climb across both aspects: each file reports output seconds
+    # from zero, and `encode_progress` offsets the second by what the first reached.
+    banked = 0.0
+    expected: list[float] = []
+    for _aspect in RENDER_ASPECTS:  # the stub replays its script for each file
+        expected += [
+            ENCODE_FLOOR + span * encode_fraction(banked + seconds, total) for seconds in reported
+        ]
+        banked += max(reported)
+    assert encode == pytest.approx(expected)
+    assert encode == sorted(encode), "the bar must never rewind between aspects"
 
 
 # --------------------------------------------------------------- render page

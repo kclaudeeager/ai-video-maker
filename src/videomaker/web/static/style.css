@@ -943,3 +943,21 @@ code {
 .preview-gate > p {
   margin: 0;
 }
+
+/* Render page: the download is the primary action, opening in a tab secondary. */
+.artefact-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.button-quiet {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+
+.button-quiet:hover {
+  background: var(--bg);
+}

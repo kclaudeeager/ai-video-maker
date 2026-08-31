@@ -104,8 +104,14 @@
         <input class="path-field" type="text" readonly value="{{ output.location }}"
                onfocus="this.select()" aria-label="Path to the rendered file">
       </label>
-      <p class="flush">
-        <a class="button" href="{{ output.url }}">Open the file</a>
+      <p class="flush artefact-actions">
+        {# `download` is same-origin so the browser saves rather than navigates.
+           Primary action: on a remote deploy (M6) the path above is useless and
+           this is the only way to get the file off the box. #}
+        <a class="button" href="{{ output.url }}" download="{{ output.download_name }}">
+          Download
+        </a>
+        <a class="button button-quiet" href="{{ output.url }}">Open in a new tab</a>
       </p>
     {% elif not poll %}
       <p class="artefact-empty muted flush">

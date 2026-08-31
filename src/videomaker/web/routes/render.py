@@ -70,7 +70,7 @@ from videomaker.pipeline.assemble import (
     video_relpath,
 )
 from videomaker.pipeline.captions import caption_relpath
-from videomaker.pipeline.render import output_relpath
+from videomaker.pipeline.render import RENDER_ASPECTS, output_relpath
 from videomaker.preview import STAGE as PREVIEW_STAGE
 from videomaker.preview import build_preview, preview_relpath
 from videomaker.project import ProjectStore
@@ -150,8 +150,16 @@ def timeline_seconds(project: Project) -> float:
     Straight from `assemble`'s own timeline, so the denominator of the progress
     fraction is the same number the encode is working towards rather than a
     second estimate that could disagree with it.
+
+    Summed over **every** aspect in `RENDER_ASPECTS`, because `run_render` encodes
+    one file per aspect and the bar covers the whole stage. Denominating on wide
+    alone made it sweep 0->1 once per aspect (M3 Task 6 finding).
     """
-    return sum(segment.duration_s for segment in scene_timeline(project, gap_s=SCENE_GAP_S))
+    return sum(
+        segment.duration_s
+        for aspect in RENDER_ASPECTS
+        for segment in scene_timeline(project, gap_s=SCENE_GAP_S, aspect=aspect)
+    )
 
 
 def encode_fraction(seconds: float, total: float) -> float:
@@ -172,6 +180,7 @@ def encode_reporter(
     *,
     stage: str,
     floor: float = ENCODE_FLOOR,
+    offset: float = 0.0,
 ) -> Callable[[float], None]:
     """A `run_ffmpeg` `on_progress` hook that drives `JobState.progress`.
 
@@ -185,7 +194,9 @@ def encode_reporter(
 
     def report(seconds: float) -> None:
         nonlocal last
-        fraction = encode_fraction(seconds, total)
+        # `seconds` restarts at zero for each aspect's file; `offset` is what the
+        # earlier aspects already contributed, so the bar climbs once overall.
+        fraction = encode_fraction(offset + seconds, total)
         value = floor + span * fraction
         if fraction < 1.0 and value - last < ENCODE_STEP:
             return
@@ -193,7 +204,7 @@ def encode_reporter(
         progress.update(
             stage=stage,
             progress=value,
-            message=f"{ENCODE_NOTE} {seconds:.1f}s of {total:.1f}s",
+            message=f"{ENCODE_NOTE} {offset + seconds:.1f}s of {total:.1f}s",
         )
 
     return report
@@ -219,10 +230,27 @@ def encode_progress(
     same uselessness as a bar that never moves, only harder to notice.
     """
     original = render_stage.run_ffmpeg
+    encoded = 0.0  # output seconds finished by aspects already rendered
 
     def instrumented(args: list[str], *, cwd: Path | None = None, on_progress=None):
-        hook = on_progress or encode_reporter(progress, total_seconds(), stage=stage)
-        return original(args, cwd=cwd, on_progress=hook)
+        nonlocal encoded
+        if on_progress is not None:
+            return original(args, cwd=cwd, on_progress=on_progress)
+        reached = 0.0
+
+        def hook(seconds: float) -> None:
+            nonlocal reached
+            reached = max(reached, seconds)
+            report(seconds)
+
+        report = encode_reporter(progress, total_seconds(), stage=stage, offset=encoded)
+        try:
+            return original(args, cwd=cwd, on_progress=hook)
+        finally:
+            # `run_render` calls this once per aspect, each reporting output
+            # seconds from zero. Banking what this one reached is what keeps the
+            # bar climbing once overall instead of resetting per file.
+            encoded += reached
 
     render_stage.run_ffmpeg = instrumented
     try:
@@ -336,6 +364,17 @@ class ArtefactView:
     def location(self) -> str:
         """The absolute path, for copying into a shell or a file manager."""
         return str(self.path)
+
+    @property
+    def download_name(self) -> str:
+        """The filename a download should land under.
+
+        Not the artefact's own name: every project renders to `final_wide.mp4`, so
+        downloading three projects would give `final_wide.mp4`,
+        `final_wide(1).mp4`, `final_wide(2).mp4` and no way to tell them apart.
+        Prefixing the project id keeps them identifiable in a Downloads folder.
+        """
+        return f"{self.project_id}-{Path(self.relpath).name}"
 
 
 def _newest_input(root: Path) -> float:
