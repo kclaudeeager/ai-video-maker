@@ -176,6 +176,11 @@ class HttpLLMProvider(LLMProvider):
             # book it either way: over-counting costs headroom, never money.
             if self.quota is not None:
                 self.quota.record(self.provider_name)
+                # `record` only mutates memory, and `build_deps` makes a fresh
+                # tracker per job — without this the count dies with the job and
+                # a per-day budget (gemini's 240) can never be enforced across
+                # invocations. The stock and image providers already save here.
+                self.quota.save()
         if self.cache is not None:
             self.cache.put(key, {"text": text, "model": model})
         return LLMResult(text=text, model=model, cached=False)

@@ -315,3 +315,27 @@ def test_both_providers_are_registered_under_their_chain_names():
 
     assert isinstance(get_provider("llm", "groq", Settings(groq_api_key="k")), GroqProvider)
     assert isinstance(get_provider("llm", "gemini", Settings(gemini_api_key="k")), GeminiProvider)
+
+
+def test_a_recorded_llm_call_survives_a_new_quota_tracker(tmp_path):
+    """`record()` only mutates memory; without a `save()` the count dies with the job.
+
+    `build_deps` builds a fresh `QuotaTracker` per job, so an unsaved count means
+    gemini's per-day budget can never be enforced across invocations — every run
+    starts the daily counter at zero. Regression for M2 spike follow-up 1.
+    """
+
+    def handler(request):
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json=MODELS_BODY)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
+
+    ledger = tmp_path / "quota.json"
+    provider = GroqProvider(Settings(groq_api_key="k"), client=_client(handler))
+    provider.quota = QuotaTracker(ledger)
+    provider.generate(system="s", user="u")
+
+    budget = SOFT_BUDGETS["groq"]
+    spent_in_memory = provider.quota.remaining("groq", budget)
+    reloaded = QuotaTracker(ledger).remaining("groq", budget)
+    assert reloaded == spent_in_memory, "the recorded call did not reach disk"
