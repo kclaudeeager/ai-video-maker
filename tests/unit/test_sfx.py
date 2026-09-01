@@ -772,3 +772,44 @@ def test_config_yaml_can_switch_the_effects_off(tmp_path):
 
     assert settings.sfx_enabled is False
     assert settings.transition_sfx_enabled is False
+
+
+# ----------------------------------------- the library is not where FFmpeg is standing
+
+
+def test_an_effects_input_path_survives_ffmpegs_project_cwd(tmp_path, monkeypatch):
+    """A relative `sfx_dir` must still reach FFmpeg, which runs `cwd=<project>`.
+
+    `config.example.yaml` ships `sfx_dir: ./assets/sfx` and `Settings` defaults to
+    `assets/sfx`, both relative to wherever the *user* is standing. Every render runs
+    FFmpeg with `cwd` set to the *project* folder (M0's colon rule), so a cue holding
+    the library-relative path is written into `-i` and resolves against the wrong
+    directory — "No such file or directory", and the render dies. `music_bed` has
+    always resolved the bed's path; the effects were shipped without it.
+    """
+    library_root = tmp_path / "assets" / "sfx"
+    (library_root / "transition").mkdir(parents=True)
+    (library_root / "transition" / "whoosh.wav").write_bytes(b"a whoosh")
+    monkeypatch.chdir(tmp_path)
+
+    scanned = Library(
+        tracks=(
+            Track(
+                key="sfx/transition/whoosh.wav",
+                kind="sfx",
+                group="transition",
+                # Exactly what `audio.scan` builds from a relative `sfx_dir`.
+                path=Path("assets/sfx/transition/whoosh.wav"),
+            ),
+        )
+    )
+    project = _project(_scene("s01", "hook"), _scene("s02", "close"))
+    deps = _deps(tmp_path)
+
+    plan = sfx_plan(project, deps, Aspect.WIDE, library=scanned)
+
+    assert plan.cues, "the fixture library has a transition; something should be placed"
+    for path in plan.files:
+        assert path.is_absolute(), f"{path} would be read relative to the project folder"
+        assert path.is_file(), f"{path} does not point at the effect on disk"
+    assert plan.input_args() == ["-i", str((library_root / "transition" / "whoosh.wav").resolve())]

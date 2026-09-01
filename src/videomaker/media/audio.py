@@ -359,6 +359,13 @@ def plan_sfx(
 
     The first scene's start is not a cut — there is nothing to cut *from* — and a lead
     in never goes negative, so a scene starting 50 ms in still gets its whoosh, at 0.
+
+    **Every cue's path is resolved**, exactly as `render.music_bed` resolves the bed's,
+    and for exactly the same reason: FFmpeg runs with `cwd` set to the *project*, while
+    the library is configured relative to the *user's* cwd (`sfx_dir: ./assets/sfx` is
+    what `config.example.yaml` ships). An unresolved path is written into `-i` and the
+    render dies with "No such file or directory" the moment a user drops in their first
+    whoosh. The bed was given `.resolve()` when it was written; the effects were not.
     """
     wanted: list[tuple[str, float]] = []
     for index, (scene_id, start_s) in enumerate(cuts):
@@ -380,7 +387,7 @@ def plan_sfx(
             continue
         cues.append(
             SfxCue(
-                path=track.path,
+                path=track.path.resolve(),
                 key=track.key,
                 role=role,
                 at_s=max(start_s - ROLE_LEAD_S.get(role, 0.0), 0.0),
