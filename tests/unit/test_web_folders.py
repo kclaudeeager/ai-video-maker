@@ -24,6 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from videomaker.config import Settings
+from videomaker.models import Status
 from videomaker.project import ProjectStore
 from videomaker.web.app import create_app
 from videomaker.web.voices import clear_voice_cache
@@ -85,21 +86,37 @@ def _folders_in(body: str) -> list[str]:
     return re.findall(r'data-folder="([^"]*)"', body)
 
 
-def _details_for(body: str, label: str) -> str:
-    """What one folder's `<details>` contains, descendants included.
+@pytest.fixture
+def waiting_now(monkeypatch):
+    """Count a freshly-created project as waiting.
 
-    Nesting means the matching `</details>` cannot be found by string search, so the
-    block is bounded by the next folder that is *not* a descendant of this one —
-    which is exactly the same thing for a tree rendered outside-in.
+    A new project's derived status is `new` — the machine about to write a script,
+    not a person at a gate — so nothing in a unit-test workspace is waiting under
+    the real `WAITING_STATUSES`. Driving a project to a genuine gate needs a script,
+    a voice and a storyboard; that is an integration concern, and the arithmetic of
+    the rollup is covered as a pure unit in `test_folders.py`. What is left to test
+    here is the wiring, so the *set* is what moves.
+    """
+    import videomaker.web.routes.projects as projects_mod
+
+    monkeypatch.setattr(projects_mod, "WAITING_STATUSES", frozenset({Status.NEW}))
+
+
+def _card_for(body: str, label: str) -> str:
+    """The `<li class="folder-card">` for one label, from its marker to its close.
+
+    A card is a flat, self-closing block — no nesting to bound, unlike the tree this
+    replaced — so the next `</li>` really is the end of it.
     """
     after = body.split(f'data-folder="{label}"', 1)[1]
-    for found in re.finditer(r'data-folder="([^"]*)"', after):
-        if not found.group(1).startswith(f"{label}/"):
-            return after[: found.start()]
-    return after
+    return after[: after.index("</li>")]
 
 
-# ------------------------------------------------------------------- the tree
+def _projects_in(body: str) -> list[str]:
+    return re.findall(r'data-project="([^"]*)"', body)
+
+
+# ------------------------------------------------------- the root: folders only
 
 
 def test_a_project_with_no_folder_stays_at_the_root_of_the_list(client, store):
@@ -111,7 +128,10 @@ def test_a_project_with_no_folder_stays_at_the_root_of_the_list(client, store):
     assert _folders_in(body) == [], "a flat workspace must draw no folder chrome at all"
 
 
-def test_the_list_groups_projects_under_their_folder(client, store):
+def test_the_root_shows_a_folder_instead_of_the_projects_inside_it(client, store):
+    """The whole point of the drill-down: ten projects behind two cards, not ten
+    cards you have to read end to end. A project in a folder is reached *through*
+    it, so it must not also be printed at the root."""
     _make(store, "how ssds work", folder="tech")
     _make(store, "my holiday", folder="personal")
     _make(store, "loose one")
@@ -119,57 +139,43 @@ def test_the_list_groups_projects_under_their_folder(client, store):
     body = client.get("/").text
 
     assert sorted(_folders_in(body)) == ["personal", "tech"]
-    assert 'data-project="how-ssds-work"' in _details_for(body, "tech")
-    assert 'data-project="my-holiday"' in _details_for(body, "personal")
+    assert _projects_in(body) == ["loose-one"], "only the unfiled project belongs here"
 
 
-def test_the_tree_nests_several_levels(client, store):
+def test_the_root_shows_only_the_top_level_of_a_deep_label(client, store):
+    """`tech/office-basics/word` puts one card at the root, not three."""
     _make(store, "deep one", folder="tech/office-basics/word")
 
     body = client.get("/").text
 
-    # Every ancestor is a folder in its own right, in outside-in order, and the
-    # project sits inside the innermost one.
-    assert _folders_in(body) == ["tech", "tech/office-basics", "tech/office-basics/word"]
-    assert 'data-project="deep-one"' in _details_for(body, "tech/office-basics/word")
+    assert _folders_in(body) == ["tech"]
+    assert _projects_in(body) == []
 
 
-def test_a_parent_folder_holds_both_its_own_projects_and_its_children(client, store):
-    _make(store, "parent project", folder="tech")
-    _make(store, "child project", folder="tech/office-basics")
-
-    body = client.get("/").text
-    tech = _details_for(body, "tech")
-
-    assert 'data-project="parent-project"' in tech
-    assert 'data-project="child-project"' in tech
-    assert 'data-folder="tech/office-basics"' in tech
-
-
-def test_the_folder_is_a_native_details_so_the_tree_works_with_javascript_off(client, store):
+def test_a_folder_card_is_a_plain_link_so_it_works_with_javascript_off(client, store):
     _make(store, "how ssds work", folder="tech")
 
-    body = client.get("/").text
+    card = _card_for(client.get("/").text, "tech")
 
-    assert re.search(r"<details[^>]*data-folder=\"tech\"", body), "a folder must be a <details>"
-    chunk = _details_for(body, "tech")
-    assert "<summary" in chunk
-    # The tree is disclosure, not behaviour: nothing in it may depend on htmx.
-    assert "hx-" not in chunk.split("</details>", 1)[0], "the tree must not need htmx"
+    assert '<a class="folder-link" href="/folders/tech"' in card
+    assert "hx-" not in card, "navigating into a folder must not need htmx"
 
 
 def test_the_folder_count_says_how_many_projects_are_beneath_it(client, store):
-    """A `data-*` pair: the machine-readable count and the words must agree."""
+    """A `data-*` pair: the machine-readable count and the words must agree, and the
+    count reaches through the children rather than stopping at this level."""
     _make(store, "one", folder="tech")
     _make(store, "two", folder="tech/office-basics")
     _make(store, "three", folder="tech/office-basics")
     _make(store, "elsewhere", folder="personal")
 
-    body = client.get("/").text
+    root = client.get("/").text
 
-    assert 'data-folder-count="3">3 projects<' in _details_for(body, "tech")
-    assert 'data-folder-count="2">2 projects<' in _details_for(body, "tech/office-basics")
-    assert 'data-folder-count="1">1 project<' in _details_for(body, "personal")
+    assert 'data-folder-count="3">3 projects<' in _card_for(root, "tech")
+    assert 'data-folder-count="1">1 project<' in _card_for(root, "personal")
+    assert 'data-folder-count="2">2 projects<' in _card_for(
+        client.get("/folders/tech").text, "tech/office-basics"
+    )
 
 
 def test_the_list_says_a_folder_needs_no_deleting(client, store):
@@ -190,6 +196,108 @@ def test_an_empty_folder_simply_stops_being_rendered(client, store):
     client.post(f"/projects/{project.id}/folder", data={"folder": "", "back": "list"})
 
     assert _folders_in(client.get("/").text) == []
+
+
+# ------------------------------------------------------------- drilling down
+
+
+def test_a_folder_page_shows_the_projects_filed_directly_in_it(client, store):
+    _make(store, "how ssds work", folder="tech")
+    _make(store, "elsewhere", folder="personal")
+
+    body = client.get("/folders/tech").text
+
+    assert _projects_in(body) == ["how-ssds-work"]
+    assert "elsewhere" not in body
+
+
+def test_a_folder_page_shows_its_children_and_its_own_projects(client, store):
+    _make(store, "parent project", folder="tech")
+    _make(store, "child project", folder="tech/office-basics")
+
+    body = client.get("/folders/tech").text
+
+    assert _folders_in(body) == ["tech/office-basics"]
+    assert _projects_in(body) == ["parent-project"], "the child is behind its own card"
+
+
+def test_a_nested_folder_is_reached_by_its_full_label(client, store):
+    _make(store, "deep one", folder="tech/office-basics/word")
+
+    body = client.get("/folders/tech/office-basics/word").text
+
+    assert _projects_in(body) == ["deep-one"]
+
+
+def test_the_breadcrumb_links_every_level_above_the_one_you_are_on(client, store):
+    _make(store, "deep one", folder="tech/office-basics/word")
+
+    body = client.get("/folders/tech/office-basics/word").text
+    crumbs = body.split('<nav class="crumbs"', 1)[1].split("</nav>", 1)[0]
+
+    assert 'href="/"' in crumbs, "the root is always one click away"
+    assert 'href="/folders/tech"' in crumbs
+    assert 'href="/folders/tech/office-basics"' in crumbs
+    # You are already here, so it is text rather than a link to the current page.
+    assert 'href="/folders/tech/office-basics/word"' not in crumbs
+    assert "word</span>" in crumbs
+
+
+def test_a_folder_nothing_claims_is_a_404(client, store):
+    """A folder exists only because a project claims its label, so there is no such
+    thing as an empty one — and a typo in the address bar must not render as a real,
+    permanently empty folder."""
+    _make(store, "how ssds work", folder="tech")
+
+    assert client.get("/folders/nope").status_code == 404
+    assert client.get("/folders/tech/nope").status_code == 404
+
+
+def test_the_bare_folders_path_is_a_404_rather_than_a_second_root(client, store):
+    """The root is `/`. Serving it from two addresses would split the one page a
+    person is meant to come back to."""
+    _make(store, "how ssds work", folder="tech")
+
+    assert client.get("/folders/").status_code == 404
+
+
+# ----------------------------------------------------- what needs a human
+
+
+def test_a_folder_card_says_how_many_projects_are_waiting_for_you(client, store, waiting_now):
+    """Amber means one thing in this UI: someone is waiting on you."""
+    _make(store, "one", folder="tech")
+    _make(store, "two", folder="tech/office-basics")
+
+    card = _card_for(client.get("/").text, "tech")
+
+    # Reaches through the child, or the root card could never tell you there was a
+    # reason to drill down at all.
+    assert 'data-waiting="2"' in card
+
+
+def test_the_root_summarises_what_needs_you_above_the_folders(client, store, waiting_now):
+    _make(store, "one", folder="tech")
+    _make(store, "two")
+
+    body = client.get("/").text
+
+    assert 'class="summary-strip" data-waiting="2"' in body
+    assert body.index("summary-strip") < body.index("folder-card")
+
+
+def test_nothing_waiting_prints_no_summary_strip_at_all(client, store, monkeypatch):
+    """A dashboard that says `0 waiting for you` every day teaches you to stop
+    reading it, so the strip is absent rather than zero."""
+    import videomaker.web.routes.projects as projects_mod
+
+    _make(store, "one", folder="tech")
+    monkeypatch.setattr(projects_mod, "WAITING_STATUSES", frozenset())
+
+    body = client.get("/").text
+
+    assert "summary-strip" not in body
+    assert "data-waiting" not in body, "and no amber badge on the folder either"
 
 
 # -------------------------------------------------------------------- moving
@@ -331,7 +439,8 @@ def test_moving_a_project_that_does_not_exist_is_a_404(client):
 def test_every_row_carries_a_plain_move_form(client, store):
     project = _make(store, "how ssds work", folder="tech")
 
-    body = client.get("/").text
+    # On the folder page, which is where a filed project's row now lives.
+    body = client.get("/folders/tech").text
 
     assert f'action="/projects/{project.id}/folder"' in body
     assert 'method="post"' in body

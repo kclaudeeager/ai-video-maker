@@ -230,3 +230,46 @@ hover lifts. Under `prefers-reduced-motion: reduce` every duration collapses to
   is native, and the one hand-written script is a live preview, never a save.
 - The stamp's rotation and its rules are decorative; its text is the state, so a
   screen reader hears "approved 2026-08-31 14:02 UTC", not "stamp".
+
+## 11. The workspace root is a dashboard, not a list
+
+M3 shipped the project list as an always-expanded `<details>` tree, reasoning
+that you came back to *find* a project rather than to click your way to one. At
+ten projects that reasoning inverted. Every card was the same height, the same
+weight and the same grey pill; the page was 2215 px of identical rows, and
+finding anything meant reading all of them. The tree also drew nothing at all,
+because no project had ever been filed — a feature with an empty state that looks
+exactly like a missing feature.
+
+The root now answers one question — **is there anything for me, and where is it**
+— and delegates the rest:
+
+- **A summary strip**, first, in amber: `N of M projects need you`. It is
+  *omitted entirely* when nothing is waiting rather than printed as a zero. A
+  dashboard that says `0 waiting for you` every day teaches you to stop reading
+  it, and then it cannot warn you.
+- **Folder cards**, each the whole clickable row: name, count, and an amber
+  `N waiting` badge on the far edge so a column of them can be scanned without
+  reading a single folder name. The count and the badge both reach *through* the
+  children, or a root card could never tell you there was a reason to open it.
+- **Projects filed at the root**, under a heading only when there are folders to
+  tell them apart from.
+
+A folder is an `<a>` to `/folders/<label>`; that page shows the folders inside it
+and the projects filed directly in it, under a breadcrumb whose every level is a
+real link. The tree is still built whole per request — it is derived from the
+rows and costs nothing — and each page renders one node of it.
+
+**Amber still means exactly one thing.** The `waiting` count is
+`WAITING_STATUSES`, which is `runner.GATE_BEFORE`'s three review points seen from
+outside: `script_ready`, `storyboard_ready`, `preview_ready`. `new` and `voiced`
+are the machine mid-stride and `rendered` is finished; none of the three is
+anything a person can act on, so none is counted. A folder page prints its count
+even at zero, but greyed (`.is-quiet`) — there the strip is a status line rather
+than an alarm.
+
+A folder nothing claims is a **404**, not an empty page. Folders exist only
+because projects claim their labels, so inventing an empty node would render a
+typo in the address bar as a real, permanently empty folder.
+
+Navigation stays the browser's job: a link and a 303, no JavaScript, per §10.

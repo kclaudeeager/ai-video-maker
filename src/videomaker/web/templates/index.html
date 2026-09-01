@@ -1,17 +1,25 @@
 {#
-  The project list, the create form, and — on a workspace with nothing in it —
-  the first-run screen.
+  The workspace root: what needs you, the folders, the projects filed nowhere, and
+  the create form — plus, on an empty workspace, the first-run screen.
 
-  Context: `rows` (ProjectRow, newest first), `tree` (the same rows grouped by
-  folder), `folders` (the labels in use), `templates_available`, `form`, `error`,
-  `voices`, plus `first_run`/`free_tier`/`keys` for the empty state.
+  Context: `rows` (ProjectRow, newest first), `tree` (the root `FolderNode`),
+  `folders` (the labels in use), `templates_available`, `form`, `error`, `voices`,
+  plus `first_run`/`free_tier`/`keys` for the empty state.
 
-  The list is a tree of native `<details>` — see `_folder_tree.html` for why, and
-  for the move control each row carries.
+  **The root shows folders, not everything.** A folder is a card that links to its
+  own page — see `_folder_tree.html` for why the always-open tree was replaced.
+  Projects filed at the root still appear here, because they are genuinely at this
+  level and nothing else would show them.
 
-  The form is a plain `<form method="post">` with no htmx on it: creation ends in
-  a 303 to another page, which is exactly what a browser does well on its own,
-  and it keeps the page working with JavaScript disabled (M2 global constraint).
+  **The summary strip leads because it is the only thing that is ever urgent.** It
+  answers "is there anything for me" without reading a single card, which is the
+  question a dashboard exists to answer. It is omitted entirely when nothing is
+  waiting rather than printed as a zero — a dashboard that says `0 waiting for you`
+  every day teaches you to stop reading it.
+
+  The create form is a plain `<form method="post">` with no htmx: creation ends in a
+  303 to another page, which is exactly what a browser does well on its own, and it
+  keeps the page working with JavaScript disabled (M2 global constraint).
 
   The first-run screen is this page's empty state rather than a separate
   destination — the create form is the thing it argues for, and a redirect would
@@ -42,12 +50,30 @@
       {% if folder_error %}
         <p class="notice notice-bad" role="alert">{{ folder_error }}</p>
       {% endif %}
+
+      {# Silent when there is nothing to say — see the header note. #}
+      {% if tree.waiting %}
+        <p class="summary-strip" data-waiting="{{ tree.waiting }}">
+          <strong>{{ tree.waiting }}</strong>
+          of {{ tree.count }} {{ "project needs" if tree.waiting == 1 else "projects need" }} you
+        </p>
+      {% endif %}
+
       {{ tree_ui.folder_datalist(folders) }}
-      {{ tree_ui.subtree(tree, folders) }}
+      {{ tree_ui.folder_cards(tree) }}
+
+      {% if tree.rows %}
+        {# Only worth a heading when there are folders to tell these apart from. #}
+        {% if tree.children %}
+          <h2 class="section-title unfiled-title">Not in a folder</h2>
+        {% endif %}
+        {{ tree_ui.project_rows(tree, folders) }}
+      {% endif %}
+
       <p class="hint flush folder-note">
-        A folder is a label on the project, not a place on disk — typing a new one
-        files the project there, and a folder with nothing left in it simply stops
-        appearing, so there is nothing to delete.
+        A folder is a label on the project, not a place on disk — open a project's
+        <em>Move</em> and type a new one to file it there. A folder with nothing left
+        in it simply stops appearing, so there is nothing to delete.
       </p>
     {% else %}
       <p class="card empty-state flush">

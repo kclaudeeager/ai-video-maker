@@ -1,23 +1,33 @@
 {#
-  The project list as a tree of folders, and the control that files a project.
+  Folder chrome: the cards you navigate by, the rows you land on, and the control
+  that files a project.
 
-  Context, via `subtree(tree, folders)`: a `routes.projects.FolderNode` and the
-  labels already in use.
+  Context, via the macros: a `routes.projects.FolderNode` and the labels already in
+  use.
 
-  Three things are deliberate here.
+  Four things are deliberate here.
 
-  **Native `<details>`.** The tree is progressive disclosure, the same device gate 2
-  uses for its long scroll, and it needs no JavaScript — which the M2 global
-  constraint requires and which no scripted tree widget would satisfy. Folders open
-  by default: you came back to find a project, not to click your way to it.
+  **Drill-down, not an open tree.** M3 shipped an always-expanded `<details>` tree,
+  on the reasoning that you came back to find a project rather than to click your
+  way to one. With ten projects that reasoning inverted: the page became a wall of
+  identical cards you had to read end to end. A folder is now a card that links to
+  its own page, so the root answers "where is it" in one glance and the folder page
+  answers "which one". The tree is still built whole per request — it is derived
+  from the rows and costs nothing — and each page renders one node of it.
 
-  **Grotesque, and nothing warm.** A folder is chrome — the machine's furniture — so
-  it is set in `--font-ui` in `--ink-soft`, and it borrows no colour. Amber on this
-  page still means one thing only: a project waiting for a human (`docs/ui-design.md`
-  §3). The only colour a folder carries is its status pills, which are the projects'.
+  **Still no JavaScript.** A folder card is an `<a>` and the move control is a
+  `<form method="post">` ending in a 303. Navigation is the browser's job; the M2
+  global constraint holds without a line of script.
 
-  **The move control is a plain form.** `method="post"` to `.../folder`, ending in a
-  303. No htmx: the browser already does POST-then-redirect correctly.
+  **Grotesque, and nothing warm — except the count that means a person.** A folder
+  is chrome, so it is set in `--font-ui` in `--ink-soft` and borrows no colour. The
+  one exception is the amber `waiting` badge, which means what amber means
+  everywhere else in this UI: someone is waiting on you (`docs/ui-design.md` §3). A
+  folder with nothing at a gate shows a plain count and no amber at all.
+
+  **The move control stays a disclosure.** It is the rare action on a row that is
+  mostly read, so it stays folded until asked for rather than sitting open as noise
+  on every card — which is precisely how the flat list got heavy.
 #}
 
 {% macro move_form(project_id, current, folders, back) %}
@@ -38,7 +48,54 @@
   </datalist>
 {% endmacro %}
 
-{% macro project_row(row, folders) %}
+{#
+  One folder, as a card that navigates. `data-folder` carries the full label so a
+  test can find it by name; the visible text is only the last level, because the
+  breadcrumb on the far side already says where you are.
+#}
+{% macro folder_card(child) %}
+  <li class="folder-card" data-folder="{{ child.path }}">
+    <a class="folder-link" href="/folders/{{ child.path }}">
+      <span class="folder-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
+             stroke="currentColor" stroke-width="1.6"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.6.8l1 1.4a2 2 0 0 0 1.6.8H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        </svg>
+      </span>
+      <span class="folder-text">
+        <span class="folder-name">{{ child.name }}</span>
+        <span class="folder-count" data-folder-count="{{ child.count }}">{{ child.count_label }}</span>
+      </span>
+      {# Amber only when a person is actually needed — see the header note. #}
+      {% if child.waiting %}
+        <span class="folder-waiting" data-waiting="{{ child.waiting }}">{{ child.waiting }} waiting</span>
+      {% endif %}
+      {# Drawn, not typed: Space Grotesk has no U+203A, so a literal › falls back
+         to another face and renders as a weak, misaligned >. #}
+      <span class="folder-chevron" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="m9 6 6 6-6 6"/>
+        </svg>
+      </span>
+    </a>
+  </li>
+{% endmacro %}
+
+{% macro folder_cards(node) %}
+  {% if node.children %}
+    <ul class="card-list folder-cards">
+      {% for child in node.children %}{{ folder_card(child) }}{% endfor %}
+    </ul>
+  {% endif %}
+{% endmacro %}
+
+{#
+  One project. `back` decides where the move's 303 lands — see `LIST_ORIGIN`.
+#}
+{% macro project_row(row, folders, back="list") %}
   <li class="card project-row" data-project="{{ row.id }}">
     <a class="project-link" href="/projects/{{ row.id }}">{{ row.topic }}</a>
     {# `data-status` carries the raw derived value; the pill text is the same value
@@ -49,24 +106,15 @@
     </p>
     <details class="disclosure move-box">
       <summary>Move</summary>
-      {{ move_form(row.id, row.folder, folders, "list") }}
+      {{ move_form(row.id, row.folder, folders, back) }}
     </details>
   </li>
 {% endmacro %}
 
-{% macro subtree(node, folders) %}
+{% macro project_rows(node, folders, back="list") %}
   {% if node.rows %}
     <ul class="card-list project-list">
-      {% for row in node.rows %}{{ project_row(row, folders) }}{% endfor %}
+      {% for row in node.rows %}{{ project_row(row, folders, back) }}{% endfor %}
     </ul>
   {% endif %}
-  {% for child in node.children %}
-    <details class="folder" data-folder="{{ child.path }}" open>
-      <summary class="folder-summary">
-        <span class="folder-name">{{ child.name }}</span>
-        <span class="folder-count" data-folder-count="{{ child.count }}">{{ child.count_label }}</span>
-      </summary>
-      <div class="folder-body">{{ subtree(child, folders) }}</div>
-    </details>
-  {% endfor %}
 {% endmacro %}

@@ -255,3 +255,134 @@ def test_the_folder_list_is_empty_on_a_flat_workspace(tmp_path):
     store.create("a", "tech_explainer")
 
     assert store.folders() == []
+
+
+# =========================================================================
+# The drill-down: subtree lookup, the breadcrumb trail, and the rollup that
+# decides whether a folder card shows amber.
+#
+# Pure functions over `FolderNode`, tested without a client: the web tests
+# assert the wiring, these assert the arithmetic. The rollup is the one the
+# dashboard is *for* — a `waiting` that stopped at the level you were already
+# looking at would make drilling down the only way to discover there was a
+# reason to.
+# =========================================================================
+
+from datetime import timedelta
+
+from videomaker.models import Status
+from videomaker.web.routes.projects import (
+    WAITING_STATUSES,
+    ProjectRow,
+    breadcrumbs,
+    folder_tree,
+)
+
+
+def _row(project_id: str, folder: str = "", status: Status = Status.RENDERED) -> ProjectRow:
+    return ProjectRow(
+        id=project_id,
+        topic=project_id.replace("-", " "),
+        template="tech_explainer",
+        status=status,
+        created_at=datetime(2026, 9, 1, tzinfo=UTC) + timedelta(minutes=len(project_id)),
+        folder=folder,
+    )
+
+
+def test_find_returns_the_node_at_a_nested_label():
+    tree = folder_tree([_row("deep", "tech/office-basics/word")])
+
+    node = tree.find("tech/office-basics")
+
+    assert node is not None
+    assert node.path == "tech/office-basics"
+    assert node.name == "office-basics"
+
+
+def test_find_returns_none_for_a_label_nothing_claims():
+    """A folder exists only because a project claims it, so an unclaimed label is a
+    404 and not an empty page — inventing a node here would render a typo in the
+    address bar as a real, permanently empty folder."""
+    tree = folder_tree([_row("one", "tech")])
+
+    assert tree.find("personal") is None
+    assert tree.find("tech/nope") is None
+
+
+def test_find_with_an_empty_path_is_the_root_itself():
+    tree = folder_tree([_row("loose")])
+
+    assert tree.find("") is tree
+
+
+def test_the_count_reaches_through_the_children():
+    tree = folder_tree(
+        [_row("a", "tech"), _row("b", "tech/office-basics"), _row("c", "tech/office-basics/word")]
+    )
+
+    assert tree.find("tech").count == 3
+    assert tree.find("tech/office-basics").count == 2
+    assert tree.find("tech/office-basics/word").count == 1
+
+
+def test_waiting_counts_only_the_statuses_that_need_a_human():
+    """`new` and `voiced` are the machine mid-stride and `rendered` is finished;
+    none of the three is anything a person can act on."""
+    tree = folder_tree(
+        [
+            _row("at-gate-1", "tech", Status.SCRIPT_READY),
+            _row("at-gate-2", "tech", Status.STORYBOARD_READY),
+            _row("at-gate-3", "tech", Status.PREVIEW_READY),
+            _row("machine-1", "tech", Status.NEW),
+            _row("machine-2", "tech", Status.VOICED),
+            _row("finished", "tech", Status.RENDERED),
+        ]
+    )
+
+    assert tree.find("tech").waiting == 3
+
+
+def test_waiting_reaches_through_the_children_like_the_count_does():
+    """The card for `tech` has to be able to say that something two levels down
+    needs you, or there is no reason to click it."""
+    tree = folder_tree(
+        [
+            _row("finished", "tech", Status.RENDERED),
+            _row("buried", "tech/office-basics/word", Status.STORYBOARD_READY),
+        ]
+    )
+
+    assert tree.find("tech").waiting == 1
+    assert tree.find("tech/office-basics").waiting == 1
+
+
+def test_waiting_is_zero_when_everything_is_done():
+    tree = folder_tree([_row("finished", "tech", Status.RENDERED)])
+
+    assert tree.find("tech").waiting == 0
+
+
+def test_the_waiting_statuses_are_exactly_the_three_review_gates():
+    """Pinned against `runner.GATE_BEFORE` rather than restated, so a fourth gate
+    cannot be added to the pipeline without this set being reconsidered."""
+    from videomaker.runner import GATE_BEFORE
+
+    assert len(WAITING_STATUSES) == len(GATE_BEFORE) == 3
+    assert WAITING_STATUSES == {
+        Status.SCRIPT_READY,
+        Status.STORYBOARD_READY,
+        Status.PREVIEW_READY,
+    }
+
+
+def test_the_breadcrumb_walks_outside_in_and_excludes_the_root():
+    assert breadcrumbs("tech/office-basics/word") == [
+        ("tech", "tech"),
+        ("tech/office-basics", "office-basics"),
+        ("tech/office-basics/word", "word"),
+    ]
+
+
+def test_the_root_has_no_crumbs_of_its_own():
+    assert breadcrumbs("") == []

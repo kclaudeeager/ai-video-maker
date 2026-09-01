@@ -1062,49 +1062,61 @@ video {
    size.
    -------------------------------------------------------------------------- */
 
-.folder {
-  margin-bottom: var(--s3);
+/* A folder is a card you navigate into, not a drawer you unfold in place. The
+   whole card is one link: a target you can hit without aiming, rather than a
+   folder name a few characters wide. */
+.folder-cards {
+  margin-bottom: var(--s5);
 }
 
-.folder-summary {
+.folder-card {
+  margin-bottom: var(--s2);
+}
+
+.folder-link {
   display: flex;
-  align-items: baseline;
-  gap: var(--s2);
-  padding: var(--s2) 0;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
   font-family: var(--font-ui);
-  font-size: var(--t-ui);
-  font-weight: 500;
-  color: var(--ink-soft);
-  cursor: pointer;
-  list-style: none;
-}
-
-.folder-summary::-webkit-details-marker {
-  display: none;
-}
-
-/* Drawn rather than borrowed, so it can rotate on open and sit on the baseline
-   in both themes — the same marker gate 2's disclosures use. */
-.folder-summary::before {
-  content: "";
-  flex: none;
-  width: 0;
-  height: 0;
-  border-left: 5px solid currentcolor;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  transition: transform var(--motion) ease;
-}
-
-.folder[open] > .folder-summary::before {
-  transform: rotate(90deg);
-}
-
-.folder-summary:hover {
   color: var(--ink);
+  text-decoration: none;
+  transition: border-color var(--motion) ease;
+}
+
+/* The border, and nothing else. `docs/ui-design.md` §9 rules out hover lifts
+   across the whole UI, and a card that navigates is not the place to make the
+   first exception. */
+.folder-link:hover {
+  border-color: var(--accent);
+}
+
+.folder-icon {
+  flex: none;
+  display: flex;
+  color: var(--ink-soft);
+}
+
+.folder-link:hover .folder-icon {
+  color: var(--accent);
+}
+
+.folder-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  /* Takes the slack, so the badge and the chevron both sit on the far edge
+     whether or not the badge is there. */
+  margin-right: auto;
 }
 
 .folder-name {
+  font-size: var(--t-card);
+  font-weight: 500;
   letter-spacing: -0.01em;
   color: var(--ink);
 }
@@ -1115,10 +1127,76 @@ video {
   color: var(--ink-soft);
 }
 
-.folder-body {
-  margin-left: var(--s2);
-  padding-left: var(--s4);
-  border-left: 1px solid var(--rule);
+/* The one warm thing on the page, and it means what amber always means here:
+   a human is needed. It sits hard against the chevron on the far edge, so the
+   eye can scan a column of them without reading a single folder name. */
+.folder-waiting {
+  flex: none;
+  padding: 2px var(--s2);
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  font-size: var(--t-fine);
+  font-variant-numeric: tabular-nums;
+  color: var(--warn);
+  white-space: nowrap;
+}
+
+.folder-chevron {
+  flex: none;
+  display: flex;
+  color: var(--ink-soft);
+}
+
+.folder-link:hover .folder-chevron {
+  color: var(--accent);
+}
+
+/* The answer to "is there anything for me", above everything it summarises.
+   Printed only when the answer is yes — see index.html. */
+.summary-strip {
+  margin: 0 0 var(--s4);
+  padding: var(--s3) var(--s4);
+  border-left: 4px solid var(--warn);
+  background: var(--paper);
+  border-radius: var(--r);
+  font-family: var(--font-ui);
+  font-size: var(--t-ui);
+  color: var(--ink);
+}
+
+.summary-strip strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--warn);
+}
+
+/* A folder page states its count even at zero, because there the strip is a
+   status line rather than an alarm. Grey, so it never reads as urgent. */
+.summary-strip.is-quiet {
+  border-left-color: var(--rule);
+  color: var(--ink-soft);
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-bottom: var(--s4);
+  font-family: var(--font-ui);
+  font-size: var(--t-fine);
+  color: var(--ink-soft);
+}
+
+.crumb-sep {
+  color: var(--ink-soft);
+}
+
+.crumb-here {
+  color: var(--ink);
+}
+
+.unfiled-title {
+  margin-top: var(--s5);
 }
 
 .folder-note {

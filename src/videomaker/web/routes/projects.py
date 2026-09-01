@@ -77,6 +77,18 @@ _STATUS_TONES: dict[Status, str] = {
     Status.PREVIEW_READY: "status-waiting",
 }
 
+#: The three derived statuses that mean *a human is standing at a gate*, which is
+#: exactly `runner.GATE_BEFORE`'s three review points seen from the outside:
+#: `script_ready` is gate 1, `storyboard_ready` gate 2, `preview_ready` gate 3.
+#:
+#: This is the one number the dashboard is *for*. `new` and `voiced` are the machine
+#: mid-stride and `rendered` is finished; neither is anything a person can act on, so
+#: neither is counted. Amber on a folder card means the same thing amber means
+#: everywhere else in this UI — someone is waiting on you (`docs/ui-design.md` §3).
+WAITING_STATUSES: frozenset[Status] = frozenset(
+    {Status.SCRIPT_READY, Status.STORYBOARD_READY, Status.PREVIEW_READY}
+)
+
 router = APIRouter()
 
 
@@ -154,6 +166,58 @@ class FolderNode:
     @property
     def count_label(self) -> str:
         return f"{self.count} project" + ("" if self.count == 1 else "s")
+
+    @property
+    def waiting(self) -> int:
+        """Projects at or below this node standing at a gate — see `WAITING_STATUSES`.
+
+        Counted through the children as well as this node's own rows, because the
+        root card for `tech` has to be able to say that something inside
+        `tech/office-basics` needs you. A number that only described the level you
+        were already looking at would make drilling down the only way to discover
+        there was a reason to.
+        """
+        own = sum(1 for row in self.rows if row.status in WAITING_STATUSES)
+        return own + sum(child.waiting for child in self.children)
+
+    @property
+    def waiting_label(self) -> str:
+        return f"{self.waiting} waiting for you"
+
+    def find(self, path: str) -> "FolderNode | None":
+        """The node at `path`, or `None` if no project claims that label.
+
+        `None` rather than an empty node on purpose: a folder exists only because
+        something is filed under it, so a path nothing claims is a 404 and not an
+        empty page. Inventing an empty node here would let a typo in the address bar
+        render as a real, permanently empty folder.
+        """
+        node: FolderNode = self
+        for level in filter(None, path.split("/")):
+            for child in node.children:
+                if child.name == level:
+                    node = child
+                    break
+            else:
+                return None
+        return node
+
+
+def breadcrumbs(path: str) -> list[tuple[str, str]]:
+    """`(path, name)` for each level of `path`, outermost first.
+
+    `tech/office-basics` gives `[("tech", "tech"), ("tech/office-basics",
+    "office-basics")]` — each entry addressing the folder page for that level, so
+    the trail is navigable rather than decorative. The root is not included; the
+    template supplies its own "Projects" link, which is the one crumb whose href
+    is not a folder.
+    """
+    trail: list[tuple[str, str]] = []
+    walked = ""
+    for level in filter(None, path.split("/")):
+        walked = f"{walked}/{level}" if walked else level
+        trail.append((walked, level))
+    return trail
 
 
 def folder_tree(rows: list[ProjectRow]) -> FolderNode:
@@ -287,6 +351,39 @@ def welcome_context(request: Request) -> dict[str, object]:
 def index(request: Request):
     """The project list, plus the create form — and, when empty, the first run."""
     return _render_index(request)
+
+
+@router.get("/folders/{folder_path:path}")
+def folder_page(request: Request, folder_path: str):
+    """One folder: the folders inside it, then the projects filed directly in it.
+
+    A drill-down rather than an always-open tree. Ten projects rendered flat is a
+    wall of identical cards you have to read end to end to find anything in; the
+    same ten behind two folder cards is a page you can take in at a glance. The
+    tree is still built whole on every request — it is derived from the rows and
+    costs nothing — and this route simply picks the subtree to show.
+
+    `{folder_path:path}` takes the slashes, so `tech/office-basics` is one label and
+    not a nested route. A label nothing claims is a real 404: folders exist only
+    because projects claim them, so there is no such thing as an empty one.
+    """
+    rows = project_rows(request.app.state.store)
+    node = folder_tree(rows).find(folder_path)
+    if node is None or not folder_path.strip("/"):
+        # An unclaimed label, or `/folders/` with nothing after it — the root is
+        # `/`, and serving it from two addresses would split the one page a person
+        # is meant to come back to.
+        raise HTTPException(status_code=404, detail=f"No folder named {folder_path!r}")
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "folder.html",
+        {
+            "node": node,
+            "crumbs": breadcrumbs(node.path),
+            "folders": request.app.state.store.folders(),
+        },
+    )
 
 
 @router.get("/voice-options")

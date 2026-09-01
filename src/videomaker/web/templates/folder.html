@@ -1,0 +1,66 @@
+{#
+  One folder: the folders inside it, then the projects filed directly in it.
+
+  Context: `node` (the `FolderNode` being shown), `crumbs` (`(path, name)` per
+  level, outermost first, root excluded), `folders` (the labels in use).
+
+  **The breadcrumb is the way back**, and every crumb is a real link, so a project
+  four levels deep is never more than one click from any level above it. The root
+  crumb is written here rather than supplied by `breadcrumbs()` because it is the
+  one whose href is `/` and not a folder path.
+
+  **A folder page never has an empty state.** A folder exists only because a project
+  claims its label, so a page with no projects and no subfolders cannot be reached —
+  `folder_page` 404s on a label nothing claims. What *can* happen is a folder holding
+  only subfolders, which is why the project list is conditional and the folder list
+  is too.
+
+  The create form is deliberately absent: creating a project files it at the root,
+  so offering the form here would imply it lands in this folder and it would not.
+#}
+{% extends "base.html" %}
+{% import "_folder_tree.html" as tree_ui with context %}
+
+{% block title %}{{ node.name }}{% endblock %}
+{% block eyebrow %}Folder{% endblock %}
+{% block heading %}{{ node.name }}{% endblock %}
+
+{% block content %}
+  <nav class="crumbs" aria-label="Breadcrumb">
+    <a href="/">Projects</a>
+    {% for path, name in crumbs %}
+      <span class="crumb-sep" aria-hidden="true">/</span>
+      {# The last crumb is where you already are, so it is text, not a link. #}
+      {% if loop.last %}
+        <span class="crumb-here" aria-current="page">{{ name }}</span>
+      {% else %}
+        <a href="/folders/{{ path }}">{{ name }}</a>
+      {% endif %}
+    {% endfor %}
+  </nav>
+
+  <section class="stack">
+    {% if folder_error %}
+      <p class="notice notice-bad" role="alert">{{ folder_error }}</p>
+    {% endif %}
+
+    <p class="summary-strip {{ 'is-quiet' if not node.waiting }}" data-waiting="{{ node.waiting }}">
+      {% if node.waiting %}
+        <strong>{{ node.waiting }}</strong>
+        of {{ node.count }} {{ "project needs" if node.waiting == 1 else "projects need" }} you
+      {% else %}
+        {{ node.count_label }}, nothing waiting
+      {% endif %}
+    </p>
+
+    {{ tree_ui.folder_datalist(folders) }}
+    {{ tree_ui.folder_cards(node) }}
+
+    {% if node.rows %}
+      {% if node.children %}
+        <h2 class="section-title unfiled-title">In {{ node.name }}</h2>
+      {% endif %}
+      {{ tree_ui.project_rows(node, folders) }}
+    {% endif %}
+  </section>
+{% endblock %}
