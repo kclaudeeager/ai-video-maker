@@ -23,6 +23,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from videomaker.cache import hash_inputs, stage_key
+from videomaker.media import ass
 from videomaker.media.ass import STYLES, write_ass
 from videomaker.models import Aspect, Project, WordTiming
 from videomaker.pipeline.assemble import SPECS, aspect_scenes
@@ -112,11 +113,23 @@ def aspect_hash(project: Project, aspect: Aspect) -> str:
     vertical captions and leaves the wide ones alone. The style is looked up rather
     than indexed: an aspect whose layout has not been authored yet hashes as `None`
     instead of raising, which is what lets a vertical unit be *listed* before the
-    vertical style exists. Wide is unaffected either way — its hash must stay
-    byte-identical to M1's or every rendered project restages.
+    vertical style exists.
+
+    `wrap` is the one input that is not part of a `CaptionStyle`: the wrap mode is a
+    property of the *file*, shared by both aspects, and it decides whether a long
+    chunk is broken or run off the frame. It is read off the module rather than
+    imported as a constant so that changing it really does move this hash — a
+    layout knob the cache cannot see is a stale artefact the cache swears is fresh.
+
+    This hash moved **once**, when the wrap mode and the side margins were fixed, and
+    took `render` with it: the Short was losing letters off the frame and every
+    project's captions had to be rewritten. It is not free to move again — see
+    `tests/unit/test_vertical_spec.py`, which pins both the M1 value and that one
+    deliberate step away from it.
     """
     style = STYLES.get(aspect)
     return hash_inputs(
+        wrap=ass.WRAP_STYLE,
         scenes=[
             {
                 "id": scene.id,

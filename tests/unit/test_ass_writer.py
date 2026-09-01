@@ -1,3 +1,5 @@
+import pytest
+
 from videomaker.media.ass import (
     MIN_DISPLAY_DURATION_S,
     STYLES,
@@ -6,9 +8,19 @@ from videomaker.media.ass import (
     write_ass,
 )
 from videomaker.models import Aspect, WordTiming
+from videomaker.pipeline.captions import PLAY_RES
+
+#: Index of the free-text field of a ``Dialogue:`` line: Layer, Start, End, Style,
+#: Name, MarginL, MarginR, MarginV and Effect come first.
+DIALOGUE_TEXT_FIELD = 9
 
 
 def w(word, s, e): return WordTiming(word=word, start_s=s, end_s=e)
+
+
+def _body(line):
+    """The Text field of a ``Dialogue:`` line — everything after the 9th comma."""
+    return line[len("Dialogue:"):].split(",", DIALOGUE_TEXT_FIELD)[DIALOGUE_TEXT_FIELD]
 
 
 def test_ass_colour_is_bgr_not_rgb():
@@ -140,3 +152,169 @@ def test_karaoke_on_wide_still_never_emits_a_zero_duration_event(tmp_path):
     assert spans
     for start, end in spans:
         assert end > start, f"non-displaying Dialogue line {start} -> {end}"
+
+
+# ------------------------------------------------- the frame: M3 spike defect 2
+
+# Captions that run off the frame and lose letters.
+#
+# The M3 verification looked at `final_vertical.mp4` at full resolution and read
+# `version number, allowing` as `ersion number, allowin`: the leading *v* and the
+# trailing *g* were outside the 1080 px frame, with glyphs landing at x = 5 and
+# x = 1079 against a declared 60 px margin. Measured over the owner's whole
+# workspace, 50 of 185 vertical caption lines were wider than their text box and
+# 27 of those were wider than the frame itself; the widest was 1670 px in a 1080 px
+# frame. Wide lost no letters — 0 of 221 off the frame — but only by arithmetic, and
+# one line was already past its box at 1832 px.
+#
+# The cause was `WrapStyle: 2` — *no wrapping at all*, so libass ran a long chunk
+# off the screen rather than breaking it — and side margins hardcoded into the
+# style line rather than authored per aspect.
+#
+# These tests measure the same thing the spike did, in the units libass draws in
+# (see `LIBASS_PPEM_RATIO` in `tests/conftest.py`), laid out under the wrap mode
+# the file itself declares. They are the equivalent of
+# `test_the_headline_wraps_on_words_rather_than_overflowing`, which the thumbnail
+# stage has had since M3 Task 20 and the captions never got.
+
+#: WrapStyles that break a long line. 2 is "no word wrapping", which is the defect.
+WRAPPING_MODES = frozenset({0, 1, 3})
+
+#: The vertical chunks are lifted from the owner's own workspace, and every one of
+#: them lost letters off the 1080 px frame.
+#:
+#: The wide chunk is **synthetic**, and that is the honest thing to say about it: no
+#: wide line in the workspace overflows today, because five words at 64 px happen to
+#: fit 1800 px. That is arithmetic, not a guarantee — a wordier script would put the
+#: long cut in exactly the same place — so the guard is asserted against a chunk that
+#: does overflow rather than against the luck the wide layout is currently enjoying.
+OVERFLOWING_CHUNKS: dict[Aspect, tuple[str, ...]] = {
+    Aspect.VERTICAL: (
+        "version number, allowing",
+        "modern computing hardware.",
+        "several representations—plain",
+        "instantly reachable but",
+    ),
+    Aspect.WIDE: (
+        "incomprehensible synchronization representations compatibility interoperability",
+    ),
+}
+
+
+def _wrap_mode(text: str) -> int:
+    line = next(line for line in text.splitlines() if line.startswith("WrapStyle:"))
+    return int(line.split(":", 1)[1])
+
+
+def _dialogue_bodies(text: str) -> list[str]:
+    return [_body(line) for line in text.splitlines() if line.startswith("Dialogue:")]
+
+
+def _drawn_lines(body: str, font, box: float, mode: int) -> list[str]:
+    """The lines libass draws for one Dialogue body, as an upper bound on width.
+
+    A no-wrap mode draws the whole chunk on one line however wide it is — that is
+    what put letters outside the frame. Every wrapping mode breaks on spaces, and
+    greedy wrapping is the widest any of them gets: smart wrapping (0 and 3) only
+    ever moves a word *down* from the greedy result, so measuring greedy can never
+    let a real overflow through.
+    """
+    if mode not in WRAPPING_MODES:
+        return [body]
+    lines: list[str] = []
+    current = ""
+    for word in body.split():
+        candidate = f"{current} {word}" if current else word
+        if current and font.getlength(candidate) > box:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _chunked(phrases):
+    """One word group per phrase, so each phrase stays a single caption chunk."""
+    groups = []
+    at = 0.0
+    for phrase in phrases:
+        group = []
+        for word in phrase.split():
+            group.append(w(word, at, at + 0.4))
+            at += 0.4
+        groups.append(group)
+        at += 1.0
+    return groups
+
+
+@pytest.mark.parametrize("aspect", [Aspect.WIDE, Aspect.VERTICAL])
+def test_no_caption_line_is_drawn_wider_than_its_own_text_box(tmp_path, caption_face, aspect):
+    """The defect, in the units it was measured in: rendered pixels of type."""
+    style = STYLES[aspect]
+    font = caption_face(style)
+    width, _ = PLAY_RES[aspect]
+    box = width - style.margin_l - style.margin_r
+
+    out = write_ass([], style, tmp_path / f"{aspect.value}.ass", play_res=PLAY_RES[aspect],
+                    groups=_chunked(OVERFLOWING_CHUNKS[aspect]))
+    text = out.read_text()
+    bodies = _dialogue_bodies(text)
+
+    assert bodies, "the fixture wrote no captions at all"
+    # The premise: these chunks genuinely cannot be set on one line in this box.
+    assert any(font.getlength(body) > box for body in bodies), "fixture no longer overflows"
+
+    for body in bodies:
+        for line in _drawn_lines(body, font, box, _wrap_mode(text)):
+            drawn = font.getlength(line)
+            assert drawn <= box, (
+                f"{aspect.value}: {line!r} draws {drawn:.0f}px in a {box}px box"
+                f" ({width}px frame, WrapStyle {_wrap_mode(text)})"
+            )
+
+
+@pytest.mark.parametrize("aspect", [Aspect.WIDE, Aspect.VERTICAL])
+def test_the_style_line_carries_this_aspects_own_side_margins(tmp_path, aspect):
+    """MarginL/MarginR come from the style, never from a literal in the writer."""
+    style = STYLES[aspect]
+    out = write_ass([w("hello", 0.0, 0.5)], style, tmp_path / f"{aspect.value}.ass",
+                    play_res=PLAY_RES[aspect])
+    fields = next(
+        line.removeprefix("Style: ").split(",")
+        for line in out.read_text().splitlines()
+        if line.startswith("Style: ")
+    )
+    assert (fields[19], fields[20]) == (str(style.margin_l), str(style.margin_r))
+
+
+def test_an_em_dash_inside_a_word_is_a_place_libass_may_break(tmp_path):
+    """libass breaks on spaces and nothing else — not on a dash, not on U+200B.
+
+    `representations—plain` is one 1055 px token in a 936 px box, so no wrap mode
+    can save it. Measured against real libass in
+    `tests/integration/test_caption_frame_fit.py`; the writer's half is here.
+    """
+    out = write_ass([w("representations—plain", 0.0, 0.5)], STYLES[Aspect.VERTICAL],
+                    tmp_path / "d.ass", play_res=PLAY_RES[Aspect.VERTICAL])
+    body = _dialogue_bodies(out.read_text())[0]
+    assert body == "representations— plain"
+    assert max(len(token) for token in body.split()) < len("representations—plain")
+
+
+def test_a_dash_that_is_already_spaced_is_left_alone(tmp_path):
+    out = write_ass([w("text", 0.0, 0.4), w("—", 0.4, 0.8), w("plain", 0.8, 1.2)],
+                    STYLES[Aspect.VERTICAL], tmp_path / "e.ass",
+                    play_res=PLAY_RES[Aspect.VERTICAL])
+    assert _dialogue_bodies(out.read_text())[0] == "text — plain"
+
+
+def test_a_hyphen_never_becomes_a_break(tmp_path):
+    """`error‑correcting` is one word and fits; splitting it would be wrong."""
+    out = write_ass([w("error‑correcting", 0.0, 0.5)], STYLES[Aspect.VERTICAL],
+                    tmp_path / "f.ass", play_res=PLAY_RES[Aspect.VERTICAL])
+    assert _dialogue_bodies(out.read_text())[0] == "error‑correcting"
+    out = write_ass([w("state-of-the-art", 0.0, 0.5)], STYLES[Aspect.VERTICAL],
+                    tmp_path / "g.ass", play_res=PLAY_RES[Aspect.VERTICAL])
+    assert _dialogue_bodies(out.read_text())[0] == "state-of-the-art"

@@ -249,6 +249,27 @@ _M2_FINGERPRINTS = {
 }
 
 
+#: The four units the caption-layout fix moved, captured from *this* tree — the only
+#: entries in the table above that may be.
+#:
+#: `WrapStyle: 2` let a caption run off the frame rather than break, and the side
+#: margins were hardcoded for both aspects rather than authored per aspect. Both are
+#: caption inputs and `render` hashes the caption file, so both aspects of both
+#: stages move: every finished video re-renders, once, for a Short whose words are
+#: all on screen.
+#:
+#: What is *not* here is the point of the table. `script`, `voice`, `align`,
+#: `visuals`, `assemble` and the template are all still M2's to the byte, so the
+#: re-render costs an encode and never a provider call — and `run_script` in
+#: particular cannot be reached, which is what M3 Tasks 15 and 22 were about.
+_CAPTION_FIX_FINGERPRINTS = {
+    "captions:wide": "60824a03effc84ab",
+    "captions:vertical": "072520ce9807380a",
+    "render:wide": "112826f5b51f671e",
+    "render:vertical": "94497e677a384647",
+}
+
+
 def _fingerprints(project: Project) -> dict[str, str]:
     from videomaker.cache import hash_inputs
     from videomaker.runner import STAGE_UNITS, _template_fingerprint
@@ -278,9 +299,30 @@ def test_no_unit_hash_moved_for_a_project_written_before_this_task():
 
     found = _fingerprints(project)
 
+    expected = {**_M2_FINGERPRINTS, **_CAPTION_FIX_FINGERPRINTS}
+
     assert set(_M2_FINGERPRINTS) <= set(found), "a pinned unit disappeared"
-    assert {key: found[key] for key in _M2_FINGERPRINTS} == _M2_FINGERPRINTS
+    assert {key: found[key] for key in expected} == expected
     assert set(found) - set(_M2_FINGERPRINTS) == {"thumbnail:all"}
+
+
+def test_the_caption_layout_fix_left_every_expensive_unit_alone():
+    """Re-rendering the captions must not re-script, re-voice or re-shoot anything.
+
+    The named four cost an encode. Every other unit in the table costs provider quota
+    — `script:all` costs ten scenes of approved narration — so the set of movers is
+    asserted exactly rather than "captions and render, roughly".
+    """
+    assert set(_CAPTION_FIX_FINGERPRINTS) <= set(_M2_FINGERPRINTS)
+    for key, moved in _CAPTION_FIX_FINGERPRINTS.items():
+        assert moved != _M2_FINGERPRINTS[key], f"{key} was pinned to the value it had"
+
+    project = Project.model_validate_json(_OLD_PROJECT.read_text())
+    found = _fingerprints(project)
+    untouched = set(_M2_FINGERPRINTS) - set(_CAPTION_FIX_FINGERPRINTS)
+    assert {key: found[key] for key in untouched} == {
+        key: _M2_FINGERPRINTS[key] for key in untouched
+    }
 
 
 def test_short_beats_is_not_a_script_input():

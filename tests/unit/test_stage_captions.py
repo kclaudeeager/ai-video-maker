@@ -12,11 +12,13 @@ import pytest
 
 from videomaker.cache import ResponseCache, StageCache, stage_key
 from videomaker.config import Settings
+from videomaker.media import ass
 from videomaker.media.ass import STYLES, format_timestamp
 from videomaker.models import Aspect, Scene, SceneVisual, WordTiming
 from videomaker.pipeline.base import SCENE_GAP_S, StageDeps
 from videomaker.pipeline.captions import (
     CAPTION_ASPECTS,
+    aspect_hash,
     caption_relpath,
     run_captions,
     timeline_words,
@@ -277,3 +279,20 @@ def test_no_caption_runs_past_its_scene_into_the_next(deps):
                 f"caption {text!r} runs from {start:.2f}s past the next scene "
                 f"cut at {later[0]:.2f}s"
             )
+
+
+def test_the_wrap_mode_is_part_of_every_aspects_caption_fingerprint(deps, monkeypatch):
+    """A layout knob the cache cannot see is a stale artefact it swears is fresh.
+
+    `WRAP_STYLE` lives in the header rather than in `CaptionStyle` — it is a property
+    of the file, not of one aspect's layout — so `aspect_hash` has to name it
+    explicitly. Without this, flipping it back to the no-wrap 2 that ran the Short's
+    captions off the frame would rewrite nothing in any existing project.
+    """
+    project = _project(deps)
+    before = {aspect: aspect_hash(project, aspect) for aspect in CAPTION_ASPECTS}
+
+    monkeypatch.setattr(ass, "WRAP_STYLE", 2)
+
+    for aspect in CAPTION_ASPECTS:
+        assert aspect_hash(project, aspect) != before[aspect]

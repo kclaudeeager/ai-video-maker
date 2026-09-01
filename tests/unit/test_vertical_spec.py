@@ -56,6 +56,23 @@ M1_WIDE_FINGERPRINTS: dict[str, str] = {
     "render": "6bc8e2b8430ab002",
 }
 
+#: What the caption-layout fix moved, and nothing else.
+#:
+#: `WrapStyle: 2` let a long caption run off the frame instead of breaking it, and
+#: the side margins were hardcoded into the writer for both aspects. Fixing either
+#: one changes what `captions` hashes, and `render` hashes the caption file, so both
+#: move — once, on purpose, and every rendered video re-renders. That is the price of
+#: a Short whose words are all on screen, and it is stated here rather than absorbed:
+#: these are captured from *this* tree, and are the only two entries that may be.
+#:
+#: `assemble` is the control. It reads no caption style and burns nothing in, so it
+#: must still be byte-identical to M1 — asserted separately below, because an
+#: `assemble` that moved would mean the fix had reached the video itself.
+CAPTION_FIX_WIDE_FINGERPRINTS: dict[str, str] = {
+    "captions": "009a8f6cb95c5c7b",
+    "render": "225fa12c01e4ecff",
+}
+
 PER_ASPECT_STAGES: tuple[str, ...] = ("captions", "assemble", "render")
 
 
@@ -144,8 +161,30 @@ def _unit(stage: str, project: Project, aspect: Aspect):
 
 @pytest.mark.parametrize("stage", PER_ASPECT_STAGES)
 def test_wide_unit_hashes_are_unchanged_by_vertical(stage):
-    """Byte-identical to M1, or every existing project re-renders from scratch."""
-    assert _unit(stage, _project(), Aspect.WIDE).fingerprint == M1_WIDE_FINGERPRINTS[stage]
+    """Byte-identical to M1, or every existing project re-renders from scratch.
+
+    Two entries are now allowed to differ, and only those two: see
+    `CAPTION_FIX_WIDE_FINGERPRINTS` and the test below.
+    """
+    expected = CAPTION_FIX_WIDE_FINGERPRINTS.get(stage, M1_WIDE_FINGERPRINTS[stage])
+    assert _unit(stage, _project(), Aspect.WIDE).fingerprint == expected
+
+
+def test_only_the_caption_layout_moved_a_wide_hash():
+    """The caption fix re-renders every video. It must not re-*assemble* one.
+
+    Assembly is where the quota and the wall time live — ten projects' worth of
+    per-scene encodes — and it has nothing to do with how a caption is laid out. If
+    this ever fails alongside the two above, the caption style has leaked into the
+    picture and the cost of the fix has silently multiplied.
+    """
+    assert set(CAPTION_FIX_WIDE_FINGERPRINTS) == {"captions", "render"}
+    for stage, moved in CAPTION_FIX_WIDE_FINGERPRINTS.items():
+        assert moved != M1_WIDE_FINGERPRINTS[stage], f"{stage} was pinned to a value it had"
+    assert (
+        _unit("assemble", _project(), Aspect.WIDE).fingerprint
+        == M1_WIDE_FINGERPRINTS["assemble"]
+    )
 
 
 @pytest.mark.parametrize("stage", PER_ASPECT_STAGES)

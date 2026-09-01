@@ -125,6 +125,23 @@ PRE_THUMBNAIL_FINGERPRINTS: dict[str, dict[str, str]] = {
 
 PRE_THUMBNAIL_STAGES: tuple[str, ...] = tuple(PRE_THUMBNAIL_FINGERPRINTS)
 
+#: The two stages the caption-layout fix deliberately moved, captured from *this*
+#: tree — the only entries above that may be.
+#:
+#: `WrapStyle: 2` ran a long caption off the frame rather than breaking it, and the
+#: side margins were hardcoded for both aspects instead of authored per aspect. Both
+#: are caption inputs, and `render` hashes the caption file, so both aspects of both
+#: stages move and every finished video re-renders. `assemble` is untouched, which is
+#: the claim worth checking: the fix reaches the burn-in and not the picture.
+CAPTION_FIX_FINGERPRINTS: dict[str, dict[str, str]] = {
+    "captions": {"wide": "009a8f6cb95c5c7b", "vertical": "fc94c83dfdf2a91b"},
+    "render": {"wide": "4bb35e6b9a53c146", "vertical": "d207429305adfcc8"},
+}
+
+
+def _expected(stage: str) -> dict[str, str]:
+    return CAPTION_FIX_FINGERPRINTS.get(stage, PRE_THUMBNAIL_FINGERPRINTS[stage])
+
 
 def _scene(sid: str, *, duration: float, in_short: bool = True) -> Scene:
     return Scene(
@@ -205,8 +222,22 @@ def _thumb_unit(project: Project):
 
 @pytest.mark.parametrize("stage", PRE_THUMBNAIL_STAGES)
 def test_no_pre_existing_unit_hash_moves(stage):
-    """Byte-identical to Phase C, or ten real projects restage themselves."""
-    assert _fingerprints(_project(), stage) == PRE_THUMBNAIL_FINGERPRINTS[stage]
+    """Byte-identical to Phase C, or ten real projects restage themselves.
+
+    Except the two the caption-layout fix moved on purpose: `CAPTION_FIX_FINGERPRINTS`.
+    """
+    assert _fingerprints(_project(), stage) == _expected(stage)
+
+
+def test_the_caption_layout_fix_moved_captions_and_render_and_nothing_else():
+    """Which stages the Short's caption fix is allowed to cost, named one by one."""
+    assert set(CAPTION_FIX_FINGERPRINTS) == {"captions", "render"}
+    for stage, units in CAPTION_FIX_FINGERPRINTS.items():
+        assert set(units) == set(PRE_THUMBNAIL_FINGERPRINTS[stage])
+        for unit, moved in units.items():
+            assert moved != PRE_THUMBNAIL_FINGERPRINTS[stage][unit]
+    for stage in set(PRE_THUMBNAIL_STAGES) - set(CAPTION_FIX_FINGERPRINTS):
+        assert _fingerprints(_project(), stage) == PRE_THUMBNAIL_FINGERPRINTS[stage]
 
 
 @pytest.mark.parametrize("stage", PRE_THUMBNAIL_STAGES)
@@ -219,7 +250,7 @@ def test_the_new_project_fields_move_no_pre_existing_hash(stage):
     project = _project()
     project.thumbnail_text = "A completely different headline"
     project.thumbnail_path = "output/thumbnail.jpg"
-    assert _fingerprints(project, stage) == PRE_THUMBNAIL_FINGERPRINTS[stage]
+    assert _fingerprints(project, stage) == _expected(stage)
 
 
 def test_the_script_unit_cannot_be_provoked_into_re_running():

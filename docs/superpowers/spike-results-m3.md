@@ -448,12 +448,12 @@ relative library under a `monkeypatch.chdir`. Mutation-tested: reverting the
 `.resolve()` fails it with
 `assets/sfx/transition/whoosh.wav would be read relative to the project folder`.
 
-## 2. OPEN — the Short's captions overflow the frame and lose letters
+## 2. FIXED — the Short's captions overflow the frame and lose letters
 
-**Not fixed here.** It is a rendering-quality change that moves every project's
-caption fingerprint, and it deserves a task with a measurement, not a drive-by in
-a verification commit. But it should be fixed **before the owner publishes a
-single Short**.
+**Not fixed in the verification commit.** It is a rendering-quality change that
+moves every project's caption fingerprint, and it deserved a task with a
+measurement, not a drive-by. Fixed in its own commit afterwards; what follows is
+the original diagnosis, then the correction and the result.
 
 Looked at, at full resolution, in `final_vertical.mp4`: `version number,
 allowing` renders as `ersion number, allowin` — the leading *v* and the trailing
@@ -498,6 +498,66 @@ never got the equivalent test.
 
 A fix re-renders every project's captions and therefore every finished video. It
 is worth it.
+
+### The fix, and a correction to the numbers above
+
+**The percentages above are over-stated by about a sixth, and here is why.** They
+were measured with a text renderer told "size 96". ASS `Fontsize` is a *line
+height*, not an em size: libass scales the face so that its ascender plus its
+descender comes to `Fontsize`, which for DejaVu Sans is 0.859 em. Re-measured in
+the units libass actually draws in, over all three projects that had vertical
+captions:
+
+| | measured here | as reported above |
+|---|---|---|
+| lines wider than the 960 px text box | **50 of 185 (27 %)** | 58 % and 44 % |
+| lines wider than the **frame** — letters lost | **27 of 185 (15 %)** | 42 % and 25 % |
+| widest line | **1670 px in a 1080 px frame** | 1572 px |
+
+The defect itself is exactly as described, and confirmed in the shipped pixels:
+burning all 185 captions through real libass puts ink at x = 0 and x = 1079 in a
+1080-wide frame, on 26 of them. Wide was clean — 0 of 221 lines off the frame —
+though one line was already past its declared text box at 1832 px.
+
+Three changes, all in `media/ass.py`:
+
+* **`WrapStyle: 2` → `WRAP_STYLE = 0`**, so libass breaks a long chunk instead of
+  running it off screen. It is named in `captions.aspect_hash` too: a layout knob
+  the cache cannot see is a stale artefact the cache swears is fresh.
+* **`margin_l` / `margin_r` on `CaptionStyle`.** Wide keeps the 60 the writer used
+  to hardcode, so not one wide caption moves. Vertical is authored at 72 — a
+  fifteenth of a 1080-wide frame, which after the 96 px face's 6 px rim and 2 px
+  shadow leaves 64 px of clear edge.
+* **A break opportunity after an em or en dash that joins two words.** libass
+  breaks at a space and at nothing else — not at a dash, not at U+200B, not at a
+  soft hyphen, all three measured — so `representations—plain` is one unbreakable
+  1055 px token in a 936 px box that no wrap mode can rescue. Without this the
+  count does not reach zero.
+
+Result, burning every caption of all four caption-bearing projects through real
+libass:
+
+| | vertical | wide |
+|---|---|---|
+| before — ink within 6 px of a frame edge | **26 of 185** | 0 of 221 |
+| before — ink past the declared margin | **42 of 185** | 1 of 221 |
+| after — ink within 6 px of a frame edge | **0 of 275** | **0 of 221** |
+| after — ink past the declared margin | **0 of 275** | **0 of 221** |
+
+(The vertical "after" set is larger because `how-to-sync-your-apple-devices` had no
+vertical captions written yet.) Vertical ink now spans x = 71…1006 of 1080. The one
+wide caption that had been past its margin — ink at x = 43 and x = 1877 against a
+60 px margin — now wraps and sits at x = 266…1649.
+
+Wide is otherwise untouched, and demonstrably so: re-rendering
+`what-the-cloud-actually-means-for-your-documents` produces a `final_wide.mp4` that
+is **bit-for-bit identical** to the one on disk — SSIM 1.000000 on all 3400 frames
+and the same decoded-video-stream MD5. Its `.ass` differs by exactly one byte
+(`WrapStyle: 2` → `0`); the style line, side margins included, is unchanged.
+
+`captions:{wide,vertical}` and `render:{wide,vertical}` moved, once, deliberately;
+`script`, `voice`, `align`, `visuals` and `assemble` did not, so the re-render costs
+an encode and no provider quota.
 
 ## 3. OPEN — a lost stage cache silently rewrites the script
 

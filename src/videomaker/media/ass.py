@@ -14,6 +14,7 @@ Two things bite here and both are covered by unit tests:
   :func:`karaoke_spans` re-establishes that guarantee per word.
 """
 
+import re
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
@@ -43,6 +44,39 @@ MIN_KARAOKE_SPAN_S = 0.060
 #: Widely available on Linux; libass falls back gracefully if it is missing.
 DEFAULT_FONT = "DejaVu Sans"
 
+#: ASS ``WrapStyle``: **0 is smart wrapping**, breaking a long line at a space with
+#: the wider line on top.
+#:
+#: M1 shipped ``2`` — *no wrapping at all* — and it survived because the wide layout
+#: fits by arithmetic: five words at 64 px happen to sit inside 1800 px. The Short
+#: does not. Three words at 96 px routinely need 1000–1700 px and had 960, so libass
+#: ran them off the screen rather than breaking them. Measured over the owner's
+#: workspace: 50 of 185 vertical lines wider than their text box, **27 of them wider
+#: than the 1080 px frame** — letters gone — with the widest at 1670 px, and
+#: ``version number, allowing`` rendering as ``ersion number, allowin`` with glyphs
+#: at x = 5 and x = 1079. Wide came through it on luck rather than design: 0 of 221
+#: lines off the frame, but one already past its text box at 1832 px. See the M3
+#: spike log, defect 2.
+#:
+#: This is a property of the file rather than of one aspect's layout, so it lives
+#: here and not in :class:`CaptionStyle` — but `captions.aspect_hash` still names it,
+#: or moving it would rewrite nothing in any project that already has captions.
+WRAP_STYLE = 0
+
+#: Dashes that join two words with no space around them, as the scripts really write
+#: them (``several representations—plain text``).
+#:
+#: libass breaks a line at a space and at nothing else. Not at a dash, not at U+200B,
+#: not at a soft hyphen — all three measured against the real ``subtitles`` filter —
+#: so ``representations—plain`` is a single unbreakable 1055 px token in a 936 px box
+#: and no wrap mode can rescue it. A space after the dash is the break opportunity,
+#: and it falls where the line would have been broken anyway: the dash stays with the
+#: word it closes. Ordinary hyphens are left alone: ``state-of-the-art`` and
+#: ``error‑correcting`` are one word each and both fit.
+BREAKING_DASHES = "\u2014\u2013"
+
+_DASH_BREAK = re.compile(f"([{BREAKING_DASHES}])(?=\\S)")
+
 
 def ass_colour(r: int, g: int, b: int) -> str:
     """Format an RGB triple as an ASS ``&HAABBGGRR`` colour (opaque, BGR order)."""
@@ -70,6 +104,12 @@ KARAOKE_HIGHLIGHT_COLOUR = ass_colour(255, 214, 10)
 class CaptionStyle:
     font_size: int
     words_per_chunk: int
+    #: Side margins, in play-resolution pixels. Together with ``PlayResX`` they are
+    #: the width libass wraps a caption at, and they are **authored per aspect** like
+    #: everything else here — M1 hardcoded ``60,60`` into the style line for both
+    #: frames, which made the vertical text box a number derived from the wide one.
+    margin_l: int
+    margin_r: int
     margin_v: int
     alignment: int  # ASS numpad alignment: 2 == bottom centre
     primary_colour: str
@@ -85,6 +125,10 @@ STYLES: dict[Aspect, CaptionStyle] = {
     Aspect.WIDE: CaptionStyle(
         font_size=64,
         words_per_chunk=5,
+        # The number the writer used to hardcode. Kept exactly, so moving it into the
+        # style changes where not one wide caption is drawn.
+        margin_l=60,
+        margin_r=60,
         margin_v=160,  # lower third of a 1080-high frame
         alignment=2,
         primary_colour=ass_colour(255, 255, 255),
@@ -105,6 +149,14 @@ STYLES: dict[Aspect, CaptionStyle] = {
     Aspect.VERTICAL: CaptionStyle(
         font_size=96,
         words_per_chunk=3,
+        # 72 px is a fifteenth of a 1080-wide frame: the inset a 9:16 Short wants so
+        # the type clears a phone's rounded corners and the side action rail every
+        # vertical platform overlays. After the 96 px face's 6 px rim and 2 px shadow
+        # — both drawn *outside* the text box — that still leaves 64 px of clear
+        # frame edge. Authored for this frame, not the wide style's 60: see
+        # `WRAP_STYLE` and the M3 spike log, defect 2.
+        margin_l=72,
+        margin_r=72,
         margin_v=672,
         alignment=2,
         primary_colour=ass_colour(255, 255, 255),
@@ -232,12 +284,18 @@ def format_timestamp(seconds: float) -> str:
 
 
 def escape_text(text: str) -> str:
-    """Escape narration for an ASS ``Dialogue`` line.
+    """Turn narration into an ASS ``Dialogue`` Text field.
 
     Braces open and close override blocks, so unescaped ``{drop}`` would be
     parsed as a (bogus) tag and vanish silently.
+
+    It also leaves libass somewhere to break the line, which is a layout concern
+    living in an escaping function on purpose: this is the one place both the plain
+    and the karaoke paths pass every word through, and a second pass that only one
+    of them called is how half the captions would end up unbreakable. See
+    :data:`BREAKING_DASHES`.
     """
-    return (
+    escaped = (
         text.replace("\\", "\\\\")
         .replace("{", "\\{")
         .replace("}", "\\}")
@@ -245,6 +303,7 @@ def escape_text(text: str) -> str:
         .replace("\n", " ")
         .replace("\r", " ")
     )
+    return _DASH_BREAK.sub(r"\1 ", escaped)
 
 
 STYLE_FORMAT = (
@@ -262,7 +321,7 @@ def _style_line(style: CaptionStyle) -> str:
         f"{style.primary_colour},{style.primary_colour},"
         f"{style.outline_colour},{ass_colour(0, 0, 0)},"
         f"-1,0,0,0,100,100,0,0,1,{style.outline:g},{style.shadow:g},"
-        f"{style.alignment},60,60,{style.margin_v},1"
+        f"{style.alignment},{style.margin_l},{style.margin_r},{style.margin_v},1"
     )
 
 
@@ -274,7 +333,7 @@ def _header(style: CaptionStyle, play_res: tuple[int, int]) -> str:
             "ScriptType: v4.00+",
             f"PlayResX: {width}",
             f"PlayResY: {height}",
-            "WrapStyle: 2",
+            f"WrapStyle: {WRAP_STYLE}",
             "ScaledBorderAndShadow: yes",
             "",
             "[V4+ Styles]",

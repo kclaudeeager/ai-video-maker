@@ -40,3 +40,52 @@ def _isolate_user_cache(tmp_path_factory):
         patch.setenv("MUSIC_DIR", str(library_dir / "music"))
         patch.setenv("SFX_DIR", str(library_dir / "sfx"))
         yield
+
+
+# ------------------------------------------------------- measuring caption type
+
+#: A probe size big enough that FreeType's integer metrics round to under a tenth of
+#: a percent. The ratio below is read off a face once, at this size, and applied to
+#: whatever the style actually asks for.
+_METRIC_PROBE_PX = 1000
+
+
+@pytest.fixture(scope="session")
+def caption_face():
+    """`style -> PIL font`, sized and weighted the way libass will draw that style.
+
+    ASS ``Fontsize`` is a **line height**, not an em size: libass scales the face so
+    that its ascender plus its descender comes to ``Fontsize`` pixels, which for
+    DejaVu Sans is 0.859 em. Type set at ``Fontsize: 96`` therefore draws about 86 %
+    as wide as any ordinary renderer would at "size 96", and measuring a caption at
+    face value over-states every line by a sixth — enough to call a caption that fits
+    its box an overflow, and enough to over-count a real one. It is why the M3 spike
+    log reports 58 % and 44 % of vertical lines over the box where real libass draws
+    22 %.
+
+    Derived from the face's own metrics rather than pinned as a number, because the
+    ratio is a property of the font: a caption style that ever names a different
+    family would silently get the wrong one. Pinned against the real ``subtitles``
+    filter, on rendered pixels and in both aspects, by
+    `test_the_type_metric_matches_what_libass_actually_draws` in
+    `tests/integration/test_caption_frame_fit.py`.
+
+    The family is resolved through fontconfig twice: once by name, to learn whether
+    this machine really has it (``fc-match`` never fails — it substitutes silently,
+    which is how a caption font goes missing with nothing looking wrong), and once
+    with ``:bold``, because every caption style sets Bold and the bold face is wider.
+    """
+    from PIL import ImageFont
+
+    from videomaker.media.fonts import resolve_family
+
+    def face(style):
+        named = resolve_family(style.font_name)
+        bold = resolve_family(f"{style.font_name}:bold")
+        if named is None or bold is None or not named.exact:
+            pytest.skip(f"fontconfig cannot resolve {style.font_name} on this machine")
+        ascent, descent = ImageFont.truetype(bold.path, _METRIC_PROBE_PX).getmetrics()
+        ppem = style.font_size * _METRIC_PROBE_PX / (ascent + descent)
+        return ImageFont.truetype(bold.path, ppem)
+
+    return face

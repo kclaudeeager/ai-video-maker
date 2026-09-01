@@ -88,6 +88,22 @@ def test_vertical_style_is_authored_not_scaled_from_wide():
     assert vertical.margin_v != wide.margin_v
     assert vertical.words_per_chunk != wide.words_per_chunk
     assert vertical.outline != wide.outline
+    # The side margins were the one part of the layout that was *not* authored per
+    # aspect: hardcoded `60,60` in the writer's style line for both frames, which is
+    # exactly the "vertical derived from wide" that spec 4.5 forbids (M3 defect 2).
+    assert vertical.margin_l != wide.margin_l
+    assert vertical.margin_r != wide.margin_r
+
+
+def test_the_vertical_side_margins_are_authored_for_a_1080_wide_frame():
+    """1/15 of the frame, not the 60 px the wide style was written against."""
+    style = STYLES[Aspect.VERTICAL]
+    width, _ = VERTICAL_PLAY_RES
+    assert (style.margin_l, style.margin_r) == (72, 72)
+    assert style.margin_l == style.margin_r == width // 15
+    # ...and the rim still clears the frame edge by a comfortable margin: libass
+    # draws Outline and Shadow *outside* the text box.
+    assert style.margin_l - (style.outline + style.shadow) >= 60
 
 
 def test_the_wide_style_is_untouched():
@@ -100,6 +116,9 @@ def test_the_wide_style_is_untouched():
         2,
     )
     assert (wide.outline, wide.shadow) == (3.0, 1.0)
+    # The number the writer used to hardcode for both aspects. Wide keeps it, so the
+    # wide layout on screen is unchanged by moving it into the style.
+    assert (wide.margin_l, wide.margin_r) == (60, 60)
 
 
 def test_vertical_header_is_written_at_the_vertical_frame(tmp_path):
