@@ -33,6 +33,9 @@ services:
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
 
+    # Published on loopback only. With the `tunnel` profile you can drop this
+    # entirely — cloudflared reaches the app over the compose network, so the
+    # port never needs to exist on the host.
     ports:
       - "127.0.0.1:8000:8000"
 
@@ -53,6 +56,24 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+  # Opt-in: `docker compose --profile tunnel up`. Without the profile this
+  # service is not created at all, so the default remains a loopback-only app.
+  #
+  # Publishing your machine is a deliberate act and this is the switch for it.
+  # The app is still behind LONGHAND_PASSWORD — a tunnel is a public address,
+  # and the gate is the only thing between the workspace and the internet.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    # Token from Zero Trust -> Networks -> Tunnels. The route (which hostname
+    # maps to which service) lives in the dashboard, not here: point it at
+    # `http://longhand:8000`, which resolves on this network.
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?set TUNNEL_TOKEN from the Cloudflare dashboard}
+    depends_on:
+      longhand:
+        condition: service_healthy
 
 volumes:
   longhand-workspace:

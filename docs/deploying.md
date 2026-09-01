@@ -64,7 +64,8 @@ that; `render.yaml` encodes it.
 If that is more than this is worth right now, the honest alternative is a
 **Cloudflare Tunnel** pointed at the container on your own machine: free, TLS,
 no open ports, and the renders run on hardware you have already paid for. The
-password gate applies identically.
+password gate applies identically. See [Cloudflare Tunnel — the free
+path](#cloudflare-tunnel--the-free-path) below.
 
 ## Render
 
@@ -102,6 +103,75 @@ front, or a Cloudflare Tunnel, before letting anything else reach it.
 The compose file mounts `assets/music` and `assets/sfx` read-only from the repo.
 The tool ships **no audio files** and never will (`docs/audio-design.md`), so
 those directories are yours to fill; drop the two lines if they are empty.
+
+## Cloudflare Tunnel — the free path
+
+The container runs on your own machine and Cloudflare publishes it. No hosting
+bill, no open ports, no public IP, TLS included, and the renders happen on
+hardware you have already paid for — which is the right side of the unit
+economics this product has (`docs/multi-tenant-design.md`: *the AI is nearly
+free, the compute is the cost*).
+
+The trade is availability, and it is a real one: **the site is up only while
+your machine is on and `cloudflared` is running.** That is fine for a tool you
+use yourself and wrong for anything anyone else depends on.
+
+### Try it in one command
+
+No account, no DNS, nothing to clean up afterwards. With the container already
+running on `127.0.0.1:8000`:
+
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
+
+It prints a random `*.trycloudflare.com` URL. The URL dies with the process, so
+this is for showing someone something, not for running anything.
+
+**The password gate still applies, and it is now the only thing between your
+workspace and the internet.** A quick tunnel is a public address. Do not start
+one against a container you launched without `LONGHAND_PASSWORD` — and you
+cannot, because the container refuses to start that way.
+
+### A tunnel that stays
+
+For a stable address on a domain you own:
+
+```bash
+cloudflared tunnel login          # opens a browser, picks the zone
+cloudflared tunnel create longhand
+```
+
+Then in **Zero Trust → Networks → Tunnels**, add a public hostname
+(`longhand.yourdomain.com`) pointing at the service `http://longhand:8000` if
+you run `cloudflared` in compose, or `http://localhost:8000` if you run it on
+the host. Cloudflare now steers most setups to remotely-managed tunnels, where
+that routing lives in the dashboard and the local daemon only carries a token.
+
+The compose file has a `cloudflared` service behind a profile, so it is opt-in:
+
+```bash
+export LONGHAND_PASSWORD=$(python -c 'import secrets; print(secrets.token_urlsafe(24))')
+export TUNNEL_TOKEN=...            # from the dashboard
+docker compose --profile tunnel up --build
+```
+
+It joins the same network and reaches the app as `http://longhand:8000`, so
+port 8000 never has to be published on the host at all.
+
+### Add Cloudflare Access if other people will use it
+
+Free for up to 50 users. It puts an identity check at Cloudflare's edge, so
+requests are authenticated *before* they reach your machine — which is a
+meaningfully better position than a shared password, because a brute-force
+attempt never gets a TCP connection to your box.
+
+Access and the password gate stack: you would sign in to Access, then the
+browser would prompt for the Basic credentials. Two prompts is mildly annoying
+and it is defence in depth — the app is still single-user underneath, so leaving
+the password on means a misconfigured Access policy cannot expose the workspace
+on its own. Turning it off is a decision to trust one layer; do that knowingly,
+not by forgetting.
 
 ## What the image contains, and why it is large
 
