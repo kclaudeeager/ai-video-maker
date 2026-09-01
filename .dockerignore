@@ -1,0 +1,28 @@
+# The workspace is the one thing that must never be baked into an image: it is
+# gigabytes of renders, and on a shared registry it would be a data leak.
+workspace/
+assets/music/
+assets/sfx/
+
+.git/
+.github/
+.venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets. `.env` holds live provider keys; an image carrying it hands them to
+# anyone who can pull it.
+.env
+.env.*
+config.yaml
+
+tests/
+docs/
+*.md
+!README.md
+Dockerfile
+.dockerignore
+docker-compose.yml

@@ -1,0 +1,58 @@
+# Self-hosting Longhand on your own machine or a VPS. M6.
+#
+#     LONGHAND_PASSWORD=$(python -c 'import secrets;print(secrets.token_urlsafe(24))') \
+#       docker compose up --build
+#
+# The named volume is the point of this file. `workspace/` holds every project,
+# every approval and the stage cache that makes a re-run cheap; a container
+# without a volume loses all of it the moment it restarts.
+#
+# Port 8000 is published on **127.0.0.1 only**. Reaching it from elsewhere is a
+# deliberate act — put a reverse proxy with TLS in front, or a Cloudflare Tunnel.
+# Basic auth over plain HTTP on an untrusted network sends the password in the
+# clear, so the gate is necessary and not sufficient.
+
+services:
+  longhand:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: longhand:latest
+    restart: unless-stopped
+
+    environment:
+      # No default. The container refuses to start without it, which is what
+      # stops a copy-pasted compose file from becoming an open service.
+      LONGHAND_PASSWORD: ${LONGHAND_PASSWORD:?set LONGHAND_PASSWORD before starting}
+      WORKSPACE_DIR: /data/workspace
+      # Provider keys, passed through from your shell or a .env beside this file.
+      # Empty is fine: the pipeline runs on whatever is configured and says so.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    volumes:
+      - longhand-workspace:/data
+      # Your own music and SFX, read-only — the tool ships no audio files and
+      # never will (docs/audio-design.md). Drop the two lines if you have none.
+      - ./assets/music:/home/longhand/assets/music:ro
+      - ./assets/sfx:/home/longhand/assets/sfx:ro
+
+    # Rendering is the whole workload and it is CPU-bound. Left uncapped on
+    # purpose: capping it does not make anything safer, it only makes every
+    # encode slower. Set `cpus:` here if this shares a box with something that
+    # matters more.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  longhand-workspace:

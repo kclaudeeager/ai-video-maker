@@ -25,6 +25,7 @@ from videomaker.config import Settings, load_settings
 from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
 from videomaker.web import media
+from videomaker.web.auth import PASSWORD_ENV, PasswordGate
 from videomaker.web.routes import projects, render, script, storyboard
 from videomaker.web.worker import JobQueue
 
@@ -92,6 +93,14 @@ def create_app(settings: Settings | None = None, *, providers: str | None = None
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    # Last, so it wraps every route and both mounted `StaticFiles` apps. Absent
+    # when no password is set, which is the local single-user case: `serve`
+    # refuses a non-loopback bind without one, so an unset password can only
+    # mean loopback. See `web.auth`.
+    password = os.environ.get(PASSWORD_ENV, "")
+    if password:
+        app.add_middleware(PasswordGate, password=password)
 
     return app
 

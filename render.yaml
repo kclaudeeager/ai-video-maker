@@ -1,0 +1,63 @@
+# Render blueprint. `render.yaml` in the repo root is what Render reads when you
+# create a Blueprint from this repository — see docs/deploying.md.
+#
+# Two things here are deliberate and cost money, and both are the difference
+# between "it deploys" and "it works".
+#
+# **`plan: standard`, not `free`.** Free is 512 MB of RAM and 0.1 CPU. Kokoro's
+# ONNX model is 311 MB and faster-whisper base is another 142 MB; both are
+# resident while a project is voiced and aligned, so the pipeline runs out of
+# memory on free before it renders a frame. The 0.1 CPU is the second wall: a
+# two-minute video took ~70 s of libx264 on a full desktop core, so a tenth of a
+# core turns every render into a quarter of an hour. Free also has no persistent
+# disk at all.
+#
+# **A disk, not ephemeral storage.** `workspace/` is the entire product state —
+# projects, approvals, voiced takes, the stage cache that makes a re-run cheap.
+# Render's filesystem is otherwise wiped on every deploy and every restart, so
+# without this every project you have ever made disappears the next time you push.
+# 10 GB is about five finished projects at the ~390 MB M3 measured, plus room;
+# `videomaker clean` reclaims the build intermediates when it gets tight.
+
+services:
+  - type: web
+    name: longhand
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: standard # 2 GB / 1 CPU — see the note above before dropping this
+    region: frankfurt # nearest to Rwanda of Render's regions; change if you move
+    healthCheckPath: /healthz
+    # One instance, always. The worker is a single in-process thread holding a
+    # `flock` per project, and the disk cannot be attached to more than one
+    # instance anyway. Scaling this out needs a real job queue first.
+    numInstances: 1
+
+    disk:
+      name: longhand-workspace
+      mountPath: /data
+      sizeGB: 10
+
+    envVars:
+      # Generated once by Render and never shown in the repo. Read it from the
+      # dashboard (Environment → LONGHAND_PASSWORD) and log in as user `longhand`.
+      # Without it the container refuses to start rather than serving open.
+      - key: LONGHAND_PASSWORD
+        generateValue: true
+
+      # `sync: false` means "ask me for this in the dashboard, do not read it
+      # from the repo". These are live billing credentials.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PEXELS_API_KEY
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+
+      # Matches the Dockerfile, restated so it is visible in the dashboard next
+      # to the disk it depends on.
+      - key: WORKSPACE_DIR
+        value: /data/workspace

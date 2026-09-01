@@ -317,20 +317,32 @@ def serve(
     import uvicorn
 
     from videomaker.web.app import PROVIDERS_ENV_VAR, create_app
+    from videomaker.web.auth import (
+        PASSWORD_ENV,
+        USERNAME,
+        PasswordRequired,
+        require_password_for,
+    )
+
+    # Fail closed. This used to print three red warnings and serve anyway, which
+    # is the shape of every accidentally-public deployment: the warning scrolls
+    # past and the open port stays. Now a public bind without a password is a
+    # startup error — see `web.auth.require_password_for`.
+    password = os.environ.get(PASSWORD_ENV, "")
+    try:
+        require_password_for(host, password)
+    except PasswordRequired as refused:
+        console.print(f"[bold red]REFUSED[/bold red] {refused}")
+        console.print(
+            f"  generate one:  [bold]export {PASSWORD_ENV}=$(python -c "
+            "'import secrets;print(secrets.token_urlsafe(24))')[/bold]"
+        )
+        raise typer.Exit(code=2) from refused
 
     if not _is_loopback(host):
         console.print(
-            f"[bold red]WARNING[/bold red] binding {host}, which is NOT a loopback address: "
-            "this server is reachable from other machines on the network."
-        )
-        console.print(
-            "[bold red]WARNING[/bold red] there is NO authentication — "
-            "anyone who can reach this port can read and write any path your user account can, "
-            "and can run the pipeline (spending your provider quota)."
-        )
-        console.print(
-            "[bold red]WARNING[/bold red] only do this on a network you trust, "
-            "and stop the server when you are done."
+            f"[bold]binding {host}[/bold] — reachable from other machines, "
+            f"behind the {PASSWORD_ENV} gate (user [bold]{USERNAME}[/bold])."
         )
 
     console.print(f"serving the review UI on [bold]http://{host}:{port}[/bold] (Ctrl-C to stop)")

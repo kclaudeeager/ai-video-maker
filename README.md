@@ -29,6 +29,18 @@ uv run videomaker doctor     # everything should be OK/WARN, no FAIL
 
 macOS users (including Intel Macs): see `docs/macos-intel-notes.md`.
 
+## Running it on a server
+
+`docker compose up --build` self-hosts it; `render.yaml` deploys it to Render as
+a Blueprint. Both need `LONGHAND_PASSWORD` set — the server **refuses to start**
+on a public address without one, because everything behind the UI spends your
+provider quota and starts encodes on the host.
+
+Read [`docs/deploying.md`](docs/deploying.md) first. The short version: the
+image carries ~480 MB of model weights and needs **661 MB of RAM before it
+renders anything**, so a 512 MB free tier cannot run it. Standard-sized
+instances or your own machine behind a tunnel.
+
 ## Music and sound effects
 
 **The project ships no audio files, ever.** Content ID issues false claims against
