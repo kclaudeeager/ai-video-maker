@@ -456,7 +456,9 @@ class QuotaRow:
     def tone(self) -> str:
         if self.spent:
             return "status-failed"
-        return "status-waiting" if self.low else "status-ok"
+        # Healthy headroom is not news. It was four green rows of numbers you
+        # never need to read; now only a provider running low says anything.
+        return "status-waiting" if self.low else ""
 
 
 @dataclass(frozen=True)

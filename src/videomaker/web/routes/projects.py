@@ -565,7 +565,10 @@ class GateRow:
     def tone(self) -> str:
         if self.approved:
             return "status-ok"
-        return "status-waiting" if self.reachable else ""
+        # `reachable` is precisely "this gate is open to you now", which is the
+        # only thing in the UI that earns the filled chip — see `.status-now`.
+        # An unreachable gate is not news: it is waiting on the stages before it.
+        return "status-now" if self.reachable else ""
 
 
 def _load(request: Request, project_id: str) -> Project:

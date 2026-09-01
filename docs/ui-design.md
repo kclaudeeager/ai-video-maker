@@ -54,54 +54,102 @@ plus the `<title>` fallback in `base.html`.
 
 The organising idea, and the one thing worth defending:
 
-> **Everything the machine does is cool. The only warm colour on the page is the
+> **Everything the machine does is achromatic. The only hue on the page is the
 > one asking for a human.**
 
-Cool ground, cool ink, cool indigo for anything you can click. Amber appears
-exactly where the pipeline has stopped and is waiting for you, and nowhere else.
-Green appears only where a human has already signed. That makes "is anything
-waiting for me?" answerable from across the room, on any of the five pages,
-without reading a word — which is most of the "simple to use, easy to understand
-the steps" brief.
+This started as "the machine is *cool*, the human is warm", with a cool indigo
+for anything clickable. It did not survive contact with a real workspace. An
+indigo button is still a coloured thing competing for the eye, and on a project
+page carrying twelve status pills the amber had nothing to win against — the
+page read as a generic admin panel, which is exactly the note the owner gave.
+
+So the rule is taken to its end. **The chrome carries no hue at all**: the
+ground, the paper, the ink, the borders, and — the part that is easy to flinch
+from — every button and every link. `--accent` is near-black in the light theme
+and near-white in the dark one. Links are therefore **underlined rather than
+coloured**, which is the more accessible signal anyway.
+
+That leaves exactly one hue in the interface, and it means one thing. Green
+survives only on a human's own mark: the approval stamp, and a `done` label.
+
+**The ground is a neutral grey, not a blue-grey.** This app's whole job is
+showing you frames to judge, and a cast in the surround is a cast on your
+judgement — the same reason a grading suite is painted neutral and a
+photographer meters off an 18% grey card. It is also darker than the first pass,
+so a white card reads as paper *on* a table rather than a rectangle drawn on a
+sheet.
+
+### Three levels of status, not one
+
+The first pass gave every state the same outlined pill. Twelve of them on one
+page, all equal weight, told you nothing at a glance. The levels are now:
+
+| level | looks like | means |
+|---|---|---|
+| default | quiet grey tracked caps, no border | `done`, `pending`, `idle` — the machine's own bookkeeping, readable when you look for it and invisible when you are not |
+| `.status-waiting` | warm text | attention or advice: the Short running long, a gate not yet stamped |
+| `.status-now` | **the only filled chip in the UI** | this gate is open to *you*, now — `GateRow.reachable`, and nothing else |
+
+Filling every warm state was the first draft of this and it put a shouting chip
+on a Short comfortably inside its limit. If a second thing ever earns the fill,
+the rule is wrong, not the exception.
+
+**The numbers below are asserted, not asserted-to.**
+`tests/unit/test_palette_contrast.py` reads every token back out of `style.css`
+and fails the build if any pair drops under AA — including a check that the
+chrome tokens really are grey, so the indigo cannot creep back in.
 
 ### Light (default)
 
 | token | hex | role | measured contrast |
 |---|---|---|---|
-| `--ground` | `#E9ECF0` | page ground | — |
-| `--paper` | `#FFFFFF` | cards | — |
-| `--sunk` | `#F3F5F8` | insets: thumbs, code, logs | — |
-| `--rule` | `#D3D8E0` | hairlines (decorative) | 1.43 on paper |
-| `--rule-field` | `#7C8698` | input & control borders | **3.67** on paper, **3.10** on ground |
-| `--ink` | `#14161C` | body text | **18.08** on paper, 15.26 on ground |
-| `--ink-soft` | `#4C5462` | secondary text | **7.63** on paper, 6.44 on ground |
-| `--accent` | `#333C9E` | links, primary, focus, rail | **9.21** on paper, 7.77 on ground |
-| `--on-accent` | `#FFFFFF` | text on a filled accent | **9.21** on accent |
-| `--ok` | `#1B6B41` | approved, done | **6.51** on paper, 5.49 on ground |
-| `--warn` | `#8A5512` | waiting for you | **6.20** on paper, 5.23 on ground |
-| `--bad` | `#A32316` | failed, destructive | **7.48** on paper, 6.31 on ground |
+| `--ground` | `#DCDBD7` | page ground | — |
+| `--paper` | `#FAFAF8` | cards | — |
+| `--sunk` | `#EFEEEA` | insets: thumbs, code, logs | — |
+| `--rule` | `#C9C7C1` | hairlines (decorative) | **1.62** on paper, 1.22 on ground |
+| `--rule-field` | `#6E7276` | input & control borders | **4.64** on paper, 3.50 on ground |
+| `--ink` | `#141516` | body text | **17.49** on paper, 13.20 on ground |
+| `--ink-soft` | `#585B5E` | secondary text | **6.54** on paper, 4.93 on ground |
+| `--accent` | `#22252A` | links, buttons, focus, rail | **14.71** on paper, 11.10 on ground |
+| `--on-accent` | `#FAFAF8` | text on a filled accent | **14.71** on the accent |
+| `--chrome` | `#1B1D20` | the masthead bar | — |
+| `--on-chrome` | `#F5F4F1` | text on the masthead | **15.36** on the bar |
+| `--ok` | `#2C6A4B` | approved, done | **6.14** on paper, 4.63 on ground |
+| `--warn` | `#9A4408` | waiting for you | **6.27** on paper, 4.73 on ground |
+| `--on-warn` | `#FAFAF8` | text on the filled chip | **6.27** on the chip |
+| `--bad` | `#A32316` | failed, destructive | **7.15** on paper, 5.40 on ground |
 
 ### Dark (`prefers-color-scheme: dark`)
 
 | token | hex | role | measured contrast |
 |---|---|---|---|
-| `--ground` | `#101318` | page ground | — |
-| `--paper` | `#191D24` | cards | — |
-| `--sunk` | `#14171D` | insets | — |
-| `--rule` | `#2E343E` | hairlines | 1.35 on paper |
-| `--rule-field` | `#6B7585` | input & control borders | **3.63** on paper, **4.00** on ground |
-| `--ink` | `#E7EAEF` | body text | **14.01** on paper, 15.43 on ground |
-| `--ink-soft` | `#A0A8B6` | secondary text | **7.06** on paper, 7.77 on ground |
-| `--accent` | `#A6AEFF` | links, primary, focus, rail | **8.14** on paper, 8.97 on ground |
-| `--on-accent` | `#101318` | text on a filled accent | **8.97** on accent |
-| `--ok` | `#6FD39B` | approved, done | **9.23** on paper |
-| `--warn` | `#E7B563` | waiting for you | **9.00** on paper |
-| `--bad` | `#F09287` | failed, destructive | **7.38** on paper |
+| `--ground` | `#141517` | page ground | — |
+| `--paper` | `#1D1F22` | cards | — |
+| `--sunk` | `#17191B` | insets: thumbs, code, logs | — |
+| `--rule` | `#2E3033` | hairlines (decorative) | **1.25** on paper, 1.38 on ground |
+| `--rule-field` | `#71767B` | input & control borders | **3.60** on paper, 3.98 on ground |
+| `--ink` | `#E9E8E4` | body text | **13.47** on paper, 14.90 on ground |
+| `--ink-soft` | `#A2A5A8` | secondary text | **6.67** on paper, 7.38 on ground |
+| `--accent` | `#EDECE8` | links, buttons, focus, rail | **13.97** on paper, 15.46 on ground |
+| `--on-accent` | `#141517` | text on a filled accent | **15.46** on the accent |
+| `--chrome` | `#1D1F22` | the masthead bar | — |
+| `--on-chrome` | `#E9E8E4` | text on the masthead | **13.47** on the bar |
+| `--ok` | `#72C79B` | approved, done | **8.15** on paper, 9.01 on ground |
+| `--warn` | `#E9A159` | waiting for you | **7.64** on paper, 8.45 on ground |
+| `--on-warn` | `#141517` | text on the filled chip | **8.45** on the chip |
+| `--bad` | `#F09287` | failed, destructive | **7.21** on paper, 7.98 on ground |
 
 Every ratio above is **computed**, not eyeballed — WCAG 2.x relative luminance,
-`(L1+0.05)/(L2+0.05)`. The worst text pair in either theme is 5.23:1, comfortably
-past AA (4.5) and past AAA for large text; `--rule-field` clears the 3:1 that
-1.4.11 asks of control boundaries against *both* the card and the page ground.
+`(L1+0.05)/(L2+0.05)` — and it is computed *by the test suite*, from this
+stylesheet, rather than typed here and left to rot. See
+`tests/unit/test_palette_contrast.py`; regenerate this table from it after any
+retune.
+
+`--rule` is decorative and is the one token that does not clear 3:1. It never
+carries meaning on its own: every border that has to be *found* rather than
+merely seen uses `--rule-field`, which clears 3:1 against both the card and the
+page ground as 1.4.11 asks. The worst *text* pair in either theme is 4.63:1,
+past AA.
 
 ## 4. Type
 

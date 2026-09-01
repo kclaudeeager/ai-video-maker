@@ -20,20 +20,42 @@
  */
 
 :root {
-  /* -- colour: light ----------------------------------------------------- */
-  --ground: #e9ecf0;         /* the page                                    */
-  --paper: #ffffff;          /* cards                                       */
-  --sunk: #f3f5f8;           /* insets: thumbnails, code, logs              */
-  --rule: #d3d8e0;           /* hairlines (decorative)                      */
-  --rule-field: #7c8698;     /* control borders — 3.1:1 against the ground  */
-  --ink: #14161c;            /* body text — 18.1:1 on paper                 */
-  --ink-soft: #4c5462;       /* secondary text — 7.6:1 on paper             */
-  --accent: #333c9e;         /* anything you can click — 9.2:1 on paper     */
-  --on-accent: #ffffff;      /* text on a filled accent — 9.2:1             */
-  --ok: #1b6b41;             /* approved, done — 6.5:1 on paper             */
-  --warn: #8a5512;           /* waiting for YOU — 6.2:1 on paper            */
-  --bad: #a32316;            /* failed, destructive — 7.5:1 on paper        */
-  --shade: rgb(12 16 24 / 45%);  /* the mask outside the 9:16 crop window   */
+  /* -- colour: light -----------------------------------------------------
+     ACHROMATIC EXCEPT FOR THE HUMAN. Everything the machine does is grey:
+     the ground, the paper, the ink, and — the part that is easy to get wrong
+     — every button and every link. `--accent` is near-black, not blue. This
+     is `docs/ui-design.md` §3 taken to its end: if the chrome carries no hue
+     at all, then the one warm thing on a page is unmissable, and a person can
+     find what needs them without reading a word. An indigo accent competing
+     with the amber is what made the first pass read as a generic admin panel.
+
+     Links are therefore underlined rather than coloured — colour is not
+     available to carry that job any more, and an underline is the more
+     accessible signal regardless.
+
+     The ground is a *neutral* grey, not the cool blue-grey it was. This app's
+     whole job is showing you frames to judge, and a colour cast in the
+     surround is a colour cast on your judgement — the same reason a grading
+     suite is painted neutral and a photographer meters off an 18% grey card.
+     Every ratio below is asserted by `tests/unit/test_palette_contrast.py`,
+     which reads them back out of this file.
+     ---------------------------------------------------------------------- */
+  --ground: #dcdbd7;         /* the page — a neutral card, not a blue one   */
+  --paper: #fafaf8;          /* cards: 1.33:1 on the ground, so they lift   */
+  --sunk: #efeeea;           /* insets: thumbnails, code, logs              */
+  --rule: #c9c7c1;           /* hairlines (decorative)                      */
+  --rule-field: #6e7276;     /* control borders — 3.5:1 against the ground  */
+  --ink: #141516;            /* body text — 17.5:1 on paper                 */
+  --ink-soft: #585b5e;       /* secondary text — 6.5:1 on paper             */
+  --accent: #22252a;         /* anything you can click — 14.7:1 on paper    */
+  --on-accent: #fafaf8;      /* text on a filled accent — 14.7:1            */
+  --on-warn: #fafaf8;        /* text on a filled warn chip — 6.3:1          */
+  --chrome: #1b1d20;         /* the masthead bar                            */
+  --on-chrome: #f5f4f1;      /* 15.3:1 on it                                */
+  --ok: #2c6a4b;             /* approved, done — 6.1:1 on paper            */
+  --warn: #9a4408;           /* waiting for YOU — 6.3:1 paper, 4.7:1 ground */
+  --bad: #a32316;            /* failed, destructive — 7.2:1 on paper        */
+  --shade: rgb(16 16 14 / 46%);  /* the mask outside the 9:16 crop window   */
 
   /* -- type -------------------------------------------------------------- */
   --font-ui: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -66,9 +88,12 @@
   --s8: 4rem;
 
   /* -- shape and measure ------------------------------------------------- */
-  --r-sm: 3px;
-  --r: 6px;
-  --r-lg: 10px;
+  --r-sm: 2px;
+  --r: 4px;
+  --r-lg: 8px;
+  /* Paper on a table. One soft shadow, defined once, so no component invents
+     its own and the whole page sits at a single height. */
+  --lift: 0 1px 2px rgb(20 21 22 / 6%), 0 2px 8px rgb(20 21 22 / 4%);
   --measure-app: 62rem;      /* the column                                  */
   --measure-prose: 34rem;    /* a paragraph inside it                       */
   --motion: 160ms;
@@ -76,18 +101,23 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --ground: #101318;
-    --paper: #191d24;
-    --sunk: #14171d;
-    --rule: #2e343e;
-    --rule-field: #6b7585;   /* 3.6:1 on paper, 4.0:1 on the ground         */
-    --ink: #e7eaef;          /* 14.0:1 on paper                             */
-    --ink-soft: #a0a8b6;     /* 7.1:1 on paper                              */
-    --accent: #a6aeff;       /* 8.1:1 on paper                              */
-    --on-accent: #101318;    /* 9.0:1 on the accent                         */
-    --ok: #6fd39b;           /* 9.2:1 on paper                              */
-    --warn: #e7b563;         /* 9.0:1 on paper                              */
-    --bad: #f09287;          /* 7.4:1 on paper                              */
+    /* The same rule inverted: the chrome is achromatic, so `--accent` is
+       near-*white* here rather than a blue. Warm is still the only hue. */
+    --ground: #141517;
+    --paper: #1d1f22;
+    --sunk: #17191b;
+    --rule: #2e3033;
+    --rule-field: #71767b;   /* 4.0:1 on the ground                         */
+    --ink: #e9e8e4;          /* 13.5:1 on paper                             */
+    --ink-soft: #a2a5a8;     /* 6.7:1 on paper                              */
+    --accent: #edece8;       /* 14.0:1 on paper                             */
+    --on-accent: #141517;    /* 13.8:1 on the accent                        */
+    --on-warn: #141517;      /* 7.6:1 on the filled warn chip               */
+    --chrome: #1d1f22;       /* already dark; the bar lifts off the ground  */
+    --on-chrome: #e9e8e4;    /* 13.5:1 on it                                */
+    --ok: #72c79b;           /* 8.2:1 on paper                              */
+    --warn: #e9a159;         /* 7.6:1 on paper                              */
+    --bad: #f09287;          /* 7.2:1 on paper                              */
     --shade: rgb(0 0 0 / 62%);
   }
 }
@@ -217,22 +247,22 @@ code {
   align-items: center;
   gap: var(--s5);
   padding: var(--s3) var(--s5);
-  border-bottom: 1px solid var(--rule);
-  background: var(--paper);
+  background: var(--chrome);
+  color: var(--on-chrome);
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: var(--s2);
-  color: var(--ink);
+  gap: var(--s3);
+  color: var(--on-chrome);
   text-decoration: none;
 }
 
 .brand-mark {
   flex: 0 0 auto;
-  width: 0.75rem;
-  height: 1rem;
+  width: 0.9rem;
+  height: 1.2rem;
   background-image:
     linear-gradient(currentcolor 0 0),
     linear-gradient(currentcolor 0 0),
@@ -256,19 +286,21 @@ code {
 }
 
 .masthead-nav a {
-  color: var(--ink-soft);
+  /* Deliberately not `--ink-soft`: that is tuned against paper, and this bar is
+     the one dark field in the light theme. */
+  color: rgb(245 244 241 / 62%);
   text-decoration: none;
   padding-bottom: 2px;
   border-bottom: 2px solid transparent;
 }
 
 .masthead-nav a:hover {
-  color: var(--ink);
+  color: var(--on-chrome);
 }
 
 .masthead-nav a[aria-current="page"] {
-  color: var(--ink);
-  border-bottom-color: var(--accent);
+  color: var(--on-chrome);
+  border-bottom-color: var(--on-chrome);
 }
 
 /* ==========================================================================
@@ -374,6 +406,7 @@ code {
   border: 1px solid var(--rule);
   border-radius: var(--r-lg);
   background: var(--paper);
+  box-shadow: var(--lift);
   margin-bottom: var(--s4);
 }
 
@@ -448,14 +481,27 @@ code {
    STATUS PILLS
    ========================================================================== */
 
+/* One rule decides how loud a status is, and it is the same rule the palette
+   follows: the machine's states are chrome and the human's state is a signal.
+
+   `done`, `pending`, `idle` and the rest are *not* news. They were outlined pills
+   the same size and weight as the one state that matters, and a project page
+   carrying twelve of them told you nothing at a glance. They are now quiet
+   tracked labels with no border and no fill — readable when you look for them,
+   invisible when you are not.
+
+   There are two warm levels, and the difference is whether you can act *now*.
+   `.status-waiting` is warm text: attention, advice, a thing that is not finished
+   — the Short running long, a gate not yet stamped. `.status-now` is the only
+   filled chip in the whole UI, and it marks the one gate that is actually open to
+   you. Filling every warm state was the first draft of this rule and it put a
+   shouting chip on a Short that was comfortably inside its limit. */
 .status {
   display: inline-block;
-  padding: 0.1rem 0.55rem;
-  border: 1px solid currentcolor;
-  border-radius: 999px;
+  padding: 0.1rem 0;
   font-size: var(--t-eyebrow);
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--track-eyebrow);
   text-transform: uppercase;
   white-space: nowrap;
   color: var(--ink-soft);
@@ -465,12 +511,19 @@ code {
   color: var(--ok);
 }
 
+.status-failed {
+  color: var(--bad);
+}
+
 .status-waiting {
   color: var(--warn);
 }
 
-.status-failed {
-  color: var(--bad);
+.status-now {
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--r-sm);
+  background: var(--warn);
+  color: var(--on-warn);
 }
 
 /* ==========================================================================
@@ -726,9 +779,9 @@ button[disabled]:hover {
 }
 
 .rail-step.is-current .rail-mark {
-  background: var(--ok);
-  border-color: var(--ok);
-  color: var(--paper);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 
 .rail-body {
@@ -1153,26 +1206,40 @@ video {
 
 /* The answer to "is there anything for me", above everything it summarises.
    Printed only when the answer is yes — see index.html. */
+/* The one question the root exists to answer, set like an answer rather than a
+   notification. The count is display-sized and tabular because it is a *figure* —
+   the thing you read from across the desk — and the sentence beside it is set in
+   the serif, which is this UI's voice for anything a person is meant to read
+   rather than operate. */
 .summary-strip {
-  margin: 0 0 var(--s4);
-  padding: var(--s3) var(--s4);
-  border-left: 4px solid var(--warn);
-  background: var(--paper);
-  border-radius: var(--r);
-  font-family: var(--font-ui);
-  font-size: var(--t-ui);
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  margin: 0 0 var(--s5);
+  padding: var(--s3) 0 var(--s4);
+  border-bottom: 2px solid var(--warn);
+  font-family: var(--font-text);
+  font-size: var(--t-section);
+  line-height: var(--lh-head);
   color: var(--ink);
 }
 
 .summary-strip strong {
+  font-family: var(--font-ui);
+  font-size: var(--t-display);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   color: var(--warn);
 }
 
-/* A folder page states its count even at zero, because there the strip is a
-   status line rather than an alarm. Grey, so it never reads as urgent. */
+/* On a folder page with nothing waiting the strip is a status line, not an
+   answer: it drops to the quiet rule and the ordinary UI size. */
 .summary-strip.is-quiet {
-  border-left-color: var(--rule);
+  border-bottom-color: var(--rule);
+  font-family: var(--font-ui);
+  font-size: var(--t-ui);
   color: var(--ink-soft);
 }
 
