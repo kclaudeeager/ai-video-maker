@@ -165,7 +165,7 @@ git commit -s -m "feat: vertical narration track over the in_short subset"
 
 Integration test with real FFmpeg: 1080×1920, h264+aac, duration matching the in_short timeline, captions burned with the **vertical** style.
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: vertical render with the three-minute Shorts limit enforced"
@@ -184,7 +184,7 @@ Follow M2's established patterns exactly: compare-first-**then**-lock (a no-op m
 
 **Verify in a real browser** with the browser-automation skill and screenshot it; the slider is a visual feature and `TestClient` runs no JavaScript.
 
-- [ ] **Step 1–3: TDD, browser-verify, then commit**
+- [x] **Step 1–3: TDD, browser-verify, then commit**
 
 ```bash
 git commit -s -m "feat: crop-focus slider with 9:16 overlay and in_short toggle"
@@ -208,7 +208,7 @@ Implements `docs/audio-design.md`. Layout `assets/music/<mood>/` and `assets/sfx
 
 The READMEs carry the source table from the design doc (YouTube Audio Library, Pixabay, Freesound CC0, FMA, Incompetech) and the explicit non-goal: **never extract audio from arbitrary YouTube videos.**
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: user-owned music and SFX library with a licence record"
@@ -228,7 +228,7 @@ git commit -s -m "feat: user-owned music and SFX library with a licence record"
 
 **Prove the duck audibly, not structurally.** A test asserting the filter string contains `sidechaincompress` proves nothing about the mix. Measure: render a clip with music under narration, then measure music-band loudness during speech versus during a gap (ffmpeg `astats`/`ebur128`), and assert a real reduction.
 
-- [ ] **Step 1–3: TDD with a measured duck, then commit**
+- [x] **Step 1–3: TDD with a measured duck, then commit**
 
 ```bash
 git commit -s -m "feat: music bed with sidechain ducking and two-pass loudness"
@@ -244,7 +244,7 @@ Per `docs/audio-design.md`, in its stated priority order: **transition SFX on sc
 
 Template gains `sfx_profile: subtle | punchy | none`. **Literal foley is explicitly out of scope** — the design doc explains why (Pexels clips arrive mute, and a foley hit slightly out of sync reads worse than silence).
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: transition SFX on cuts and beat-mapped accents"
@@ -260,7 +260,7 @@ The spec's gate-3 route: pick a track, preview the mix, toggle SFX, adjust ducki
 
 Browser-verify and screenshot.
 
-- [ ] **Step 1–3: TDD, browser-verify, then commit**
+- [x] **Step 1–3: TDD, browser-verify, then commit**
 
 ```bash
 git commit -s -m "feat: gate 3 music picker and side-by-side aspect previews"
@@ -278,7 +278,7 @@ Implements items 1–3 and 5 of `docs/visual-search-design.md`: 2–3 ordered qu
 
 **Measure the baseline BEFORE changing anything** (Task 14 is the harness) so the improvement is provable rather than asserted.
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: multiple visual queries per scene with laddering and ranking"
@@ -294,7 +294,7 @@ Item 4 of the design doc. Gemini Flash's free tier accepts images (1,500 req/day
 
 **Budget honestly and gate it:** 10 scenes × 4 candidates = 40 images per video ≈ 37 videos/day at the cap. Fire **only when the metadata score is ambiguous**, make it configurable, and default it **off** until Task 14 shows it earns its quota. Record spend through `QuotaTracker` like every other provider — and note Task 17 fixes the ledger persistence this depends on.
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: optional Gemini Flash visual re-rank for stock candidates"
@@ -310,7 +310,7 @@ git commit -s -m "feat: optional Gemini Flash visual re-rank for stock candidate
 
 Record M1's measured **6/10 strongly on topic** as the baseline and state the target (**8/10**). Report the number Tasks 12–13 actually achieved, including if it did not reach the target — an honest miss is more useful than a moved goalpost.
 
-- [ ] **Step 1–3: Measure, record, commit**
+- [x] **Step 1–3: Measure, record, commit**
 
 ```bash
 git commit -s -m "test: visual relevance harness with a measured before/after"
@@ -330,7 +330,7 @@ This also fills the gap M1 left: `render.py`'s `fontsdir` is omitted today becau
 
 Adding a `thumbnail` stage **does** change `STAGE_ORDER` — unlike M2's preview, this is a real deliverable. Verify `derive_status`, the golden-path tests and the web stepper all still agree.
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: thumbnail stage with bundled OFL fonts"
@@ -346,7 +346,7 @@ git commit -s -m "feat: thumbnail stage with bundled OFL fonts"
 
 **Deleting files is the one irreversible thing in this codebase.** Require confirmation unless `--yes`; print exactly what will go and its size first; never touch `output/` unless explicitly asked; and test that `--keep-outputs` genuinely keeps them.
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: clean command for build intermediates"
@@ -364,7 +364,7 @@ Switch `per_day` to a calendar-day boundary (UTC, and say so — Gemini resets P
 
 M2's fix to persist the LLM ledger is a prerequisite and already landed; verify it still holds.
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "fix: reset per-day quota on a calendar boundary, not a sliding window"
@@ -381,7 +381,7 @@ Two carried follow-ups that touch the same code:
 1. **Hardware encode.** `doctor` currently says `h264_qsv detected; renders use libx264 (CPU) until fast-render mode lands in M3` — this is that. Add `--fast` / `render.fast_mode` selecting `caps.hw_encoder` (QSV → VA-API → VideoToolbox), with libx264 the default quality path. Encoding was **70 s of M1's 184 s** cold run. Update doctor's wording once it is true.
 2. **`run_render` gains a real `on_progress` parameter.** M2 Task 12 instruments FFmpeg by *symbol substitution*, safe only because one worker runs one job. Do this **before** anything adds a second worker, not after.
 
-- [ ] **Step 1–3: TDD, then commit**
+- [x] **Step 1–3: TDD, then commit**
 
 ```bash
 git commit -s -m "feat: hardware fast-render mode and a real on_progress on run_render"
@@ -393,13 +393,13 @@ git commit -s -m "feat: hardware fast-render mode and a real on_progress on run_
 
 **Files:** create `docs/superpowers/spike-results-m3.md`
 
-- [ ] **Step 1: Real battery, real providers, real browser**
+- [x] **Step 1: Real battery, real providers, real browser**
 
 One project → `final_wide.mp4` + `final_vertical.mp4` (≤3 min) + `thumbnail.jpg`. Captions styled per aspect. **Music ducks audibly** — verify by measurement, and by listening if the owner can.
 
-- [ ] **Step 2: Watch both outputs.** Extract frames from each; confirm the vertical crop keeps the subject (that is what `crop_focus_x` is for) and that vertical captions are not wide captions scaled.
-- [ ] **Step 3: Report the visual-relevance number** from Task 14 against the 6/10 baseline.
-- [ ] **Step 4: Record and commit**
+- [x] **Step 2: Watch both outputs.** Extract frames from each; confirm the vertical crop keeps the subject (that is what `crop_focus_x` is for) and that vertical captions are not wide captions scaled.
+- [x] **Step 3: Report the visual-relevance number** from Task 14 against the 6/10 baseline.
+- [x] **Step 4: Record and commit**
 
 ```bash
 git commit -s -m "docs: M3 complete — dual format, audio, better visuals, polish"
@@ -466,18 +466,18 @@ Three distinct requirements, and they need different work:
 
 **Method:**
 
-- [ ] **Step 1: Direction before pixels.** Load `frontend-design`. Write a short
+- [x] **Step 1: Direction before pixels.** Load `frontend-design`. Write a short
   direction note (name/mark, palette with contrast ratios, type scale, spacing
   rhythm, component inventory) into `docs/ui-design.md`. Commit that first, so
   the reasoning is reviewable separately from 800 lines of CSS.
-- [ ] **Step 2: Apply it** across all five pages plus every partial.
-- [ ] **Step 3: Prove nothing broke.** `uv run pytest -q` green — with special
+- [x] **Step 2: Apply it** across all five pages plus every partial.
+- [x] **Step 3: Prove nothing broke.** `uv run pytest -q` green — with special
   attention to `test_web_*`, which assert on markup contracts.
-- [ ] **Step 4: Look at it.** Screenshot all five pages in a real browser at
+- [x] **Step 4: Look at it.** Screenshot all five pages in a real browser at
   1280px **and at a narrow width**, and read the screenshots. Report console
   errors and contrast failures. The owner will judge from these, so capture real
   content, not empty states.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git commit -s -m "feat(web): visual design pass — identity, typography, clearer gate flow"
