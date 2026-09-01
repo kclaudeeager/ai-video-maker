@@ -2120,3 +2120,28 @@ video {
     margin-left: 0;
   }
 }
+
+/* --------------------------------------------------------------------------
+   THE UPLOAD CARD. Shown at its real 16:9 so what is on screen is what gets
+   uploaded — a thumbnail judged at the wrong size is judged wrongly, and this
+   is the asset that decides whether anyone clicks the video above it.
+   -------------------------------------------------------------------------- */
+
+.thumbnail-block {
+  margin-top: var(--s6);
+  padding-top: var(--s5);
+  border-top: 1px solid var(--rule);
+}
+
+.thumbnail-card {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  margin-bottom: var(--s4);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  /* The picture is the content; the sunk ground shows while it decodes rather
+     than the page's own, so the frame does not flash. */
+  background: var(--sunk);
+}

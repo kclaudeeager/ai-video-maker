@@ -113,6 +113,55 @@
         </a>
         <a class="button" href="{{ output.url }}">Open in a new tab</a>
       </p>
+
+      {#
+        The upload card. It sits with the video rather than in a section of its
+        own because the two are one delivery: you take the file and the picture to
+        the platform in the same trip, and a thumbnail on its own page is one a
+        person forgets to fetch.
+
+        Shown at a real 16:9 so what is on screen is what gets uploaded — a
+        thumbnail judged at the wrong size is judged wrongly, and this is the asset
+        that decides whether anyone clicks the video above it.
+      #}
+      <section class="thumbnail-block">
+        <h2 class="section-title">Thumbnail</h2>
+        {% if thumbnail.exists %}
+          <img class="thumbnail-card" src="{{ thumbnail.url }}" width="1280" height="720"
+               alt="The upload card: the opening shot with the headline drawn over it.">
+
+          {% if thumbnail.state == "stale" %}
+            <p class="notice notice-warn" role="status">
+              This card is from an earlier run and something it was drawn from — the
+              opening shot, or the headline — has changed since. Re-run the render to
+              redraw it.
+            </p>
+          {% endif %}
+
+          <label class="path-copy">
+            <span class="path-label">On disk</span>
+            <input class="path-field" type="text" readonly value="{{ thumbnail.location }}"
+                   onfocus="this.select()" aria-label="Path to the thumbnail">
+          </label>
+          <p class="flush artefact-actions">
+            <a class="button button-primary" href="{{ thumbnail.url }}"
+               download="{{ thumbnail.download_name }}">Download the thumbnail</a>
+            <a class="button" href="{{ thumbnail.url }}">Open in a new tab</a>
+          </p>
+          <p class="hint flush">
+            1280&times;720 JPEG, which is what YouTube asks for and well under the
+            2&nbsp;MB every platform caps a custom thumbnail at.
+          </p>
+        {% else %}
+          {# Not an error: the stage is last in the pipeline and arrived in M3, so a
+             cut rendered before it simply has no card yet. #}
+          <p class="artefact-empty flush">
+            No thumbnail has been drawn yet. It is the last stage of the pipeline —
+            re-run the render and it will be written to
+            <code>{{ thumbnail.relpath }}</code>.
+          </p>
+        {% endif %}
+      </section>
     {% elif not poll %}
       <p class="artefact-empty flush">
         Nothing has been rendered yet. Approve the preview on the

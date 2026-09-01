@@ -88,6 +88,8 @@ from videomaker.pipeline.render import (
     scan_library,
     sfx_wanted,
 )
+from videomaker.pipeline.thumbnail import STAGE as THUMBNAIL_STAGE
+from videomaker.pipeline.thumbnail import thumbnail_relpath
 from videomaker.preview import (
     PREVIEW_ASPECTS,
     build_previews,
@@ -554,6 +556,33 @@ def output_view(store: ProjectStore, project: Project) -> ArtefactView:
     )
 
 
+def thumbnail_view(store: ProjectStore, project: Project) -> ArtefactView:
+    """The 1280x720 upload card, as an artefact the page can show and hand over.
+
+    Freshness is `stage_is_current` on the `thumbnail` stage, the same answer the
+    CLI gives — not the mtime shortcut `preview_view` uses. The picture is cheap to
+    redraw and its inputs are the opening shot plus the headline text, so an honest
+    "this is from an earlier run" is worth more here than a fast one: a stale
+    thumbnail is the one artefact you would upload without noticing, because it
+    still looks finished.
+
+    The stage is last in `STAGE_ORDER` and arrived in M3, so a project rendered
+    before it exists has a final cut and no card. That reads as `missing`, which is
+    exactly right — there is nothing wrong, it simply has not been drawn yet.
+    """
+    root = store.path_for(project.id)
+    path = root / thumbnail_relpath()
+    exists = path.is_file()
+    stage_cache = stage_cache_for(store, project.id)
+    return ArtefactView(
+        project_id=project.id,
+        relpath=thumbnail_relpath(),
+        path=path,
+        exists=exists,
+        fresh=exists and stage_is_current(project, stage_cache, THUMBNAIL_STAGE),
+    )
+
+
 # ------------------------------------------------------------ the music picker
 #
 # The fourth and finest of the four levels of control `docs/audio-design.md`
@@ -997,6 +1026,7 @@ def render_page(request: Request, project_id: str):
         {
             **_page_context(request, project),
             "output": output_view(store, project),
+            "thumbnail": thumbnail_view(store, project),
             "preview": preview_view(store, project),
             "seconds": timeline_seconds(project),
             "writing": writing(
