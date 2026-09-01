@@ -17,5 +17,13 @@ Intel MacBook Pro (i5-8259U):
      supports Kokoro voices).
    - STT last resort: `brew install whisper-cpp` and use the whisper-cli
      subprocess provider (planned as a fallback STTProvider).
-3. Hardware fast-render uses `h264_videotoolbox` when present (auto-detected
-   by `videomaker doctor`); on Apple Silicon none of the wheel issues apply.
+3. **Hardware fast-render** (`videomaker run --fast`, or `render.fast_mode` in
+   `config.yaml`) uses `h264_videotoolbox` when present. `videomaker doctor`
+   reports whether it will actually *open*, not merely whether `ffmpeg
+   -encoders` lists it — the two differ often enough to matter (the Linux
+   development machine lists `h264_qsv` and cannot open it). VideoToolbox is
+   driven with `-q:v`, which is the **one** part of this feature nobody has
+   measured: the quantiser value was picked for VA-API on Linux and carried
+   over. If Mac output looks soft, that number is the knob
+   (`media/ffmpeg.HW_QUALITY`). libx264 remains the default quality path
+   everywhere. On Apple Silicon none of the wheel issues above apply.

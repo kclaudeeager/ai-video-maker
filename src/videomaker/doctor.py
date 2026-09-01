@@ -13,6 +13,12 @@ FFMPEG_LIBASS_FIX = (
     "macOS: 'brew reinstall ffmpeg' (standard bottles include the 'subtitles' filter)"
 )
 SETUP_FIX = "uv run videomaker setup"
+HW_DRIVER_FIX = (
+    "install the driver behind it and check /dev/dri — Debian/Ubuntu Intel: "
+    "'sudo apt install intel-media-va-driver-non-free vainfo' and add yourself to "
+    "the 'render' group; then 'vainfo' should list H264 profiles. Nothing is broken "
+    "without it: renders stay on libx264."
+)
 FONTCONFIG_FIX = (
     "install fontconfig so libass can find fonts — Debian/Ubuntu: "
     "'sudo apt install fontconfig'"
@@ -65,18 +71,36 @@ def _check_ffmpeg(caps: FFmpegCaps) -> list[CheckResult]:
             CheckResult("ffprobe", "fail", "not found on PATH",
                         fix="sudo apt install ffmpeg   # (brew install ffmpeg on macOS)")
         )
-    # Detection is real, but nothing in the pipeline encodes with it yet: `assemble`
-    # and `render` both hardcode libx264, and hardware fast-render mode is M3 work
-    # (spike follow-up 8). Say what is true rather than promising faster renders.
-    results.append(
-        CheckResult(
-            "hardware encoder", "ok" if caps.hw_encoder else "warn",
-            f"{caps.hw_encoder} detected; renders use libx264 (CPU) until "
-            "fast-render mode lands in M3" if caps.hw_encoder
-            else "none detected; libx264 (CPU) only",
-        )
-    )
+    results.append(_check_hw_encoder(caps))
     return results
+
+
+def _check_hw_encoder(caps: FFmpegCaps) -> CheckResult:
+    """Three answers, because there are three states and M0 only reported two.
+
+    M1 defect 8 was this check claiming a hardware encoder was "available for fast
+    renders" when nothing used one; M3 Task 18 built the thing it was promising. The
+    state it never had a word for is the middle one, and it is the state of the
+    machine this was written on: `ffmpeg -encoders` lists `h264_qsv`, and no session
+    will open because there is no MFX runtime behind it. Reporting that as a working
+    encoder is how `--fast` would end up quietly encoding on the CPU.
+    """
+    if caps.fast_encoder:
+        return CheckResult(
+            "hardware encoder", "ok",
+            f"{caps.fast_encoder} opens; `videomaker run --fast` encodes with it. "
+            "libx264 (CPU) stays the default quality path.",
+        )
+    if caps.hw_encoder:
+        return CheckResult(
+            "hardware encoder", "warn",
+            f"this ffmpeg lists {caps.hw_encoder}, but no hardware encoder on this "
+            "machine would open; --fast would encode with libx264 (CPU)",
+            fix=HW_DRIVER_FIX,
+        )
+    return CheckResult(
+        "hardware encoder", "warn", "none detected; libx264 (CPU) only"
+    )
 
 
 def _check_caption_font() -> CheckResult:

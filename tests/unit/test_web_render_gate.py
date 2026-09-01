@@ -42,6 +42,7 @@ from fastapi.testclient import TestClient
 from videomaker import runner as runner_module
 from videomaker.audio import MUSIC_KIND
 from videomaker.config import Settings
+from videomaker.media import ffmpeg as ffmpeg_module
 from videomaker.media.ffmpeg import FFmpegError
 from videomaker.models import Aspect, MusicSelection
 from videomaker.pipeline import render as render_module
@@ -56,11 +57,12 @@ from videomaker.preview import PREVIEW_ASPECTS, build_preview, preview_relpath
 from videomaker.project import ProjectStore
 from videomaker.runner import build_deps, run_pipeline, stage_cache_for, stage_is_current
 from videomaker.web.app import create_app
+from videomaker.web.routes import render as render_routes
 from videomaker.web.routes.render import (
     ENCODE_FLOOR,
     MUSIC_README,
     encode_fraction,
-    encode_progress,
+    encode_hook,
     music_selection,
     timeline_seconds,
 )
@@ -349,7 +351,7 @@ def test_the_timeline_length_is_what_assemble_built(app, store):
     ), "a wide-only denominator is what made the bar sweep twice"
 
 
-def test_the_timeline_is_measured_when_the_encode_starts_not_when_the_job_does(monkeypatch):
+def test_the_timeline_is_measured_when_the_encode_starts_not_when_the_job_does():
     """A run that changes the video's length must not leave the bar pinned at 100%.
 
     The stages between "job accepted" and "FFmpeg opened its output" are exactly
@@ -357,6 +359,11 @@ def test_the_timeline_is_measured_when_the_encode_starts_not_when_the_job_does(m
     re-voiced scene. A total measured up front and held on to gives a bar that
     reaches the end a fifth of the way through, which is no more use than one that
     never moves.
+
+    M3 Task 18 replaced the substitution this used to be written against with a real
+    `on_progress` on `run_render`; the deferral survived the move, and it is the
+    half worth keeping — the hook is *built* when the first reading arrives, not
+    when the job is handed over.
     """
     published: list[tuple[str | None, float | None, str | None]] = []
 
@@ -364,40 +371,32 @@ def test_the_timeline_is_measured_when_the_encode_starts_not_when_the_job_does(m
         def update(self, *, stage=None, progress=None, message=None) -> None:
             published.append((stage, progress, message))
 
-    def stub_ffmpeg(args, *, cwd=None, on_progress=None):
-        on_progress(20.0)
-
-    monkeypatch.setattr(render_module, "run_ffmpeg", stub_ffmpeg)
     timeline = [10.0]
+    hook = encode_hook(Recorder(), lambda: timeline[0], stage="render")
 
-    with encode_progress(Recorder(), lambda: timeline[0], stage="render"):
-        # The run grew the video after the job started but before the encode began.
-        timeline[0] = 40.0
-        render_module.run_ffmpeg(["-i", "in.mp4", "out.mp4"])
+    # The run grew the video after the job started but before the encode began.
+    timeline[0] = 40.0
+    hook(20.0)
 
     assert published == [
         ("render", ENCODE_FLOOR + (1.0 - ENCODE_FLOOR) * 0.5, "encoding 20.0s of 40.0s")
     ]
 
 
-def test_the_substitution_is_undone_even_when_the_encode_raises(monkeypatch):
-    """A failed render must not leave an instrumented `run_ffmpeg` behind it."""
+def test_nothing_substitutes_run_ffmpeg_any_more():
+    """The monkey-patch is gone, and the thing that made it safe was never a rule.
 
-    def stub_ffmpeg(args, *, cwd=None, on_progress=None):
-        raise FFmpegError("nope", returncode=1, stderr_tail="nope")
+    M2 swapped an instrumented `run_ffmpeg` into `pipeline.render` and stayed honest
+    only because one worker thread ran one job at a time. Its own docstring named
+    the trigger for replacing it — a second worker — and Task 18 did it before that
+    arrived. This test is what stops it coming back: a module-level name that a job
+    reassigns is not a thing to reintroduce quietly.
+    """
+    source = Path(render_routes.__file__).read_text()
 
-    monkeypatch.setattr(render_module, "run_ffmpeg", stub_ffmpeg)
-
-    class Recorder:
-        def update(self, **kwargs) -> None:
-            pass
-
-    with pytest.raises(FFmpegError), encode_progress(
-        Recorder(), lambda: 1.0, stage="render"
-    ):
-        render_module.run_ffmpeg(["-i", "in.mp4", "out.mp4"])
-
-    assert render_module.run_ffmpeg is stub_ffmpeg
+    assert "render_stage.run_ffmpeg" not in source
+    assert "encode_progress" not in source
+    assert render_module.run_ffmpeg is ffmpeg_module.run_ffmpeg
 
 
 def _reported_runs(values: list[float]) -> list[list[float]]:
@@ -414,7 +413,7 @@ def _ascending_runs(values: list[float]) -> list[list[float]]:
     """Split `values` at every point the bar goes backwards.
 
     `run_render` encodes one aspect after another, each reporting output seconds from
-    zero. `encode_progress` banks what each aspect reached and offsets the next, and
+    zero. It banks what each aspect reached and offsets the next, and
     `timeline_seconds` denominates on every aspect in `RENDER_ASPECTS`, so the bar
     climbs **once** across the whole stage. Before that fix it rewound to the floor
     when the second file started — a bar that visibly restarts reads as a hang or a
@@ -485,7 +484,7 @@ def test_the_encode_fraction_is_mapped_onto_the_bar_exactly(app, store, monkeypa
     ]
     span = 1.0 - ENCODE_FLOOR
     # One continuous climb across both aspects: each file reports output seconds
-    # from zero, and `encode_progress` offsets the second by what the first reached.
+    # from zero, and `run_render` offsets the second by what the first reached.
     banked = 0.0
     expected: list[float] = []
     for _aspect in RENDER_ASPECTS:  # the stub replays its script for each file

@@ -34,7 +34,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videomaker.cache import hash_inputs, stage_key
-from videomaker.media.ffmpeg import run_ffmpeg
+from videomaker.config import Settings
+from videomaker.media.ffmpeg import (
+    VideoEncoder,
+    choose_encoder,
+    detect_fast_encoder,
+    run_ffmpeg,
+    software_encoder,
+)
 from videomaker.models import Aspect, Motion, OutputSpec, Project, Scene
 from videomaker.pipeline.base import (
     SCENE_GAP_S,
@@ -91,6 +98,41 @@ MAX_SHORT_S = 180.0
 #: pipeline, the CLI or the web gates ever blocks on it. Trimming to a clock would
 #: end a Short mid-sentence; the lever is the per-scene `in_short` tick.
 SHORT_TARGET_S = 45.0
+
+#: What a run says when `--fast` was asked for and there is nothing to be fast with.
+#: A stage warning rather than a failure — the render is still correct, only as slow
+#: as it always was — but never silence: a `--fast` that encodes on the CPU while
+#: reporting nothing is the one outcome worse than not shipping the flag.
+NO_HARDWARE_WARNING = (
+    "fast render was asked for, but no hardware encoder on this machine could be "
+    "opened; encoding with libx264 (CPU). Run `videomaker doctor` for the reason."
+)
+
+
+def stage_encoder(settings: Settings) -> tuple[VideoEncoder, tuple[str, ...]]:
+    """The encoder both encoding stages use, and anything the run should be told.
+
+    One definition for `assemble` and `render` together, because they must agree:
+    the concat demuxer stream-copies the segments into the final input, and a build
+    holding both libx264 and VA-API segments makes FFmpeg rewrite the timestamps as
+    it joins them ("Non-monotonic DTS", measured). The fingerprints are what stop
+    that happening across runs; this is what stops it happening within one.
+    """
+    encoder = choose_encoder(
+        fast=settings.render_fast_mode,
+        crf=CRF,
+        preset=PRESET,
+        pix_fmt=PIX_FMT,
+        detect=detect_fast_encoder,
+    )
+    if settings.render_fast_mode and not encoder.is_hardware:
+        return encoder, (NO_HARDWARE_WARNING,)
+    return encoder, ()
+
+
+def default_encoder() -> VideoEncoder:
+    """libx264 with M1's knobs — what every argument builder falls back to."""
+    return software_encoder(crf=CRF, preset=PRESET, pix_fmt=PIX_FMT)
 
 
 @dataclass(frozen=True)
@@ -418,20 +460,80 @@ def build_scene_filter(scene: Scene, spec: VideoSpec, *, gap_s: float) -> str:
 # --------------------------------------------------------------------- the stage
 
 
-def scene_hash(scene: Scene, spec: VideoSpec, graph: str, asset_digest: str) -> str:
+def scene_hash(
+    scene: Scene,
+    spec: VideoSpec,
+    graph: str,
+    asset_digest: str,
+    *,
+    encoder: VideoEncoder | None = None,
+) -> str:
     """Everything that decides the bytes of one segment.
 
     The filter graph is hashed as a string, so motion, focus, trim and the gap are all
     covered without listing them one by one; the asset is hashed by *content*, so a
     re-downloaded but different clip re-encodes while an identical one does not.
+
+    The hardware key is **written only when there is hardware**, exactly as
+    `render.render_hash` writes the music key only when there is music: `hash_inputs`
+    covers the keys it is given, so an always-present key would change the
+    fingerprint of every segment in the workspace and re-encode a finished build for
+    a `--fast` nobody asked for. Written when it is there, because a VA-API segment
+    is genuinely not an x264 segment — see `stage_encoder` for what happens when the
+    two meet in one concat list.
     """
-    return hash_inputs(
-        graph=graph,
-        asset=asset_digest,
-        frames=segment_frames(scene, spec, gap_s=SCENE_GAP_S),
-        spec=[spec.width, spec.height, spec.fps],
-        encoder=[PRESET, CRF, PIX_FMT, TIMESCALE],
-    )
+    parts: dict[str, object] = {
+        "graph": graph,
+        "asset": asset_digest,
+        "frames": segment_frames(scene, spec, gap_s=SCENE_GAP_S),
+        "spec": [spec.width, spec.height, spec.fps],
+        "encoder": [PRESET, CRF, PIX_FMT, TIMESCALE],
+    }
+    if encoder is not None and encoder.is_hardware:
+        parts["hw_encoder"] = encoder.fingerprint()
+    return hash_inputs(**parts)
+
+
+def _segment_args(
+    scene: Scene,
+    spec: VideoSpec,
+    graph: str,
+    out_relpath: str,
+    *,
+    encoder: VideoEncoder | None = None,
+) -> list[str]:
+    """The command line for one scene's uniform silent intermediate.
+
+    Pure, like `build_scene_filter` and for the same reason: an intermediate encoded
+    with the wrong codec still plays, so the only test that can name the fault is one
+    that reads the argument list.
+    """
+    chosen = scene.visual.chosen
+    assert chosen is not None
+    encoder = encoder or default_encoder()
+    duration = segment_duration(scene, gap_s=SCENE_GAP_S)
+    frames = segment_frames(scene, spec, gap_s=SCENE_GAP_S)
+
+    args: list[str] = encoder.input_args()
+    if not _is_video_asset(scene):
+        # A still is a one-frame input; the demuxer has to be told to keep serving it.
+        args += ["-loop", "1", "-framerate", str(spec.fps), "-t", f"{duration:.3f}"]
+    args += ["-i", chosen.local_path, "-vf", encoder.filter_chain(graph)]
+    args += [
+        "-an",
+        "-sn",
+        # Exactly this many frames, so segments never disagree with the timeline by
+        # the fraction of a frame their durations round to.
+        "-frames:v",
+        str(frames),
+        *encoder.output_args(),
+        "-r",
+        str(spec.fps),
+        "-video_track_timescale",
+        str(TIMESCALE),
+        out_relpath,
+    ]
+    return args
 
 
 def _encode_segment(
@@ -440,45 +542,16 @@ def _encode_segment(
     spec: VideoSpec,
     graph: str,
     out_relpath: str,
+    *,
+    encoder: VideoEncoder | None = None,
 ) -> None:
     """Encode one scene's uniform silent intermediate.
 
     Run from the project folder with relative paths throughout — the M0 spike found
     absolute paths break FFmpeg's filter-graph parser as soon as one contains a colon.
     """
-    chosen = scene.visual.chosen
-    assert chosen is not None
-    duration = segment_duration(scene, gap_s=SCENE_GAP_S)
-    frames = segment_frames(scene, spec, gap_s=SCENE_GAP_S)
-
-    args: list[str] = []
-    if not _is_video_asset(scene):
-        # A still is a one-frame input; the demuxer has to be told to keep serving it.
-        args += ["-loop", "1", "-framerate", str(spec.fps), "-t", f"{duration:.3f}"]
-    args += ["-i", chosen.local_path, "-vf", graph]
-    args += [
-        "-an",
-        "-sn",
-        # Exactly this many frames, so segments never disagree with the timeline by
-        # the fraction of a frame their durations round to.
-        "-frames:v",
-        str(frames),
-        "-c:v",
-        "libx264",
-        "-preset",
-        PRESET,
-        "-crf",
-        str(CRF),
-        "-pix_fmt",
-        PIX_FMT,
-        "-r",
-        str(spec.fps),
-        "-video_track_timescale",
-        str(TIMESCALE),
-        out_relpath,
-    ]
     (root / out_relpath).parent.mkdir(parents=True, exist_ok=True)
-    run_ffmpeg(args, cwd=root)
+    run_ffmpeg(_segment_args(scene, spec, graph, out_relpath, encoder=encoder), cwd=root)
 
 
 def _write_concat_list(root: Path, aspect: Aspect, segments: list[Segment]) -> None:
@@ -603,6 +676,7 @@ def run_assemble(project: Project, deps: StageDeps) -> StageResult:
     copy — the "<10 s re-run" promise depends on nothing else being touched.
     """
     root = project_root(deps, project)
+    encoder, warnings = stage_encoder(deps.settings)
     changed = False
     skipped = 0
 
@@ -621,7 +695,9 @@ def run_assemble(project: Project, deps: StageDeps) -> StageResult:
             graph = build_scene_filter(scene, spec, gap_s=SCENE_GAP_S)
             asset = scene.visual.chosen
             assert asset is not None
-            current = scene_hash(scene, spec, graph, content_hash(root / asset.local_path))
+            current = scene_hash(
+                scene, spec, graph, content_hash(root / asset.local_path), encoder=encoder
+            )
             digests.append(current)
 
             key = stage_key(STAGE, f"{aspect.value}:{scene.id}")
@@ -630,7 +706,7 @@ def run_assemble(project: Project, deps: StageDeps) -> StageResult:
                 skipped += 1
                 continue
 
-            _encode_segment(root, scene, spec, graph, relpath)
+            _encode_segment(root, scene, spec, graph, relpath, encoder=encoder)
             deps.stage_cache.mark(key, current)
             changed = True
 
@@ -663,4 +739,4 @@ def run_assemble(project: Project, deps: StageDeps) -> StageResult:
     if changed:
         deps.stage_cache.save()
         deps.store.save(project)
-    return StageResult(changed=changed, skipped_units=skipped)
+    return StageResult(changed=changed, skipped_units=skipped, warnings=warnings)

@@ -19,6 +19,10 @@ AUDIO_TOGGLES = frozenset({"sfx_enabled", "transition_sfx_enabled"})
 #: say it for itself; anything not listed here is ignored, as in `audio:`.
 VISUALS_TOGGLES: dict[str, str] = {"rerank_enabled": "visual_rerank_enabled"}
 
+#: The `render:` switches, mapped the same way and for the same reason: the section
+#: already says "render", and the setting has to say it for itself.
+RENDER_TOGGLES: dict[str, str] = {"fast_mode": "render_fast_mode"}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -46,6 +50,16 @@ class Settings(BaseSettings):
     #: someone's daily cap is worse than one that does nothing. M3 Task 14's harness
     #: is what decides whether it earns its quota.
     visual_rerank_enabled: bool = False
+
+    #: Encode with the machine's hardware H.264 encoder instead of libx264.
+    #: **Off by default, and libx264 stays the quality path.** Measured here on a
+    #: 116 s 1080p cut: `h264_vaapi` halves the segment encode (37 s -> 19 s) and
+    #: cuts the whole run's CPU time roughly fourfold, for SSIM 0.9934 against
+    #: libx264's 0.9952 and a fifth more bytes. Worth asking for; not worth
+    #: assuming. Where no hardware encoder will open — which includes machines
+    #: whose `ffmpeg -encoders` cheerfully lists one — the stage says so and
+    #: encodes on the CPU rather than failing.
+    render_fast_mode: bool = False
 
     groq_api_key: str = Field(default="", validation_alias=AliasChoices("GROQ_API_KEY"))
     gemini_api_key: str = Field(default="", validation_alias=AliasChoices("GEMINI_API_KEY"))
@@ -84,10 +98,11 @@ def load_settings(config_file: Path | None = None) -> Settings:
                 overrides[key] = float(value)
             elif key in AUDIO_TOGGLES:
                 overrides[key] = bool(value)
-        for key, value in (raw.get("visuals") or {}).items():
-            setting = VISUALS_TOGGLES.get(key)
-            if setting is not None:
-                overrides[setting] = bool(value)
+        for section, toggles in (("visuals", VISUALS_TOGGLES), ("render", RENDER_TOGGLES)):
+            for key, value in (raw.get(section) or {}).items():
+                setting = toggles.get(key)
+                if setting is not None:
+                    overrides[setting] = bool(value)
         chains = {
             str(kind): [str(name) for name in names]
             for kind, names in (raw.get("providers") or {}).items()

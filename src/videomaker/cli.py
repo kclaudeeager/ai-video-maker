@@ -143,6 +143,13 @@ def run(
     providers: str | None = typer.Option(
         None, "--providers", help="Force every provider kind to this one (e.g. `mock`)."
     ),
+    fast: bool = typer.Option(
+        False,
+        "--fast",
+        help="Encode with the machine's hardware H.264 encoder instead of libx264. "
+        "Faster and much cheaper on CPU; slightly softer picture and larger files. "
+        "Re-encodes everything the first time, and again when you stop using it.",
+    ),
 ) -> None:
     """Run the pipeline: script, voice, align, visuals, captions, assemble, render."""
     from videomaker.config import load_settings
@@ -159,6 +166,11 @@ def run(
     settings = load_settings()
     if providers:
         settings = provider_override(settings, providers)
+    if fast:
+        # The flag only ever turns it *on*: `render.fast_mode` in config.yaml is how
+        # someone who always wants it says so, and a `--fast` that also implied
+        # `--no-fast` would silently undo that.
+        settings = settings.model_copy(update={"render_fast_mode": True})
 
     deps = build_deps(settings, project_id)
     try:

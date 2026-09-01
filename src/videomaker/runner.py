@@ -63,6 +63,13 @@ PROVIDER_KINDS: tuple[str, ...] = ("llm", "tts", "stt", "stock", "image")
 
 StageRunner = Callable[[Project, StageDeps], StageResult]
 OnStage = Callable[[str, StageResult], None]
+#: Output seconds encoded so far, climbing once across the whole render stage.
+OnEncode = Callable[[float], None]
+
+#: The one stage that can report on itself from *inside* FFmpeg, and the only one
+#: `run_pipeline`'s `on_encode` reaches. Named rather than written inline so the
+#: special case is a fact about the render stage rather than a string in a branch.
+ENCODE_STAGE = "render"
 
 STAGE_RUNNERS: dict[str, StageRunner] = {
     "script": run_script,
@@ -455,6 +462,21 @@ def _pass_gate(project: Project, deps: StageDeps, gate: str, *, yes: bool) -> bo
     return True
 
 
+def _run_stage(
+    stage: str, project: Project, deps: StageDeps, on_encode: OnEncode | None
+) -> StageResult:
+    """Run one stage, giving the encoding one its progress hook if there is one.
+
+    A branch rather than a uniform signature on every runner: seven of the eight
+    stages have nothing to report from inside themselves, and widening all of them
+    to carry a parameter only `render` can honour would make the odd one out harder
+    to find, not easier.
+    """
+    if stage == ENCODE_STAGE and on_encode is not None:
+        return run_render(project, deps, on_progress=on_encode)
+    return STAGE_RUNNERS[stage](project, deps)
+
+
 def run_pipeline(
     project: Project,
     deps: StageDeps,
@@ -462,12 +484,18 @@ def run_pipeline(
     until: str | None = None,
     yes: bool = False,
     on_stage: OnStage | None = None,
+    on_encode: OnEncode | None = None,
 ) -> Project:
     """Run the stages in order, stopping at `until`, at a gate, or at a failure.
 
     Raises `GateBlocked` when an unapproved gate is reached without `yes`, and
     `StageFailed` when a stage raises. Held under the project lock, so two runs of
     the same project cannot interleave their writes.
+
+    `on_stage` ticks once per stage; `on_encode` is the finer-grained one, reaching
+    only `ENCODE_STAGE`, and it exists because that stage is most of the wall clock
+    (M1: 70 s of a 184 s run) so a bar driven by `on_stage` alone sits still through
+    exactly the part a human watches.
     """
     stages = stages_through(until)
     with deps.store.lock(project.id):
@@ -478,7 +506,7 @@ def run_pipeline(
             if gate is not None and not _pass_gate(project, deps, gate, yes=yes):
                 raise GateBlocked(gate, derive_status(project, deps.stage_cache))
             try:
-                result = STAGE_RUNNERS[stage](project, deps)
+                result = _run_stage(stage, project, deps, on_encode)
             except Exception as exc:
                 raise StageFailed(stage, exc) from exc
             stamp_stage(project, deps.stage_cache, stage)

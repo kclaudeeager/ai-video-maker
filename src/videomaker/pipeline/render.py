@@ -22,6 +22,8 @@ placement; where they land is decided by `sfx_plan`, out of the cut timestamps
 `scene_timeline` already knows and the beats `Scene.beat` already records.
 """
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from videomaker import audio as music_library
@@ -40,7 +42,7 @@ from videomaker.media.audio import (
     music_input_args,
     plan_sfx,
 )
-from videomaker.media.ffmpeg import probe_duration, run_ffmpeg
+from videomaker.media.ffmpeg import VideoEncoder, probe_duration, run_ffmpeg
 from videomaker.models import Aspect, Project
 from videomaker.pipeline.assemble import (
     ASSEMBLE_ASPECTS,
@@ -51,10 +53,12 @@ from videomaker.pipeline.assemble import (
     PRESET,
     SPECS,
     Segment,
+    default_encoder,
     narration_relpath,
     scene_timeline,
     short_duration_s,
     short_fits,
+    stage_encoder,
     video_relpath,
 )
 from videomaker.pipeline.base import SCENE_GAP_S, StageDeps, StageResult, content_hash, project_root
@@ -174,6 +178,7 @@ def render_hash(
     captions: Path | None,
     music: MusicBed | None = None,
     sfx: SfxPlan | None = None,
+    encoder: VideoEncoder | None = None,
 ) -> str:
     """Content of the three inputs, plus every knob that shapes the final encode.
 
@@ -183,6 +188,16 @@ def render_hash(
     re-encode every finished video in the workspace for no change in the output.
     The effects follow the same rule for the same reason, and an empty
     `assets/sfx/` is the state of every fresh clone.
+
+    **The hardware encoder is written under that same rule**, and the choice is
+    worth stating: `--fast` is a *how* rather than a *what*, which argues for
+    leaving it out — but a VA-API encode at qp 20 is measurably not a libx264
+    encode at CRF 18 (SSIM 0.9934 against 0.9952, and a fifth more bytes), and a
+    cache that called them the same would answer `--fast` on a finished project by
+    doing nothing at all. So it is hashed, and hashed *conditionally*, so that the
+    default path's fingerprint is the one M1 shipped and the ten projects in the
+    owner's workspace stay exactly where they are. The cost is deliberate and paid
+    twice: the first `--fast` run re-encodes, and so does the first run after it.
 
     This is also the whole of the audio layer's reach into the cache engine. Nothing
     upstream hashes `project.music` or the library, so choosing a track or dropping in
@@ -204,6 +219,8 @@ def render_hash(
             "cues": sfx.knobs(),
             "content": [content_hash(path) for path in sfx.files],
         }
+    if encoder is not None and encoder.is_hardware:
+        parts["hw_encoder"] = encoder.fingerprint()
     return hash_inputs(**parts)
 
 
@@ -324,10 +341,19 @@ def music_bed(
 
 
 def _render_args(
-    root: Path, aspect: Aspect, *, burn_captions: bool, mix: MusicMix | None = None
+    root: Path,
+    aspect: Aspect,
+    *,
+    burn_captions: bool,
+    mix: MusicMix | None = None,
+    encoder: VideoEncoder | None = None,
 ) -> list[str]:
     spec = SPECS[aspect]
+    encoder = encoder or default_encoder()
     args = [
+        # A hardware device is opened before ffmpeg reads a frame; libx264 adds
+        # nothing here, so the default path's argument list is untouched.
+        *encoder.input_args(),
         "-i",
         video_relpath(aspect),
         "-i",
@@ -340,10 +366,14 @@ def _render_args(
         # distinct effect file. `sfx_input` below has to agree with this order.
         bed_args = music_input_args(mix.bed) if mix.bed is not None else []
         args += [*bed_args, *mix.sfx.input_args(), "-map", "0:v:0", "-map", "[aout]"]
-    if burn_captions:
-        # A simple filtergraph for the picture even when the audio needs a complex
-        # one: the two do not meet, and `-vf` keeps the M0 relative-path rule visible.
-        args += ["-vf", subtitles_filter(root, aspect)]
+    # A simple filtergraph for the picture even when the audio needs a complex one:
+    # the two do not meet, and `-vf` keeps the M0 relative-path rule visible. The
+    # hardware upload goes on the **end** — libass draws on CPU frames, so uploading
+    # first would hand the encoder a picture with no captions on it — and a hardware
+    # render therefore needs a `-vf` even when there are no captions to burn.
+    video_graph = encoder.filter_chain(subtitles_filter(root, aspect) if burn_captions else "")
+    if video_graph:
+        args += ["-vf", video_graph]
     if mix is None:
         args += ["-af", f"loudnorm={LOUDNORM}"]
     else:
@@ -363,14 +393,7 @@ def _render_args(
             ),
         ]
     args += [
-        "-c:v",
-        "libx264",
-        "-preset",
-        PRESET,
-        "-crf",
-        str(CRF),
-        "-pix_fmt",
-        PIX_FMT,
+        *encoder.output_args(),
         "-r",
         str(spec.fps),
         "-c:a",
@@ -425,7 +448,37 @@ def _plan_mix(
     return MusicMix(bed=bed, duration_s=duration, measured=measured, sfx=sfx)
 
 
-def run_render(project: Project, deps: StageDeps) -> StageResult:
+@dataclass
+class _AspectProgress:
+    """One aspect's encode, reported on the **stage's** clock rather than its own.
+
+    FFmpeg reports the output seconds of the file in front of it, from zero, and
+    this stage encodes one file per aspect. A caller handed those readings raw would
+    watch the count rewind when the Short starts, which on a progress bar reads as a
+    crash. So each aspect is offset by what the aspects before it reached, and
+    `reached` is what the next one is offset by.
+
+    This lives here, and not in the web layer that wants it, because *this* is the
+    code that knows there is more than one file. M2 did the same arithmetic outside,
+    against a substituted `run_ffmpeg`, and could only get away with it while one
+    worker thread ran one job at a time.
+    """
+
+    on_progress: Callable[[float], None]
+    offset: float
+    reached: float = 0.0
+
+    def __call__(self, seconds: float) -> None:
+        self.reached = max(self.reached, seconds)
+        self.on_progress(self.offset + seconds)
+
+
+def run_render(
+    project: Project,
+    deps: StageDeps,
+    *,
+    on_progress: Callable[[float], None] | None = None,
+) -> StageResult:
     """Burn, mux and normalise, once per aspect: `render:wide`, `render:vertical`.
 
     The three-minute rule is checked *per aspect, inside the loop*, and the work
@@ -433,8 +486,15 @@ def run_render(project: Project, deps: StageDeps) -> StageResult:
     would let an over-long Short block the wide video too, and saving only on the
     happy path would throw away a wide render that had just succeeded, so the next
     run would re-encode it to reach the same refusal.
+
+    `on_progress` receives output seconds **for the whole stage**, climbing once
+    across every aspect encoded — see `_AspectProgress`. It is `None` on the CLI
+    path, and that is not merely a default: asking FFmpeg for `-progress pipe:1`
+    costs a pipe and a reading loop that nothing would consume.
     """
     root = project_root(deps, project)
+    encoder, warnings = stage_encoder(deps.settings)
+    encoded = 0.0  # output seconds finished by the aspects already rendered
     # One scan for the whole run: the bed and every aspect's effects come out of the
     # same reading of the library, so a file dropped in mid-render cannot make the
     # wide video and the Short disagree about what is on disk.
@@ -471,6 +531,7 @@ def run_render(project: Project, deps: StageDeps) -> StageResult:
                 captions=captions if burn else None,
                 music=bed,
                 sfx=effects,
+                encoder=encoder,
             )
             out_path = root / output_relpath(aspect)
             if not deps.stage_cache.is_stale(key, current) and out_path.is_file():
@@ -478,15 +539,22 @@ def run_render(project: Project, deps: StageDeps) -> StageResult:
                 continue
 
             out_path.parent.mkdir(parents=True, exist_ok=True)
+            # A skipped aspect encodes nothing, so it banks nothing: the tracker is
+            # built here, past the cache check, rather than at the top of the loop.
+            tracker = None if on_progress is None else _AspectProgress(on_progress, encoded)
             run_ffmpeg(
                 _render_args(
                     root,
                     aspect,
                     burn_captions=burn,
                     mix=_plan_mix(bed, root, aspect, sfx=effects),
+                    encoder=encoder,
                 ),
                 cwd=root,
+                on_progress=tracker,
             )
+            if tracker is not None:
+                encoded += tracker.reached
             spec = project.outputs.get(aspect)
             if spec is not None:
                 spec.video_path = output_relpath(aspect)
@@ -496,4 +564,4 @@ def run_render(project: Project, deps: StageDeps) -> StageResult:
         if changed:
             deps.stage_cache.save()
             deps.store.save(project)
-    return StageResult(changed=changed, skipped_units=skipped)
+    return StageResult(changed=changed, skipped_units=skipped, warnings=warnings)

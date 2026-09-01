@@ -15,20 +15,17 @@ the finished video has (`scene_timeline`). The ratio of the two is a real
 completion fraction, and `encode_reporter` maps it onto the slice of the bar the
 render stage owns — from `ENCODE_FLOOR` (everything before it) up to 1.0.
 
-**Why `run_render` is instrumented rather than changed.** `run_render` takes no
-`on_progress`, and M2's global constraint is that the pipeline is unchanged:
-`videomaker/pipeline/` is off limits to this milestone apart from the 480p
-preview artefact. So `encode_progress` substitutes an instrumented `run_ffmpeg`
-into `videomaker.pipeline.render` for the duration of the one call and restores it
-in a `finally`. That is a monkey-patch, and it is written down here rather than
-tucked away because exactly one thing keeps it honest: **there is one worker
-thread running one job at a time** (design decision 1) and handlers never run
-stages (decision 2), so nothing else can be inside `run_render` while the
-substitution stands. If M3 ever grows a second worker this has to become a real
-parameter on `run_render` — that is the moment to spend the pipeline change.
-
-The preview needs no such trick: `build_preview` takes `on_progress` directly, so
-one reporter drives both bars.
+**`run_render` takes the hook as a parameter (M3 Task 18).** M2 could not change
+the pipeline, so it substituted an instrumented `run_ffmpeg` into
+`videomaker.pipeline.render` for the length of one call. That was honest only
+because there is one worker thread running one job at a time, and its own docstring
+named the trigger to replace it: a second worker. It is replaced now — before
+anything adds one, rather than after — and with it went the arithmetic that banked
+each aspect's output seconds out here. `run_render` does that itself, because
+`run_render` is what knows there is more than one file to encode; this module is
+left with the part that is genuinely its own, which is mapping a fraction onto a
+bar. `build_preview` already worked this way, so both bars are now driven the same
+way by the same `encode_reporter`.
 
 **Staleness is judged by mtime here, not by re-hashing.** `build_preview` decides
 for real, by content hash, and skips the encode when nothing moved — it is the
@@ -63,8 +60,7 @@ finished render stops making requests instead of re-reading `project.json` forty
 times a minute for as long as the tab is left open.
 """
 
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -77,7 +73,6 @@ from videomaker.audio import Library, format_duration, select_track
 from videomaker.cache import STAGE_ORDER
 from videomaker.config import Settings
 from videomaker.models import Aspect, MusicSelection, Project
-from videomaker.pipeline import render as render_stage
 from videomaker.pipeline.assemble import (
     SCENE_GAP_S,
     narration_relpath,
@@ -277,53 +272,33 @@ def encode_reporter(
     return report
 
 
-@contextmanager
-def encode_progress(
+def encode_hook(
     progress: JobProgress, total_seconds: Callable[[], float], *, stage: str
-) -> Iterator[None]:
-    """Give the render stage's FFmpeg call a progress hook, for this block only.
+) -> Callable[[float], None]:
+    """The `on_progress` `run_render` is handed: seconds in, a bar position out.
 
-    See the module docstring for why this is a substitution rather than an
-    argument: the pipeline is closed to M2, and one worker thread running one job
-    at a time is what makes the window exclusive. An explicit `on_progress` passed
-    by the caller always wins, so this can only ever add reporting where there was
-    none.
+    The seconds arriving here already climb once across every aspect the stage
+    encodes — `render._AspectProgress` is what makes that true, and it is true
+    there because that is where the aspects are. All that is left to do out here is
+    the mapping onto `ENCODE_FLOOR`…1.0.
 
-    **`total_seconds` is called when the encode starts, not when the job does.**
+    **`total_seconds` is called when the encode starts, not when the job does**,
+    which is why the reporter is built on the first reading rather than up front.
     Everything between those two moments — a re-voiced scene, a narration the
     script stage regenerated — is precisely what decides how long the finished
     video is. Measuring the timeline up front and holding on to the number gives a
-    bar that pins at 100% a fifth of the way through a run that grew, which is the
+    bar that pins at 100 % a fifth of the way through a run that grew, which is the
     same uselessness as a bar that never moves, only harder to notice.
     """
-    original = render_stage.run_ffmpeg
-    encoded = 0.0  # output seconds finished by aspects already rendered
+    report: Callable[[float], None] | None = None
 
-    def instrumented(args: list[str], *, cwd: Path | None = None, on_progress=None):
-        nonlocal encoded
-        if on_progress is not None:
-            return original(args, cwd=cwd, on_progress=on_progress)
-        reached = 0.0
+    def hook(seconds: float) -> None:
+        nonlocal report
+        if report is None:
+            report = encode_reporter(progress, total_seconds(), stage=stage)
+        report(seconds)
 
-        def hook(seconds: float) -> None:
-            nonlocal reached
-            reached = max(reached, seconds)
-            report(seconds)
-
-        report = encode_reporter(progress, total_seconds(), stage=stage, offset=encoded)
-        try:
-            return original(args, cwd=cwd, on_progress=hook)
-        finally:
-            # `run_render` calls this once per aspect, each reporting output
-            # seconds from zero. Banking what this one reached is what keeps the
-            # bar climbing once overall instead of resetting per file.
-            encoded += reached
-
-    render_stage.run_ffmpeg = instrumented
-    try:
-        yield
-    finally:
-        render_stage.run_ffmpeg = original
+    return hook
 
 
 # ------------------------------------------------------------------- job bodies
@@ -340,9 +315,11 @@ def preview_job(settings: Settings, project_id: str) -> JobFn:
     at the right one with the right message rather than failing here.
 
     Two encodes, one bar. Each file reports output seconds from zero, so what the
-    previous aspect reached is banked and used as the next one's offset — exactly
-    the arithmetic `encode_progress` does for the render stage, and for the same
-    reason: a bar that rewinds to the floor halfway through reads as a crash.
+    previous aspect reached is banked and used as the next one's offset — the same
+    arithmetic `render._AspectProgress` does inside the render stage, for the same
+    reason: a bar that rewinds to the floor halfway through reads as a crash. It is
+    written out here because `build_previews` hands back a hook per aspect and so
+    puts the seam in the caller's hands; the render stage keeps its own.
 
     An aspect that *cannot* be previewed is skipped rather than raised
     (`build_previews`): an empty Short must not cost the reviewer the long cut,
@@ -388,8 +365,12 @@ def render_job(settings: Settings, project_id: str) -> JobFn:
         # `project` is the object `run_pipeline` mutates, so reading the timeline
         # off it *when the encode starts* is reading it after every stage that
         # could have changed its length has already run.
-        with encode_progress(progress, lambda: timeline_seconds(project), stage=GATED_STAGE):
-            run_pipeline(project, deps, on_stage=progress)
+        run_pipeline(
+            project,
+            deps,
+            on_stage=progress,
+            on_encode=encode_hook(progress, lambda: timeline_seconds(project), stage=GATED_STAGE),
+        )
 
     return job
 

@@ -217,10 +217,10 @@ def _count_provider_calls(patch: pytest.MonkeyPatch) -> Counter:
 def _count_ffmpeg_calls(patch: pytest.MonkeyPatch) -> list[list[str]]:
     """Record every real FFmpeg invocation, at all three call sites, and still run it.
 
-    `render` is one of them and `routes/render.encode_progress` swaps a wrapper of
-    its own into that module while the final encode runs — it reads whatever is
-    bound at the time, so it wraps this counter rather than replacing it, and the
-    render still shows up here.
+    `render` is one of them, and since M3 Task 18 nothing swaps a wrapper into it:
+    the web layer passes `run_render` an `on_progress` instead of substituting the
+    symbol, so this counter is the only thing bound there and the render shows up
+    here plainly.
     """
     calls: list[list[str]] = []
     original = assemble_module.run_ffmpeg

@@ -55,17 +55,38 @@ def test_no_llm_key_warns(tmp_path, monkeypatch):
     assert _by_name(results, "LLM API key").level == "warn"
 
 
-def test_hardware_encoder_reports_detection_not_use(tmp_path):
-    # M1 defect 8: doctor claimed "available for fast renders", but assemble and
-    # render both hardcode libx264. Fast-render mode is M3 work.
+def test_a_listed_but_unopenable_encoder_is_not_reported_as_one(tmp_path):
+    """M1 defect 8, twice over.
+
+    First shape: doctor claimed a hardware encoder was "available for fast renders"
+    while `assemble` and `render` both hardcoded libx264. M3 Task 18 built the fast
+    render, so the promissory wording is gone.
+
+    Second shape, and the one this machine actually has: `ffmpeg -encoders` lists
+    `h264_qsv` and no session will open, because the build carries the wrapper and
+    the box has no MFX runtime. `GOOD_CAPS` is exactly that state — listed, unusable
+    — and calling it "ok" is how `--fast` would encode on the CPU while the tool
+    said it was on the GPU.
+    """
     settings = Settings(workspace_dir=tmp_path, models_dir=tmp_path / "models")
     check = _by_name(run_checks(settings, GOOD_CAPS), "hardware encoder")
-    assert check.level == "ok"
+    assert check.level == "warn"
     assert "h264_qsv" in check.detail
-    assert "detected" in check.detail
-    assert "M3" in check.detail
     assert "libx264" in check.detail
+    assert check.fix
     assert "fast renders" not in check.detail
+    assert "M3" not in check.detail
+
+
+def test_an_encoder_that_opens_is_reported_as_usable(tmp_path):
+    settings = Settings(workspace_dir=tmp_path, models_dir=tmp_path / "models")
+    caps = FFmpegCaps(True, "ffmpeg version 6.1.1", True, "h264_vaapi", True, "h264_vaapi")
+    check = _by_name(run_checks(settings, caps), "hardware encoder")
+    assert check.level == "ok"
+    assert "h264_vaapi" in check.detail
+    assert "--fast" in check.detail
+    # libx264 is still the default, and doctor may not imply otherwise.
+    assert "libx264" in check.detail
 
 
 def test_no_hardware_encoder_still_warns(tmp_path):

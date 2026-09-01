@@ -27,3 +27,16 @@ visuals:
   # 240-requests-a-day Gemini budget the script stage falls back on, and only the
   # ambiguous scenes of a run are worth that. Needs GEMINI_API_KEY.
   rerank_enabled: false
+
+# The final encode.
+render:
+  # Encode with the machine's hardware H.264 encoder (QSV, then VA-API, then
+  # VideoToolbox) instead of libx264. `videomaker run --fast` turns it on for one
+  # run; this turns it on for every run. Off by default, because it is a trade
+  # rather than a free win: measured here on a 116 s 1080p cut, h264_vaapi halved
+  # the segment encode (37 s -> 19 s) and cut the whole run's CPU time roughly
+  # fourfold, for a slightly softer picture (SSIM 0.9934 against libx264's 0.9952)
+  # and a fifth more bytes. Changing it re-encodes every project's build/ and
+  # output/ once, and again if you change it back. `videomaker doctor` says
+  # whether this machine has an encoder that will actually open.
+  fast_mode: false
