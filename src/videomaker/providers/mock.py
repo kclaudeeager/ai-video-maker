@@ -19,10 +19,12 @@ import wave
 from pathlib import Path
 
 from videomaker.config import Settings
+from videomaker.corpus.models import UnitRef, UnitText, Verse, WorkRef
 from videomaker.models import Aspect, AssetRef, StockResult, VisualKind, WordTiming
 from videomaker.providers import register
 from videomaker.providers.assets import project_relative
 from videomaker.providers.base import (
+    CorpusProvider,
     ImageProvider,
     LLMProvider,
     LLMResult,
@@ -55,6 +57,18 @@ ASPECT_DIMENSIONS: dict[Aspect, tuple[int, int]] = {
 }
 
 MOCK_VOICES = ["af_heart", "af_sky", "am_adam"]
+
+#: The mock library: one invented work, one book, three chapters of three verses.
+#:
+#: The text is written for this file and is nobody's scripture — rule 3 of
+#: `/CLAUDE.md` says the project ships none, and a mock is still shipping. The book
+#: code is a real USFM one because the web layer validates `book` against
+#: `BOOK_ORDER` before it touches the filesystem, so a made-up code would 404 every
+#: reader route under `--providers mock` and prove nothing.
+MOCK_WORK_ID = "mock"
+MOCK_BOOK = "JHN"
+MOCK_CHAPTERS = 3
+MOCK_VERSES_PER_CHAPTER = 3
 _NARRATION_FIELDS = frozenset({"narration", "script", "text", "body", "voiceover"})
 _DEFAULT_ARRAY_ITEMS = 3
 
@@ -308,6 +322,63 @@ class MockStock(StockProvider):
             attribution=result.attribution,
             license=result.license,
         )
+
+
+# ------------------------------------------------------------------------ corpus
+
+
+def _mock_verse(chapter: int, number: int) -> Verse:
+    return Verse(
+        number=number,
+        text=(
+            f"This is invented sentence {number} of chapter {chapter}, "
+            "written so the offline reader has real words to segment, speak and summarise."
+        ),
+    )
+
+
+@register("corpus", PROVIDER_NAME)
+class MockCorpus(CorpusProvider):
+    """One invented work, held in memory, so every reader test runs with no library."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    def works(self) -> list[WorkRef]:
+        return [
+            WorkRef(
+                id=MOCK_WORK_ID,
+                title="The Mock Work",
+                language="en",
+                licence="CC0 (synthetic test fixture, written for this repository).",
+                licence_url="https://mock.invalid/licence",
+                source_url="https://mock.invalid/work",
+            )
+        ]
+
+    def outline(self, work_id: str) -> list[UnitRef]:
+        if work_id != MOCK_WORK_ID:
+            return []
+        return [
+            UnitRef(work_id=work_id, book=MOCK_BOOK, chapter=chapter)
+            for chapter in range(1, MOCK_CHAPTERS + 1)
+        ]
+
+    def unit(self, ref: UnitRef) -> UnitText:
+        if (
+            ref.work_id != MOCK_WORK_ID
+            or ref.book != MOCK_BOOK
+            or not 1 <= ref.chapter <= MOCK_CHAPTERS
+        ):
+            raise KeyError(f"the mock library has no {ref.key()}")
+        verses = [
+            _mock_verse(ref.chapter, number)
+            for number in range(1, MOCK_VERSES_PER_CHAPTER + 1)
+        ]
+        if ref.verses is not None:
+            first, last = ref.verses
+            verses = [v for v in verses if first <= v.number <= last]
+        return UnitText(ref=ref, title=f"Mock {ref.chapter}", verses=verses)
 
 
 # ------------------------------------------------------------------------- image

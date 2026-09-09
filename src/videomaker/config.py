@@ -81,6 +81,9 @@ class Settings(BaseSettings):
             # Only ever built when `visual_rerank_enabled` is on, so listing it
             # costs a run that leaves the switch alone exactly nothing.
             "vision": ["gemini"],
+            # The library on disk. Nothing builds it until a reader asks for a
+            # work, so a machine that has imported nothing pays no import cost.
+            "corpus": ["bible"],
         }
     )
 

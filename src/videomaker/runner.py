@@ -59,7 +59,7 @@ STAGES_RELPATH = "cache/stages.json"
 
 #: Every provider kind `--providers <name>` has to cover. Anything configured in
 #: `config.yaml` beyond this list is overridden too — see `provider_override`.
-PROVIDER_KINDS: tuple[str, ...] = ("llm", "tts", "stt", "stock", "image")
+PROVIDER_KINDS: tuple[str, ...] = ("llm", "tts", "stt", "stock", "image", "corpus")
 
 StageRunner = Callable[[Project, StageDeps], StageResult]
 OnStage = Callable[[str, StageResult], None]

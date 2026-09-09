@@ -3,6 +3,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from videomaker.corpus.models import UnitRef, UnitText, WorkRef
 from videomaker.models import Aspect, AssetRef, StockResult, VisualKind, WordTiming
 
 
@@ -126,6 +127,29 @@ class VisionProvider(ABC):
         query: str,
         narration: str,
     ) -> list[float]: ...
+
+
+class CorpusProvider(ABC):
+    """A library of readable works, addressed by `UnitRef`.
+
+    A provider kind rather than a plain module because the reader has to run offline
+    in the test suite: `--providers mock` swaps the on-disk library for `MockCorpus`
+    the same way it swaps every other kind, and no test then needs ~5 MB of imported
+    text on disk to exercise a route.
+
+    Read-only, deliberately. Importing is the CLI's job (`corpus/importer.py`) and
+    goes through a licence gate; a provider that could write would make that gate
+    optional.
+    """
+
+    @abstractmethod
+    def works(self) -> list[WorkRef]: ...
+
+    @abstractmethod
+    def outline(self, work_id: str) -> list[UnitRef]: ...
+
+    @abstractmethod
+    def unit(self, ref: UnitRef) -> UnitText: ...
 
 
 class Uploader(ABC):

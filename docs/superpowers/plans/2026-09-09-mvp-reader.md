@@ -107,7 +107,7 @@ Everything in `/CLAUDE.md` applies. On top of it, for this plan:
 
 ### Task 1: Corpus models, the `CorpusProvider` contract, and the mock
 
-- [ ] **Files:** new `src/videomaker/corpus/__init__.py`, `corpus/models.py`;
+- [x] **Files:** new `src/videomaker/corpus/__init__.py`, `corpus/models.py`;
   modify `providers/base.py`, `providers/mock.py`, `runner.py`, `config.py`;
   test `tests/unit/test_corpus_contract.py`
 
