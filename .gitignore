@@ -24,3 +24,7 @@ assets/sfx/**
 !assets/sfx/README.md
 !assets/music/*/.gitkeep
 !assets/sfx/*/.gitkeep
+
+# Files delivered into this folder by the Claude desktop app. Business and
+# strategy documents live here; the repository is public, so they stay out of it.
+Claude outputs/
