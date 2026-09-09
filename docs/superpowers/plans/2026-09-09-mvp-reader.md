@@ -178,7 +178,7 @@ removing `min_length`); `provider_override(settings, "mock")` overrides
 
 ### Task 2: Reference parsing
 
-- [ ] **Files:** new `corpus/refs.py`; test `tests/unit/test_refs.py`
+- [x] **Files:** new `corpus/refs.py`; test `tests/unit/test_refs.py`
 
 **Interfaces (normative):**
 
