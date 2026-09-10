@@ -259,3 +259,131 @@ def test_the_language_menu_lists_the_groups_the_voice_menu_has(settings, monkeyp
     options = available_voices(settings)
 
     assert options.language_labels == ["American English", "British English", "Spanish"]
+
+
+# --------------------------------------------- the optional extra, when it is not there
+#
+# Every optional import in this package degrades to "provider unavailable" rather
+# than an `ImportError`, because `ProviderConfigError` is in `ADVANCE_ON` and a
+# bare `ModuleNotFoundError` is not: one advances the chain to the next provider,
+# the other kills the run. `soundfile` was the one import that had no guard, and
+# it sat at the *top* of `synthesize`, above the `kokoro_onnx` import — so on a
+# clone without the extra it pre-empted the better message and the reader showed
+# `No module named 'soundfile'`.
+
+
+@pytest.fixture
+def without(monkeypatch):
+    """Make one optional module unimportable, whether or not it is installed."""
+
+    def hide(name: str):
+        import sys
+
+        monkeypatch.setitem(sys.modules, name, None)
+
+    return hide
+
+
+def test_a_missing_soundfile_is_a_provider_error_naming_the_command(without, tmp_path):
+    from videomaker.providers.tts.kokoro_onnx import EXTRA_HINT, KokoroTTS
+
+    without("soundfile")
+    tts = KokoroTTS(Settings(models_dir=tmp_path))
+
+    with pytest.raises(ProviderConfigError) as exc:
+        tts.synthesize(text="a line", voice="af_heart", out_path=tmp_path / "out.wav")
+
+    assert "soundfile" in str(exc.value)
+    assert EXTRA_HINT in str(exc.value)
+    assert "--extra ml" in str(exc.value)
+
+
+def test_a_missing_engine_is_the_same_kind_of_refusal(without, tmp_path):
+    from videomaker.providers.tts.kokoro_onnx import EXTRA_HINT, KokoroTTS
+
+    without("kokoro_onnx")
+    tts = KokoroTTS(Settings(models_dir=tmp_path))
+
+    with pytest.raises(ProviderConfigError) as exc:
+        tts.voices()
+
+    assert EXTRA_HINT in str(exc.value)
+
+
+def test_a_missing_extra_advances_the_chain_rather_than_ending_the_run(without, tmp_path):
+    """The reason the type matters. `ProviderConfigError` is in `ADVANCE_ON`; a
+    `ModuleNotFoundError` is not, so an unguarded import turns a fallback into a
+    dead run."""
+    from videomaker.pipeline.base import ADVANCE_ON
+    from videomaker.providers.tts.kokoro_onnx import KokoroTTS
+
+    without("soundfile")
+    tts = KokoroTTS(Settings(models_dir=tmp_path))
+
+    with pytest.raises(ADVANCE_ON):
+        tts.synthesize(text="a line", voice="af_heart", out_path=tmp_path / "out.wav")
+
+
+@pytest.fixture
+def half_installed(monkeypatch, tmp_path, without):
+    """`kokoro_onnx` present and working, `soundfile` absent, weights on disk.
+
+    Built rather than skipped, because this machine has neither half of the extra
+    and the state under test is the one where exactly one half is there — which is
+    what a partial `uv sync` leaves behind and what a user actually hit.
+    """
+    import sys
+    import types
+
+    from videomaker.providers.tts.kokoro_onnx import KOKORO_MODEL_FILE, KOKORO_VOICES_FILE
+
+    for name in (KOKORO_MODEL_FILE, KOKORO_VOICES_FILE):
+        (tmp_path / name).write_bytes(b"not really a model")
+
+    module = types.ModuleType("kokoro_onnx")
+
+    class _Kokoro:
+        def __init__(self, *_args) -> None: ...
+
+        def get_voices(self):
+            return ["af_heart", "am_adam"]
+
+    module.Kokoro = _Kokoro
+    monkeypatch.setitem(sys.modules, "kokoro_onnx", module)
+    without("soundfile")
+    return Settings(workspace_dir=tmp_path, models_dir=tmp_path, provider_chains={"tts": ["kokoro"]})
+
+
+def test_a_half_installed_extra_reports_no_voices_at_all(half_installed):
+    """Listing must not succeed where synthesis would fail, or the reader offers
+    Listen on a work it cannot speak."""
+    from videomaker.providers.tts.kokoro_onnx import KokoroTTS
+
+    tts = KokoroTTS(half_installed)
+
+    with pytest.raises(ProviderConfigError, match="soundfile"):
+        tts.voices()
+
+
+def test_a_half_installed_extra_offers_no_listen_mode(half_installed):
+    """The whole point of the check: the mode table degrades instead of breaking.
+
+    With `voices()` answering happily this returned `{"en"}`, the reader drew a
+    Listen tab, and pressing it failed after the fact — the state a user reported.
+    """
+    from videomaker.web.routes.library import spoken_languages
+
+    assert spoken_languages(half_installed) == set()
+
+
+def test_the_reader_offers_no_listen_when_no_voice_can_be_built(without, tmp_path):
+    """The mode table degrades rather than breaking — §6 of the reader design."""
+    from videomaker.web.routes.library import spoken_languages
+
+    without("soundfile")
+    without("kokoro_onnx")
+    settings = Settings(
+        workspace_dir=tmp_path, models_dir=tmp_path, provider_chains={"tts": ["kokoro"]}
+    )
+
+    assert spoken_languages(settings) == set()

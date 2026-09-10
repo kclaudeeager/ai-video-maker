@@ -17,6 +17,9 @@ PROVIDER_NAME = "kokoro"
 KOKORO_MODEL_FILE = "kokoro-v1.0.onnx"
 KOKORO_VOICES_FILE = "voices-v1.0.bin"
 SETUP_HINT = "run `uv run videomaker setup` to download the Kokoro model files"
+#: What to do about a missing optional dependency. One string, because two
+#: providers and three imports were each phrasing it their own way.
+EXTRA_HINT = "install the local-voice stack with `uv sync --extra ml`"
 
 # Kokoro speaks espeak-ng language codes; the pipeline speaks ISO ones. The
 # translation lives in `videomaker.languages`, which is also what the create form
@@ -132,6 +135,27 @@ def espeak_language(language: str, voice: str) -> str:
     return spoken
 
 
+def _soundfile():
+    """`soundfile`, or the same refusal the engine import gives.
+
+    Guarded for the reason every optional import in this package is guarded, and
+    it was the one that was not. Two things went wrong because of that:
+
+    * a bare `ModuleNotFoundError` is not a `ProviderError`, so it does not
+      advance the chain — a run configured `tts: [kokoro, vendor]` died where it
+      should have fallen through to the vendor;
+    * it sat at the top of `synthesize`, *above* the `kokoro_onnx` import, so on
+      a clone without the `ml` extra it pre-empted the friendly "kokoro-onnx is
+      not installed" message. The worse of the two errors is the one that won,
+      and the reader showed `No module named 'soundfile'`.
+    """
+    try:
+        import soundfile as sf
+    except ImportError as exc:  # pragma: no cover - depends on the `ml` extra
+        raise ProviderConfigError(f"soundfile is not installed; {EXTRA_HINT}") from exc
+    return sf
+
+
 @register("tts", PROVIDER_NAME)
 class KokoroTTS(TTSProvider):
     """Kokoro v1.0 ONNX narration.
@@ -160,15 +184,31 @@ class KokoroTTS(TTSProvider):
             try:
                 from kokoro_onnx import Kokoro
             except ImportError as exc:  # pragma: no cover - depends on the `ml` extra
-                raise ProviderConfigError(
-                    "kokoro-onnx is not installed; `uv sync --extra ml`"
-                ) from exc
+                raise ProviderConfigError(f"kokoro-onnx is not installed; {EXTRA_HINT}") from exc
             model, voices = self._model_paths()
             self._engine = Kokoro(str(model), str(voices))
         return self._engine
 
     def voices(self) -> list[str]:
-        return sorted(self._kokoro().get_voices())
+        """The voices this provider can actually produce a file with.
+
+        `_soundfile()` is checked here and not only in `synthesize`, and that is
+        the point rather than belt-and-braces: `voices()` is what every caller
+        asks to find out whether this provider is *usable*. The reader builds its
+        mode table from it (`web/routes/library.spoken_languages`) and the create
+        form builds its menu from it.
+
+        With a half-installed `ml` extra — `kokoro_onnx` present, `soundfile`
+        absent — listing succeeded and synthesis failed, so the reader offered
+        Listen on a work it could not speak and the failure arrived after the
+        button. `docs/multimodal-reader-design.md` §6 asks for the opposite: a
+        mode that is absent rather than present and broken. Answering "no voices"
+        is what makes that true, and it costs one import that is cached after the
+        first call.
+        """
+        engine = self._kokoro()
+        _soundfile()
+        return sorted(engine.get_voices())
 
     def synthesize(
         self,
@@ -179,8 +219,7 @@ class KokoroTTS(TTSProvider):
         speed: float = 1.0,
         language: str = "en",
     ) -> TTSResult:
-        import soundfile as sf
-
+        sf = _soundfile()
         spoken = text.strip()
         if not spoken:
             raise ProviderError("cannot synthesize an empty narration")
