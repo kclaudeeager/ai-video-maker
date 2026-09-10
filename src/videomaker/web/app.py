@@ -118,7 +118,13 @@ def create_app(
     # against the project store, which is a second, subtler path surface than the
     # one it would protect.
     app.include_router(library.router)
-    app.include_router(media.router)
+    # Project media is a studio mount. It serves any file in any project folder —
+    # right for the person who owns them, wrong for a visitor, who would be able
+    # to read every script and `project.json` in the workspace. A reading server
+    # reaches a finished video through `/media/watch/...`, which resolves one
+    # artefact from a passage instead of taking a path from the caller.
+    if settings.audience is not Audience.READER:
+        app.include_router(media.router)
 
     # **What a reading server does not have.** `Audience.READER` mounts nothing
     # that can produce: no create form, no gates, no stage runner, no render. A

@@ -345,21 +345,62 @@ def spoken_languages(settings: Settings) -> set[str]:
     return codes
 
 
-def modes_for(work: WorkRef, settings: Settings) -> list[ReadMode]:
+def rendered_for(store, ref: UnitRef) -> tuple[object, str] | None:
+    """The finished wide cut made from this passage, if there is one.
+
+    `(project, relpath)`, or None. Used to decide whether a reader is offered
+    anything to watch at all — they are never offered an empty player.
+    """
+    from videomaker.corpus.materialise import existing_for
+    from videomaker.models import Aspect
+
+    project = existing_for(store, ref)
+    if project is None:
+        return None
+    spec = project.outputs.get(Aspect.WIDE)
+    if spec is None or not spec.video_path:
+        return None
+    return project, spec.video_path
+
+
+def modes_for(
+    work: WorkRef, settings: Settings, *, ref: UnitRef | None = None, store=None
+) -> list[ReadMode]:
     """The modes this work supports, in reading order. Source is always there.
 
-    `WATCH` is always offered: it needs no voice for the work's language — the
-    project it makes is written and narrated in whatever the pipeline is
-    configured for, and gate 1 is where that gets decided.
+    **Two different things share the word "watch".** Commissioning a video
+    materialises a `Project`, which needs the three gates and a studio to approve
+    them in; playing one that already exists needs neither. A studio is offered
+    both, under one tab. A reader is offered the second and never the first — and
+    only when there *is* something, because an empty player is worse than no tab.
+
+    `ref` and `store` are optional because the library shelf asks about a *work*
+    and cannot know which chapter; with no `ref` a reader is offered no `WATCH`.
     """
     modes = [ReadMode.SOURCE, ReadMode.BRIEF]
     if work.language in spoken_languages(settings):
         modes.append(ReadMode.LISTEN)
-    # Watch is a way *out* of the reader and into the studio, so a reading server
-    # does not offer it: the route it posts to is not mounted there.
-    if settings.audience is not Audience.READER:
+    if may_watch(settings, ref=ref, store=store):
         modes.append(ReadMode.WATCH)
     return modes
+
+
+def may_watch(settings: Settings, *, ref: UnitRef | None, store) -> bool:
+    """Whether this audience is offered the Watch tab for this passage.
+
+    A studio always: it may commission as well as play, and the panel offers
+    both. A reader only where a render already exists — an empty player is worse
+    than no tab, and a reader is never shown a control that would start work.
+
+    One function rather than a branch in `modes_for` because the two answers are
+    the same `append` and a linter is right to collapse that; the difference is
+    the *reason*, and a reason belongs somewhere it can be read.
+    """
+    if settings.audience is not Audience.READER:
+        return True
+    if ref is None or store is None:
+        return False
+    return rendered_for(store, ref) is not None
 
 
 def default_voice(settings: Settings, language: str) -> str:
@@ -547,14 +588,18 @@ def _watch_context(request: Request, ref: UnitRef) -> dict[str, object]:
     from videomaker.corpus.materialise import existing_for
 
     store = request.app.state.store
-    project = existing_for(store, ref)
-    rendered = None
-    if project is not None:
-        from videomaker.models import Aspect
-
-        spec = project.outputs.get(Aspect.WIDE)
-        rendered = spec.video_path if spec is not None else None
-    return {"project": project, "rendered": rendered}
+    made = rendered_for(store, ref)
+    if made is not None:
+        project, relpath = made
+        # A narrow URL rather than `/media/<project>/<path>`: on a reading server
+        # the project media route is not mounted at all, because it would serve
+        # every script, take and `project.json` in the workspace to anybody.
+        return {
+            "project": project,
+            "rendered": relpath,
+            "watch_url": f"/media/watch/{ref.work_id}/{ref.book}/{ref.chapter}",
+        }
+    return {"project": existing_for(store, ref), "rendered": None, "watch_url": ""}
 
 
 def _ask_for_narration(
@@ -644,7 +689,7 @@ def read_page(request: Request, work_id: str, book: str, chapter: str, mode: str
     work = _work(request, work_id)
     settings: Settings = request.app.state.settings
     ref = _ref(work_id, book, chapter)
-    modes = modes_for(work, settings)
+    modes = modes_for(work, settings, ref=ref, store=request.app.state.store)
     remembered, _language = preferred(request)
     # An explicit `?mode=` first, then the cookie, then the default, then whatever
     # this work does support — so a reader whose preference is Listen can still
@@ -686,10 +731,10 @@ def read_mode(request: Request, work_id: str, book: str, chapter: str, mode: str
     """One mode, as an htmx fragment. Unknown or unsupported modes are a 404."""
     work = _work(request, work_id)
     settings: Settings = request.app.state.settings
-    modes = modes_for(work, settings)
+    ref = _ref(work_id, book, chapter)
+    modes = modes_for(work, settings, ref=ref, store=request.app.state.store)
     if mode not in {m.value for m in modes}:
         raise HTTPException(status_code=404, detail="this work does not support that mode")
-    ref = _ref(work_id, book, chapter)
     templates: Jinja2Templates = request.app.state.templates
     context = _mode_context(
         request, ref, ReadMode(mode), default_voice(settings, work.language)
@@ -736,7 +781,7 @@ def build_audio(
         "_reader_mode.html",
         {
             "work": work,
-            "modes": [m.value for m in modes_for(work, settings)],
+            "modes": [m.value for m in modes_for(work, settings, ref=ref, store=request.app.state.store)],
             **_mode_context(request, ref, ReadMode.LISTEN, voice),
         },
     )
@@ -809,6 +854,32 @@ def record_place(
         places=with_place(bookmarks(request), place),
     )
     return response
+
+
+@router.get("/media/watch/{work_id}/{book}/{chapter}")
+def get_watch_media(request: Request, work_id: str, book: str, chapter: str):
+    """Serve the rendered wide cut made from this passage, and nothing else.
+
+    `media.router` serves any file in any project directory, which is right for a
+    studio and wrong for a reading server: it would hand a visitor every script,
+    every take and every `project.json`. So a reading server does not mount it,
+    and this is how a finished video is reached instead — one artefact, resolved
+    from the passage rather than from a path the caller supplies, and still put
+    through the same containment guard as everything else.
+    """
+    _work(request, work_id)
+    ref = _ref(work_id, book, chapter)
+    store = request.app.state.store
+    made = rendered_for(store, ref)
+    if made is None:
+        raise HTTPException(status_code=404, detail="not found")
+    project, relpath = made
+    try:
+        root = media.project_root(store.projects_dir, project.id)
+        target = media.safe_project_path(root, relpath)
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail="not found") from exc
+    return FileResponse(target, media_type="video/mp4")
 
 
 @router.get("/media/reading/{work_id}/{reading_key}/{name}")

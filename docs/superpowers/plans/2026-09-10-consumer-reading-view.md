@@ -164,3 +164,78 @@ counted once; the day's cap refuses the next and the page still reads; the
 per-minute cap refuses a burst; the studio is not subject to either; the counter
 survives a new `QuotaTracker` over the same file.
 
+---
+
+### Task 4: A reader may watch what exists, and commission nothing
+
+- [x] **Files:** modify `web/routes/library.py`, `web/app.py`,
+  `web/templates/_reader_mode.html`; test `tests/unit/test_reader_watch.py`
+
+**Task 2 removed too much.** Two different things share the word *watch*:
+
+* **commissioning** a video — `materialise` creates a `Project`, which needs the
+  three gates and a studio to approve them in. Correctly absent for a reader.
+* **playing one that already exists** — which is the whole consumer ask, and
+  which Task 2 removed along with it.
+
+So on a reading server `WATCH` is offered **only when a render already exists**
+for that passage, it plays, and it carries no commissioning control at all. Where
+nothing has been made, the mode is absent: there is nothing to watch, and an
+empty tab is worse than no tab.
+
+**Interfaces (normative):**
+
+```python
+def modes_for(work, settings, *, ref=None, store=None) -> list[ReadMode]: ...
+def rendered_for(store, ref) -> tuple[Project, str] | None: ...
+```
+
+`modes_for` keeps working with no `ref`: the library shelf asks about a *work*
+and cannot know which chapter, so it never offers `WATCH`.
+
+**And a narrow route to serve it.** `media.router` serves any file in any project
+directory, which is right for a studio and wrong for a reading server: it would
+hand a visitor every script, every take and every `project.json`. So
+`GET /media/watch/{work_id}/{book}/{chapter}` resolves the materialised project
+for that passage and serves **its rendered wide output and nothing else**, guarded
+by the same containment helper as `/media/reading/...`. `media.router` is then not
+mounted for `READER` at all.
+
+**Tests:** a reader with no render sees no Watch tab; with one, sees a `<video>`
+and no form; the studio still sees the commission button; the narrow route serves
+the render and refuses every other path in the project; `/media/{project}/...` is
+a 404 on a reading server.
+
+---
+
+### Task 5: Published
+
+- [ ] **Files:** modify `corpus/importer.py`, `corpus/bible.py`, `cli.py`,
+  `web/routes/library.py`; test `tests/unit/test_published.py`
+
+A work is **published** when its owner says so. Consumers see published works;
+the studio sees everything.
+
+**Interfaces (normative):**
+
+```python
+class WorkRef(BaseModel):
+    published: bool = False        # optional, falsy default
+
+def set_published(work_id, published, root) -> WorkRef: ...
+```
+
+- Optional with a falsy default, so every `work.yaml` on disk loads unchanged —
+  the same compatibility rule `Project`'s new fields follow.
+- `BibleCorpus.works()` is unfiltered; the **reader routes** filter. The corpus
+  is a library, not a policy.
+- A work that is not published is a 404 on a reading server, not a hidden row:
+  the reader must not be able to tell a private work from one that does not
+  exist.
+- CLI: `videomaker library publish <work-id>` / `--unpublish`, and `library list`
+  says which are published.
+
+**Tests:** an existing `work.yaml` with no field loads and is unpublished; the
+studio lists both; a reader lists only published; an unpublished work 404s on
+every reader route including its chapters and its media; publishing is idempotent.
+

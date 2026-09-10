@@ -64,9 +64,18 @@
        created by looking at this panel — only by pressing the button. #}
     <section class="watch stack">
       {% if rendered %}
-        <video controls preload="metadata" src="/media/{{ project.id }}/{{ rendered }}"></video>
-        <p class="hint flush">Made from this passage.
-          <a href="/projects/{{ project.id }}">Open the project</a> to change it.</p>
+        <video controls preload="metadata" src="{{ watch_url }}"></video>
+        {% if reader_view %}
+          <p class="hint flush">An illustrated reading of {{ unit.title }}.</p>
+        {% else %}
+          <p class="hint flush">Made from this passage.
+            <a href="/projects/{{ project.id }}">Open the project</a> to change it.</p>
+        {% endif %}
+      {% elif reader_view %}
+        {# Unreachable in practice — `modes_for` does not offer a reader the tab
+           when there is nothing rendered — and here so that a future caller
+           cannot accidentally hand a reader a commissioning form. #}
+        <p class="flush">There is no video of {{ unit.title }} yet.</p>
       {% elif project %}
         <p class="flush">A project for this passage already exists, part way
           through. <a href="/projects/{{ project.id }}">Pick it up at the gate it
