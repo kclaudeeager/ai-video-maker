@@ -61,3 +61,21 @@ services:
       # to the disk it depends on.
       - key: WORKSPACE_DIR
         value: /data/workspace
+
+      # Render terminates TLS at its edge and forwards plain HTTP to the
+      # container, saying so in `X-Forwarded-Proto`. Uvicorn ignores that header
+      # unless the peer is in `forwarded_allow_ips`, which defaults to
+      # `127.0.0.1` — and Render's proxy is not loopback. Left alone, every URL
+      # the app builds from the request comes out `http://` on an `https://`
+      # site: measured against a server behind a proxy claiming https, the feed
+      # address rendered `http://longhand.onrender.com/library/web/feed.xml`
+      # with the default and `https://...` with this set. That address is copied
+      # into podcast players and stamped into every enclosure in the feed, where
+      # a redirect is at best noise and at worst a client that refuses it.
+      #
+      # `*` trusts the forwarding headers from any peer, which is safe here only
+      # because nothing but Render's proxy can reach the container: it has no
+      # public port of its own. Do not carry this into a deployment where the
+      # container is directly reachable.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"

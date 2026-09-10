@@ -84,6 +84,14 @@ path](#cloudflare-tunnel--the-free-path) below.
 The disk mounts at `/data` and `WORKSPACE_DIR` points at `/data/workspace`, so
 projects survive deploys. Nothing outside `/data` does.
 
+`FORWARDED_ALLOW_IPS=*` is set for one reason: Render terminates TLS at its edge
+and forwards plain HTTP, and Uvicorn ignores `X-Forwarded-Proto` from a peer that
+is not in `forwarded_allow_ips` (default `127.0.0.1`). Without it every URL built
+from the request — the podcast feed address, and every enclosure inside the feed
+— comes out `http://` on an `https://` site. It is safe here because nothing but
+Render's proxy can reach the container; it is not safe on a directly reachable
+one.
+
 ### After it is up
 
 `GET /healthz` is the only unauthenticated path — a platform health check cannot
