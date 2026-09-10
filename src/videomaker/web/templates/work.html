@@ -14,6 +14,14 @@
 
 {% block content %}
   <p class="hint">{{ work.licence }}</p>
+  {# A narrated work is a podcast, and every player already speaks RSS — which
+     makes this the cheapest publishing this tool has. Shown always rather than
+     only when something is narrated: a feed of nothing is a valid feed, and
+     subscribing before there is anything is a reasonable thing to do. #}
+  <p class="hint flush">
+    <a href="/library/{{ work.id }}/feed.xml">Subscribe to the narration</a> —
+    paste that link into any podcast player.
+  </p>
   {% for book in books %}
     <section class="stack book-block">
       <h2 class="section-title flush">{{ book.name }}</h2>

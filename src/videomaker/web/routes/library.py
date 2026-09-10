@@ -764,6 +764,27 @@ def _listen_context(request: Request, unit: UnitText, voice: str) -> dict[str, o
     return context
 
 
+@router.get("/library/{work_id}/feed.xml")
+def work_feed(request: Request, work_id: str):
+    """This work's narrated chapters, as a podcast feed.
+
+    Goes through `_work`, so it respects `published` exactly as every other reader
+    route does and an unpublished work has no feed on a reading server.
+
+    Generates nothing: it lists the readings already on disk, so it needs no
+    budget and cannot be used to make a server work. It is also built per request
+    rather than written to a file, which is why it can never be stale.
+    """
+    from videomaker.corpus.feed import episodes_for, feed_xml
+
+    work = _work(request, work_id)
+    episodes = episodes_for(
+        request.app.state.settings, work_id, corpus=_corpus(request)
+    )
+    xml = feed_xml(work, episodes, base_url=str(request.base_url))
+    return Response(content=xml, media_type="application/rss+xml")
+
+
 @router.get("/read/{work_id}/{book}/{chapter}")
 def read_page(request: Request, work_id: str, book: str, chapter: str, mode: str = ""):
     work = _work(request, work_id)
