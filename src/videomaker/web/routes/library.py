@@ -295,12 +295,36 @@ def job_key(ref: UnitRef, voice: str) -> str:
 def spoken_languages(settings: Settings) -> set[str]:
     """ISO codes a configured `tts` provider can actually speak.
 
-    A YAML vendor states its languages outright. A local provider does not, so its
-    voice ids are read through the same table `web/voices.py` uses — the voice
-    prefix *is* the language (M3 Task 21), which is why there is no second list to
-    keep in step. A provider that cannot be built at all contributes nothing rather
-    than failing the page: an unconfigured voice is a missing mode, not an error.
+    A YAML vendor states its languages outright and is taken at its word: a vendor
+    exists precisely to reach a language the local stack cannot, so filtering its
+    claim through `languages.py` — which measures Kokoro and espeak — would refuse
+    the Kinyarwanda that `docs/voice-providers.md` is written for.
+
+    A local provider does not state them, so its voice ids are read through the
+    table `web/voices.py` uses: the voice prefix *is* the language (M3 Task 21).
+    Its codes are then narrowed to `OFFERED_CODES`, the measured gate, because
+    Kokoro **has** voices for languages this stack was measured to speak badly —
+    through espeak its Japanese "runs four times too long and says the English
+    word 'Japanese' out loud", and its Mandarin loses tone (`languages.py`). A
+    Listen tab that produces that is exactly the "present and broken" the mode
+    table exists to avoid.
+
+    The font gate is deliberately *not* applied. `media.fonts.offerable_codes`
+    adds it because burned-in captions have to be drawn by libass; the reader
+    renders HTML and the browser draws it, so a script this machine has no caption
+    font for is still perfectly readable here.
+
+    A provider that cannot be built at all contributes nothing rather than failing
+    the page: an unconfigured voice is a missing mode, not an error.
+
+    TODO(owner): `hi` is held back by `OFFERED_CODES` for an *alignment* reason —
+    faster-whisper returns the take in Urdu script — and the reader does no
+    alignment at all, so Hindi narration may well be fine here. Narrowing to
+    `OFFERED_CODES` drops it along with `ja` and `zh`, which is the conservative
+    call rather than a measured one. Should `languages.py` distinguish "the audio
+    is wrong" from "the timing is wrong", so the reader can offer the second?
     """
+    from videomaker.languages import OFFERED_CODES
     from videomaker.providers import get_provider, resolve_chain
     from videomaker.providers.tts.kokoro_onnx import UNKNOWN_CODE, describe_voice
 
@@ -314,7 +338,7 @@ def spoken_languages(settings: Settings) -> set[str]:
             assert isinstance(provider, TTSProvider)
             for voice in provider.voices():
                 code = describe_voice(voice).code
-                if code != UNKNOWN_CODE:
+                if code != UNKNOWN_CODE and code in OFFERED_CODES:
                     codes.add(code)
         except (ProviderError, OSError):
             continue

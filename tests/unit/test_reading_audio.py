@@ -21,6 +21,7 @@ import pytest
 from videomaker.config import Settings
 from videomaker.corpus import audio as audio_module
 from videomaker.corpus.audio import (
+    VERSE_SUFFIX,
     Reading,
     build_reading,
     reader_deps,
@@ -29,6 +30,7 @@ from videomaker.corpus.audio import (
 )
 from videomaker.corpus.importer import work_dir
 from videomaker.corpus.models import UnitRef, UnitText, Verse
+from videomaker.providers.mock import MockTTS
 from videomaker.providers.ratelimit import QuotaTracker
 from videomaker.providers.tts.http_api import (
     HTTPTTSConfig,
@@ -344,3 +346,58 @@ def test_a_rate_limited_run_keeps_its_verses_and_resumes(paid_deps):
     assert made == 3
     assert len(paid_deps.calls) == len(unit.verses) - 2
     assert len(reading.segments) == len(unit.verses)
+
+
+# ------------------------------- the name of the file the provider is handed
+#
+# `MockTTS` writes through `wave`, which does not care what the file is called.
+# Every real provider does: `KokoroTTS` writes through `soundfile`, and
+# libsndfile infers the output format from the extension. The verse files were
+# `.audio`, staged as `.audio.part`, so real synthesis died on
+#   No format specified and unable to get format from file extension
+# while the whole offline suite stayed green. These two tests are that gap.
+
+
+class ExtensionSensitiveTTS(MockTTS):
+    """A mock that refuses a name libsndfile would refuse — which is all of them
+    except a real audio extension. Faithful stand-in for `soundfile.write`."""
+
+    KNOWN = frozenset({".wav", ".flac", ".ogg", ".mp3", ".aiff", ".au"})
+
+    def synthesize(self, **kwargs):
+        out = Path(kwargs["out_path"])
+        if out.suffix.lower() not in self.KNOWN:
+            raise RuntimeError(
+                f"No format specified and unable to get format from file extension: {out}"
+            )
+        return super().synthesize(**kwargs)
+
+
+def test_every_path_a_provider_is_handed_is_one_it_can_write(mock_deps, sample_unit):
+    """Including the staging name, which is where this actually broke."""
+    mock_deps.instances[("tts", "mock")] = ExtensionSensitiveTTS(mock_deps.settings)
+
+    reading = build_reading(sample_unit, mock_deps, voice=VOICE)
+
+    assert len(reading.segments) == len(sample_unit.verses)
+    assert all(segment.end_s > segment.start_s for segment in reading.segments)
+
+
+def test_the_staging_name_keeps_the_extension(mock_deps, sample_unit, settings):
+    """`001.part.wav`, not `001.wav.part`. The writer sees the suffix either way,
+    and only one of them is a format it knows."""
+    seen: list[str] = []
+    provider = mock_deps.provider("tts")
+    real = provider.synthesize
+
+    def watch(**kwargs):
+        seen.append(Path(kwargs["out_path"]).name)
+        return real(**kwargs)
+
+    provider.synthesize = watch
+    build_reading(sample_unit, mock_deps, voice=VOICE)
+
+    assert seen, "the provider was asked for something"
+    for name in seen:
+        assert name.endswith(VERSE_SUFFIX), f"{name} is not a name a writer would accept"
+        assert ".part" in name, "and it is still staged rather than written in place"

@@ -428,3 +428,67 @@ def test_every_mode_has_a_label(client):
     body = client.get("/read/mock/JHN/1").text
     for label in MODE_LABELS.values():
         assert f">{label}</a>" in body
+
+
+# ------------------------------------- which languages the reader will speak in
+
+
+def test_a_local_voice_is_narrowed_to_the_measured_languages(tmp_path, monkeypatch):
+    """Kokoro *has* Japanese and Chinese voices; this stack was measured to speak
+    both badly — through espeak the Japanese take "runs four times too long and
+    says the English word 'Japanese' out loud" (`languages.py`). Offering Listen
+    for them is the "present and broken" the mode table exists to avoid."""
+    from videomaker.languages import LANGUAGES, OFFERED_CODES
+    from videomaker.providers.mock import MockTTS
+    from videomaker.web.routes.library import spoken_languages
+
+    # One voice per language Kokoro ships, offered or not.
+    prefixes = {"en": "af_heart", "es": "ef_dora", "ja": "jf_alpha", "zh": "zf_xiaobei"}
+    monkeypatch.setattr(MockTTS, "voices", lambda self: list(prefixes.values()))
+    settings = Settings(workspace_dir=tmp_path, provider_chains={"tts": ["mock"]})
+
+    spoken = spoken_languages(settings)
+
+    assert "en" in spoken and "es" in spoken
+    for held_back in ("ja", "zh"):
+        assert held_back in LANGUAGES, "the language exists and has a voice"
+        assert held_back not in OFFERED_CODES, "...and was measured to fail"
+        assert held_back not in spoken, f"so the reader must not offer {held_back}"
+
+
+def test_a_vendor_is_taken_at_its_word(tmp_path):
+    """The opposite rule, and the reason `voice_providers:` exists: a vendor is
+    for reaching a language the local stack cannot, so filtering its claim through
+    `languages.py` would refuse the Kinyarwanda it was added for."""
+    from videomaker.languages import LANGUAGES
+    from videomaker.web.routes.library import spoken_languages
+
+    settings = Settings(
+        workspace_dir=tmp_path,
+        provider_chains={"tts": ["vendor"]},
+        voice_providers=[
+            {
+                "name": "vendor",
+                "endpoint": "https://voice.invalid/speak",
+                "languages": ["rw", "ja"],
+                "voices": ["nyira"],
+            }
+        ],
+    )
+
+    assert "rw" not in LANGUAGES, "the local table has never heard of it"
+    assert spoken_languages(settings) == {"rw", "ja"}
+
+
+def test_the_font_gate_is_not_applied_to_reading(tmp_path, monkeypatch):
+    """`media.fonts.offerable_codes` adds a font check because burned-in captions
+    are drawn by libass. The reader renders HTML and the browser draws it, so a
+    script with no caption font on this machine is still readable."""
+    from videomaker.media import fonts
+    from videomaker.web.routes.library import spoken_languages
+
+    monkeypatch.setattr(fonts, "renderable_codes", frozenset)
+    settings = Settings(workspace_dir=tmp_path, provider_chains={"tts": ["mock"]})
+
+    assert "en" in spoken_languages(settings)
+    assert fonts.offerable_codes() == frozenset(), "the caption gate would refuse everything"

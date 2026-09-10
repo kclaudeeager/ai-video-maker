@@ -14,7 +14,8 @@ atomically and probed as it arrives under
 `library/<work>/derived/audio/<reading_key>/verses/`, so `build_reading` called
 again after a `RateLimited` or a `TTSBudgetExceeded` synthesises only the verses
 still missing and stitches the rest from cache. A half-written file that looks
-present would be worse than an absent one, hence the `.part` rename.
+present would be worse than an absent one, hence the `.part` rename — which keeps
+the file extension, for the reason `VERSE_SUFFIX` records.
 
 The concatenated file is an mp3 because the plan says so and because `<audio>`
 plays it everywhere. Measured here: LAME's encoder delay plus its end padding add
@@ -49,10 +50,23 @@ MP3_FILE = "reading.mp3"
 VTT_FILE = "reading.vtt"
 CONCAT_LIST = "concat.txt"
 
-#: Verse files carry no format suffix because the provider decides the format —
-#: Kokoro and the mock write wav, an HTTP vendor returns whatever it was asked
-#: for — and ffmpeg identifies a file by its bytes, not its name.
-VERSE_SUFFIX = ".audio"
+#: Verse files are named `.wav`, and the name is **load-bearing for the writer
+#: even though it is not for the reader**.
+#:
+#: ffmpeg identifies a file by its bytes, so as far as the concat and the probe
+#: are concerned this could be called anything. `soundfile` — which `KokoroTTS`
+#: writes through — does not: libsndfile infers the output format from the
+#: extension and refuses a name it does not recognise. This was `.audio`, staged
+#: as `.audio.part`, and real synthesis died on
+#: `No format specified and unable to get format from file extension`. Every
+#: reader test uses `MockTTS`, which writes through `wave` and ignores the name,
+#: so the whole Listen path was broken with a real voice and green offline.
+#:
+#: An HTTP vendor that returns mp3 bytes still gets written to a `.wav` name —
+#: it writes bytes rather than encoding, and ffmpeg reads it by content, so the
+#: name is inert there. Being wrong for the one provider that ignores it beats
+#: being unwritable for the one that does not.
+VERSE_SUFFIX = ".wav"
 
 #: LAME VBR quality 4 is ~165 kbps for speech: transparent for narration and a
 #: fifth the size of a wav. The whole point of the mp3 is to be small enough to
@@ -159,7 +173,9 @@ def _synthesise_missing(
         if path.is_file():
             durations.append(probe_duration(path))
             continue
-        part = path.with_name(f"{path.name}.part")
+        # `001.part.wav`, not `001.wav.part`: the staging name has to keep the
+        # extension, or the writer refuses it for exactly the reason above.
+        part = path.with_name(f"{path.stem}.part{path.suffix}")
         result = tts.synthesize(text=text, voice=voice, out_path=part, speed=speed, language=language)
         os.replace(part, path)
         durations.append(result.duration_s)
