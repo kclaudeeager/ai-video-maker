@@ -106,6 +106,18 @@
      app column) and they are kept apart so retuning one cannot move the
      other.
      ---------------------------------------------------------------------- */
+  /* -- display -----------------------------------------------------------
+     Charis SIL, large. The app has only ever set its serif at 16-19px, which
+     is why every page has read as chrome with prose inside it. The product is
+     called Longhand and the serif *is* the longhand, so the one place it is
+     allowed to be loud is the root's opening line. Fluid rather than a fixed
+     step: this headline is the only type on the site whose job is to fill a
+     column, so it should fill the column it is given.
+     ---------------------------------------------------------------------- */
+  --t-hero: clamp(2.5rem, 6vw, 4rem);
+  --lh-hero: 1.08;
+  --measure-hero: 22ch;      /* the headline breaks where it means to        */
+
   --measure: 34rem;          /* reading column; ~66 characters at --t-read  */
   --t-read: 1.1875rem;       /* 19px body for sustained reading             */
   --lh-read: 1.7;
@@ -2239,6 +2251,17 @@ video {
   margin: 0 auto;
 }
 
+/* The title belongs to the column it heads. `base.html` puts `.page-head`
+   outside the content block, so it is centred from here rather than by giving
+   the reading page its own copy of the shell — `:has()` asks the one question
+   that distinguishes them ("is there a reading column on this page?") and needs
+   no template to answer it. Found by looking at the rendered page: the heading
+   sat hard left of a centred column, which read as two designs on one screen. */
+.page:has(.reading-column) .page-head {
+  max-width: var(--measure);
+  margin-inline: auto;
+}
+
 /* The mode switcher: three quiet segmented controls. Not tabs, not buttons,
    and deliberately without a hue — choosing how to read is not a request for
    a human, so it gets weight and a rule rather than colour. */
@@ -2427,3 +2450,198 @@ video {
 .chapter-grid a:hover {
   border-color: var(--rule-field);
 }
+
+/* ==========================================================================
+   THE WORKSPACE ROOT. `docs/ui-design.md` §12. One opening line set in the
+   serif at display size — the only display size on the site — then the three
+   ways in, then what is already open. No numbered markers on the three: they
+   are alternatives, not a sequence.
+   ========================================================================== */
+
+.hero {
+  margin-bottom: var(--s7);
+}
+
+.hero-line {
+  max-width: var(--measure-hero);
+  margin: 0 0 var(--s4);
+  font-family: var(--font-text);
+  font-size: var(--t-hero);
+  font-weight: 400;
+  line-height: var(--lh-hero);
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+.hero-lede {
+  max-width: var(--measure-prose);
+  margin: 0;
+  font-family: var(--font-text);
+  font-size: var(--t-body);
+  line-height: var(--lh-prose);
+  color: var(--ink-soft);
+}
+
+/* The three ways in. Each card previews its own input, which is the one honest
+   difference between them — a sentence you have not written, a text already
+   published, a file you already have. */
+.ways {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--s4);
+  margin: 0 0 var(--s7);
+  padding: 0;
+  list-style: none;
+}
+
+.way {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s5);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--paper);
+  box-shadow: var(--lift);
+}
+
+.way-title {
+  margin: 0;
+  font-family: var(--font-text);
+  font-size: var(--t-card);
+  font-weight: 400;
+  line-height: var(--lh-head);
+}
+
+.way-title a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+/* The whole card is the target, so the link is stretched over it rather than
+   the title being a small hit area inside a large clickable-looking box. */
+.way-title a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.way {
+  position: relative;
+}
+
+.way:focus-within,
+.way:hover {
+  border-color: var(--rule-field);
+}
+
+.way-note {
+  margin: 0;
+  font-size: var(--t-fine);
+  line-height: var(--lh-ui);
+  color: var(--ink-soft);
+}
+
+/* A preview of the input this way in starts from. Sunk, so it reads as a thing
+   being shown rather than a control to use. */
+.way-input {
+  margin-top: auto;
+  padding: var(--s3);
+  border-radius: var(--r);
+  background: var(--sunk);
+  font-size: var(--t-fine);
+  line-height: var(--lh-ui);
+  color: var(--ink-soft);
+}
+
+.way-input .way-typed {
+  font-family: var(--font-text);
+  font-size: var(--t-body);
+  color: var(--ink);
+}
+
+.way-input .way-file {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+/* What is already open. A list, not a grid: these are things you return to, and
+   a returning eye reads down a column faster than around a board. */
+.open-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+
+.open-item {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2) var(--s4);
+  padding: var(--s4) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.open-title {
+  font-family: var(--font-text);
+  font-size: var(--t-card);
+  line-height: var(--lh-head);
+}
+
+.open-title a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.open-title a:hover {
+  text-decoration: underline;
+}
+
+.open-title a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.open-detail {
+  margin-left: auto;
+  font-size: var(--t-fine);
+  color: var(--ink-soft);
+}
+
+.open-detail.warn {
+  color: var(--warn);
+}
+
+.open-detail.ok {
+  color: var(--ok);
+}
+
+/* Which kind of thing this row is. A word, because there are two kinds and a
+   word is unambiguous where an icon would need a legend. */
+.open-kind {
+  font-size: var(--t-fine);
+  color: var(--ink-soft);
+}
+
+/* The catalogue shelf: a licence is a row on it, not a footnote under it. */
+.shelf-row {
+  gap: var(--s2) var(--s4);
+}
+
+.shelf-licence {
+  flex: 1 1 16rem;
+  font-size: var(--t-fine);
+  color: var(--ink-soft);
+}
+
+.shelf-action {
+  margin-left: auto;
+}
+
+.shelf-action form {
+  margin: 0;
+}
+

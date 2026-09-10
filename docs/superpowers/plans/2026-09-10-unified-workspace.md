@@ -87,7 +87,7 @@ broken project directory is skipped rather than raised.
 
 ### Task 2: The display scale, and §12
 
-- [ ] **Files:** modify `web/static/style.css`, `docs/ui-design.md`; test
+- [x] **Files:** modify `web/static/style.css`, `docs/ui-design.md`; test
   `tests/unit/test_palette_contrast.py` (extend)
 
 New tokens only — no new colours:

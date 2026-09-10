@@ -321,3 +321,62 @@ because projects claim their labels, so inventing an empty node would render a
 typo in the address bar as a real, permanently empty folder.
 
 Navigation stays the browser's job: a link and a 303, no JavaScript, per §10.
+
+---
+
+## 12. The workspace root, and the three ways in
+
+§11 said the root is a dashboard rather than a list. This section says what it is
+a dashboard *of*, now that the product has more than one kind of thing in it.
+
+**The root is the workspace.** It asks one question — what do you want to work
+on — and it answers three ways: from an idea, from a work, from a file of your
+own. Underneath, it lists what is already open, and a video project and a text in
+the library sit in the same list. They are two storage shapes and one surface;
+`web/workspace.py` is the projection that makes that true without giving reading
+a state machine it does not need.
+
+### The serif goes large, once
+
+Charis SIL has been in this project since M3 and has never been set above 19px.
+That is why the app reads as an admin panel with prose inside it: the only voice
+with any character in it was whispering. The root's opening line is set in
+`--t-hero` — fluid, 40 to 64px — and it is the **one** place a display size is
+allowed. Everything else keeps the scale §4 already defines.
+
+This is also the identity argument. The product is called Longhand because
+automation is shorthand and this is the long way round on purpose; the serif is
+the longhand. Setting it large is the cheapest true thing the design can say.
+
+### What the root must not do
+
+Four treatments are banned on this page specifically, and the ban is worth
+writing down because each of them is what a page like this reaches for by
+default:
+
+- **No numbered markers on the three ways in.** `01 / 02 / 03` encodes a
+  sequence, and these are alternatives — you pick one. The gate rail on a
+  project page *is* a sequence and keeps its numbers.
+- **No all-caps eyebrow above the hero.** The eyebrow earns its place elsewhere
+  by saying what kind of thing follows; the root has one kind of thing, so an
+  eyebrow there would be decoration wearing a label's clothes.
+- **No middle-dot meta strings.** `3 projects · 1 work · 2 waiting` says nothing
+  the list below it does not say better and in full sentences.
+- **No arrow appended to a link or a button.** "Start from an idea" is already a
+  verb; the arrow adds a glyph and no information.
+
+### What distinguishes the three, visually
+
+Not a number and not an icon: **what each one starts from**. An idea starts from
+a sentence you have not written yet, so its card shows the field. A work starts
+from something already published, so its card shows a title and a licence. Your
+own file starts from something you already have, so its card shows a filename.
+The card is a preview of the input, which is the one honest difference between
+them.
+
+### Contrast, unchanged
+
+The palette does not move. Achromatic chrome, one warm hue for the thing asking
+for a human, and every value still a token at the top of `style.css` that
+`tests/unit/test_palette_contrast.py` reads back out and measures.
+

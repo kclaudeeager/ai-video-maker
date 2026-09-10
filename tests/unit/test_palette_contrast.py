@@ -217,3 +217,50 @@ def test_the_reading_measure_is_a_token():
     reader = css.split("THE READER.", 1)[1]
     assert "max-width: var(--measure)" in reader
     assert not re.search(r"max-width:\s*\d", reader)
+
+
+def test_the_reading_page_heading_shares_the_column_it_heads():
+    """`base.html` renders `.page-head` outside the content block, so without this
+    the title sits hard left of a centred column — two designs on one screen. Found
+    by looking at the rendered page, so it is pinned here rather than described."""
+    css = STYLESHEET.read_text()
+    reader = css.split("THE READER.", 1)[1]
+
+    assert ".page:has(.reading-column) .page-head" in reader
+    assert "max-width: var(--measure)" in reader.split(".page-head", 1)[1]
+
+
+# ----------------------------------------------------------------- the display
+
+
+def test_the_hero_scale_is_a_token_and_is_fluid():
+    """`docs/ui-design.md` §12: the root's opening line is the one place a display
+    size is allowed, and it is fluid because it is the only type on the site whose
+    job is to fill the column it is given."""
+    css = STYLESHEET.read_text()
+    block = css.split(":root {", 1)[1].split("\n}", 1)[0]
+
+    assert "--t-hero: clamp(" in block
+    assert "--lh-hero:" in block
+    assert "--measure-hero:" in block
+
+
+def test_the_hero_is_set_in_the_serif_and_sized_from_the_token():
+    """The identity argument, asserted: the product is called Longhand and the
+    serif is the longhand. A hero in `--font-ui` would be any other admin panel."""
+    css = STYLESHEET.read_text()
+    hero = css.split(".hero-line", 1)[1].split("}", 1)[0]
+
+    assert "var(--font-text)" in hero
+    assert "var(--t-hero)" in hero
+    assert not re.search(r"font-size:\s*\d", hero), "the hero size is a token, not a number"
+
+
+def test_no_second_display_size_is_invented_outside_the_block():
+    """One display size, once. A page that wants a bigger headline gets `--t-hero`
+    or it gets `--t-page`; it does not get its own `4rem`."""
+    css = STYLESHEET.read_text()
+    _block, _, rest = css.partition("--motion: 160ms;\n}")
+    oversized = re.findall(r"font-size:\s*(?:clamp\([^)]*\)|[3-9](?:\.\d+)?rem)", rest)
+
+    assert not oversized, f"display sizes outside the token block: {oversized}"
