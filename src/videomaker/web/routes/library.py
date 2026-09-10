@@ -28,6 +28,7 @@ Three things in this module are load-bearing rather than incidental:
 
 import hashlib
 import hmac
+import os
 import secrets
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from enum import StrEnum
@@ -810,6 +811,51 @@ def work_feed(request: Request, work_id: str):
     )
     xml = feed_xml(work, episodes, base_url=str(request.base_url))
     return Response(content=xml, media_type="application/rss+xml")
+
+
+@router.get("/library/{work_id}/bundle.zip")
+def work_bundle(request: Request, work_id: str):
+    """The whole work as one zip: text, whatever is narrated, and the licence.
+
+    The offline half of publishing. A feed needs a player, a subscription and a
+    network; this needs none of them once it has landed, and it is what survives
+    this server being switched off.
+
+    Built into a temporary file rather than streamed, so the response carries a
+    real `Content-Length` and a browser can show a progress bar and resume — a
+    chunked download of unknown length is the one that people cancel at 80%. The
+    file is deleted after the response is sent, which is why the work is done
+    per request: caching it would mean invalidating it on every new reading, and
+    a stale bundle is a bundle missing the chapter somebody came for.
+
+    Generates nothing — it packages what exists — so it needs no budget, the same
+    reasoning as the feed. `published` is respected through `_work`.
+    """
+    import tempfile
+
+    from starlette.background import BackgroundTask
+
+    from videomaker.corpus.bundle import BundleTooLarge, bundle_name, write_bundle
+
+    work = _work(request, work_id)
+    settings: Settings = request.app.state.settings
+    handle, name = tempfile.mkstemp(prefix=f"{work_id}-", suffix=".zip")
+    path = Path(name)
+    os.close(handle)
+    try:
+        write_bundle(path, work, settings=settings, corpus=_corpus(request))
+    except BundleTooLarge as refused:
+        path.unlink(missing_ok=True)
+        raise HTTPException(status_code=413, detail=str(refused)) from refused
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename=bundle_name(work),
+        background=BackgroundTask(path.unlink, missing_ok=True),
+    )
 
 
 @router.get("/read/{work_id}/{book}/{chapter}")

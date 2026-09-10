@@ -46,6 +46,12 @@
       </span>
     {% endif %}
   </label>
+  {# The offline half. A feed needs a player and a network; a zip needs neither
+     once it has landed, and it is what is left if this server goes away. #}
+  <p class="hint flush">
+    Or <a href="/library/{{ work.id }}/bundle.zip">download the whole work</a> —
+    the text, whatever has been read aloud, and the licence, in one zip.
+  </p>
   {% for book in books %}
     <section class="stack book-block">
       <h2 class="section-title flush">{{ book.name }}</h2>
