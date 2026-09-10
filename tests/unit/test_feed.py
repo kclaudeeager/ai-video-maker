@@ -287,11 +287,72 @@ def test_fetching_a_feed_generates_nothing(tmp_path):
 
 
 def test_the_work_page_offers_it(tmp_path):
+    """As an address to copy, absolute, not a link to follow.
+
+    Following the link lands a reader on raw XML, which is a dead end — the feed
+    is addressed to a podcast player, and the URL has to be absolute because the
+    player is given it with no page to resolve it against.
+    """
     with TestClient(app_for(Audience.READER, tmp_path)) as client:
         body = client.get("/library/mock").text
 
-    assert 'href="/library/mock/feed.xml"' in body
+    assert 'value="http://testserver/library/mock/feed.xml"' in body
     assert "podcast player" in body
+
+
+def test_the_work_page_uses_the_address_the_reader_arrived_on(tmp_path):
+    """A feed URL naming `localhost` is useless to the phone it gets pasted into.
+
+    The host comes off the request, so a reader who reached this page over the
+    LAN copies the LAN address and a reader on a tunnel copies the tunnel.
+    """
+    client = TestClient(app_for(Audience.READER, tmp_path), base_url="http://192.168.1.9:8000")
+    with client:
+        body = client.get("/library/mock").text
+
+    assert 'value="http://192.168.1.9:8000/library/mock/feed.xml"' in body
+
+
+def test_a_loopback_address_says_it_only_works_here(tmp_path):
+    """`serve` binds loopback by default, so this is the common case.
+
+    A feed URL naming `localhost` is not a feed URL a phone can subscribe to —
+    on a phone that name means the phone. Saying "any podcast player" there is
+    simply wrong, and the person finds out after pasting it into one.
+    """
+    client = TestClient(app_for(Audience.READER, tmp_path), base_url="http://localhost:8000")
+    with client:
+        body = client.get("/library/mock").text
+
+    assert 'value="http://localhost:8000/library/mock/feed.xml"' in body
+    assert "on this machine" in body
+    assert "videomaker serve --host 0.0.0.0" in body
+    assert "LONGHAND_PASSWORD" in body
+
+
+def test_an_address_other_devices_can_reach_does_not_carry_the_warning(tmp_path):
+    client = TestClient(app_for(Audience.READER, tmp_path), base_url="http://192.168.1.9:8000")
+    with client:
+        body = client.get("/library/mock").text
+
+    assert "on this machine" not in body
+    assert "any device that can reach" in body
+    assert "password" not in body
+
+
+def test_a_gated_server_says_the_player_needs_the_password(tmp_path):
+    """`PasswordGate` covers the feed and the mp3s, and a player handed a bare URL
+    gets 401 — which most report as "feed not found", pointing at the wrong thing.
+
+    Keyed off the request rather than the environment: the browser authenticated
+    to reach this page, so a player will have to as well.
+    """
+    client = TestClient(app_for(Audience.READER, tmp_path), base_url="http://192.168.1.9:8000")
+    with client:
+        body = client.get("/library/mock", headers={"Authorization": "Basic bG9uZ2hhbmQ6cHc="}).text
+
+    assert "behind the password gate" in body
+    assert "longhand:your-password@" in body
 
 
 def test_only_episodes_for_caps(tmp_path):

@@ -2422,6 +2422,13 @@ video {
   color: var(--ink-soft);
 }
 
+/* Held to the reading measure: a feed address is a string to copy, and a field
+   run to the full width of a wide window is harder to take in, not easier. */
+.subscribe {
+  max-width: var(--measure);
+  margin-bottom: var(--s6);
+}
+
 .book-block {
   margin-bottom: var(--s5);
 }

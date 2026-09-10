@@ -55,6 +55,7 @@ from videomaker.providers.base import CorpusProvider, TTSProvider
 from videomaker.providers.errors import ProviderError, QuotaExceeded
 from videomaker.providers.tts.http_api import HTTPTTSProvider, TTSBudgetExceeded, estimate_minutes
 from videomaker.web import media
+from videomaker.web.auth import PASSWORD_ENV, USERNAME, is_loopback
 from videomaker.web.worker import JobQueue
 
 router = APIRouter()
@@ -546,7 +547,33 @@ def work_page(request: Request, work_id: str):
     return templates.TemplateResponse(
         request,
         "work.html",
-        {"work": work, "books": _chapters_by_book(_corpus(request).outline(work_id))},
+        {
+            "work": work,
+            "books": _chapters_by_book(_corpus(request).outline(work_id)),
+            # Absolute, because a podcast player is given this URL with no page to
+            # resolve it against — and built here rather than in the template so
+            # rule 6's "no absolute URL in a template" stays exactly as strict as
+            # it was. Taken from the request, so whatever address reached this page
+            # is the address handed to the player: localhost, a LAN IP, a tunnel.
+            "feed_url": f"{str(request.base_url).rstrip('/')}/library/{work_id}/feed.xml",
+            # `localhost` is precisely the one address no *other* device can reach:
+            # on a phone it means the phone. Since `serve` binds loopback by
+            # default, the common case is a feed URL that works only in a player on
+            # this machine — so say that, and say what to run instead, rather than
+            # promising "any device" and being wrong. Not fixed by printing the LAN
+            # address here: bound to loopback, that address would not answer either.
+            "feed_is_local_only": is_loopback(request.url.hostname or ""),
+            "public_bind_command": "videomaker serve --host 0.0.0.0",
+            "password_env": PASSWORD_ENV,
+            # A network bind is gated by `PasswordGate`, and the gate covers the
+            # feed and the mp3s alike — a player handed a bare URL gets 401 and
+            # most report it as "feed not found". Read off this very request
+            # rather than the environment: if the browser had to authenticate to
+            # see this page, a player will have to authenticate too, and that
+            # stays true behind a tunnel or a proxy that the server cannot see.
+            "feed_needs_password": "authorization" in request.headers,
+            "auth_username": USERNAME,
+        },
     )
 
 

@@ -17,11 +17,35 @@
   {# A narrated work is a podcast, and every player already speaks RSS — which
      makes this the cheapest publishing this tool has. Shown always rather than
      only when something is narrated: a feed of nothing is a valid feed, and
-     subscribing before there is anything is a reasonable thing to do. #}
-  <p class="hint flush">
-    <a href="/library/{{ work.id }}/feed.xml">Subscribe to the narration</a> —
-    paste that link into any podcast player.
-  </p>
+     subscribing before there is anything is a reasonable thing to do.
+
+     A field to copy rather than a link to follow. A link sends the browser to
+     the XML, which is a dead end for the person this view is for — the feed is
+     addressed to a podcast player, and the only useful thing to do with it is
+     paste it into one. Same readonly-and-select-on-focus pattern as the file
+     paths on the render page, for the same reason. #}
+  <label class="path-copy subscribe">
+    <span class="path-label">Subscribe to the narration</span>
+    <input class="path-field" type="text" readonly value="{{ feed_url }}"
+           onfocus="this.select()" aria-label="Podcast feed address for {{ work.title }}">
+    {% if feed_is_local_only %}
+      <span class="hint flush">
+        Paste this into a podcast player <em>on this machine</em> — gPodder, Apple
+        Podcasts, VLC. A phone cannot reach it: <code>localhost</code> on a phone
+        means the phone. To subscribe from another device, serve on your network
+        with <code>{{ public_bind_command }}</code> and
+        <code>{{ password_env }}</code> set, then copy this address again.
+      </span>
+    {% else %}
+      <span class="hint flush">
+        Paste this into any podcast player, on any device that can reach this
+        address.{% if feed_needs_password %} It is behind the password gate, so a
+        player that cannot ask for a username and password needs them in the
+        address: put <code>{{ auth_username }}:your-password@</code> in front of
+        the host.{% endif %}
+      </span>
+    {% endif %}
+  </label>
   {% for book in books %}
     <section class="stack book-block">
       <h2 class="section-title flush">{{ book.name }}</h2>

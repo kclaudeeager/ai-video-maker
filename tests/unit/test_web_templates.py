@@ -144,10 +144,26 @@ def test_the_player_is_a_native_audio_element_with_the_generated_vtt(reader_app)
     assert "reading.vtt" in body
 
 
+#: The address the test client reaches the app on. A page may name *itself*
+#: absolutely — the work page prints its own feed URL as a string to paste into a
+#: podcast player, which has no page to resolve a relative one against — and that
+#: is not what this rule is about: the rule is that nothing loads from a CDN and no
+#: third party learns a page was viewed. A self-reference is neither. Everything
+#: else stays as blunt as it was; `test_the_origin_exemption_does_not_hide_a_cdn`
+#: is the guard on the exemption itself.
+_OWN_ORIGIN = "http://testserver"
+
+
 @pytest.mark.parametrize("path", ["/library", "/library/mock", "/read/mock/JHN/1"])
 def test_no_reader_page_references_an_external_url(reader_client, path):
-    rendered = reader_client.get(path).text
+    rendered = reader_client.get(path).text.replace(_OWN_ORIGIN, "")
     assert not _ABSOLUTE_URL.search(rendered), f"{path} must not reference an external URL"
+
+
+def test_the_origin_exemption_does_not_hide_a_cdn():
+    """Stripping the page's own origin must not stop a foreign host being caught."""
+    smuggled = '<script src="https://cdn.example.com/htmx.js"></script>'
+    assert _ABSOLUTE_URL.search(smuggled.replace(_OWN_ORIGIN, ""))
 
 
 @pytest.mark.parametrize("mode", ["source", "brief", "listen"])
