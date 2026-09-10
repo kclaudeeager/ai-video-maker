@@ -105,7 +105,7 @@ a display size outside the block.
 
 ### Task 3: The root becomes the workspace
 
-- [ ] **Files:** modify `web/templates/index.html`, `web/routes/projects.py`,
+- [x] **Files:** modify `web/templates/index.html`, `web/routes/projects.py`,
   new `web/templates/_ways_in.html`; test `tests/unit/test_web_dashboard.py`
   (extend), `tests/unit/test_workspace_page.py`
 

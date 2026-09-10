@@ -1,89 +1,85 @@
 {#
-  The workspace root: what needs you, the folders, the projects filed nowhere, and
-  the create form — plus, on an empty workspace, the first-run screen.
+  The workspace root. `docs/ui-design.md` §12.
 
-  Context: `rows` (ProjectRow, newest first), `tree` (the root `FolderNode`),
-  `folders` (the labels in use), `templates_available`, `form`, `error`, `voices`,
-  plus `first_run`/`free_tier`/`keys` for the empty state.
+  Context: `items` (WorkspaceItem, newest first), `needs_you`, `tree`, `folders`,
+  `folder_error`, plus `first_run`/`free_tier`/`keys` for the empty state.
 
-  **The root shows folders, not everything.** A folder is a card that links to its
-  own page — see `_folder_tree.html` for why the always-open tree was replaced.
-  Projects filed at the root still appear here, because they are genuinely at this
-  level and nothing else would show them.
+  One opening line, the three ways in, then what is already open — a video
+  project and a text in the library in the same list, because they are two
+  storage shapes and one workspace. The create form is not on this page any more:
+  it lives behind `/start/video`, which is what stops the root being a form with
+  a list under it.
 
-  **The summary strip leads because it is the only thing that is ever urgent.** It
-  answers "is there anything for me" without reading a single card, which is the
-  question a dashboard exists to answer. It is omitted entirely when nothing is
-  waiting rather than printed as a zero — a dashboard that says `0 waiting for you`
-  every day teaches you to stop reading it.
-
-  The create form is a plain `<form method="post">` with no htmx: creation ends in a
-  303 to another page, which is exactly what a browser does well on its own, and it
-  keeps the page working with JavaScript disabled (M2 global constraint).
-
-  The first-run screen is this page's empty state rather than a separate
-  destination — the create form is the thing it argues for, and a redirect would
-  put a wall between reading it and using it. `/guide` serves the same partial
-  afterwards.
+  **What this page must not do**, and each of these is what a page like it
+  reaches for by default: number the three ways in (they are alternatives, not a
+  sequence), put an all-caps eyebrow above the hero, join its counts with middle
+  dots, or append an arrow to a link. §12 has the argument.
 #}
 {% extends "base.html" %}
 {% import "_folder_tree.html" as tree_ui with context %}
 
-{% block title %}Projects{% endblock %}
-{% block eyebrow %}{% if first_run %}Welcome{% else %}Your workspace{% endif %}{% endblock %}
-{% block heading %}{% if first_run %}Start your first video{% else %}Projects{% endif %}{% endblock %}
+{% block title %}Longhand{% endblock %}
+{% block eyebrow %}{% endblock %}
+{% block heading %}{% endblock %}
 
 {% block content %}
-  {% if first_run %}{% include "_welcome.html" %}{% endif %}
-
-  {# On a first run the form is the only thing to do, so it comes first. With
-     projects on disk they are what you came back for, so the list leads. #}
-  {% if first_run %}
-    <section class="stack">{% include "_new_project.html" %}</section>
-  {% endif %}
-
-  <section class="stack">
-    {# The page title already says "Projects" when the list leads; the heading is
-       only needed on a first run, where the list sits under the create form. #}
-    {% if first_run %}<h2 class="section-title">Projects</h2>{% endif %}
-    {% if rows %}
-      {% if folder_error %}
-        <p class="notice notice-bad" role="alert">{{ folder_error }}</p>
-      {% endif %}
-
-      {# Silent when there is nothing to say — see the header note. #}
-      {% if tree.waiting %}
-        <p class="summary-strip" data-waiting="{{ tree.waiting }}">
-          <strong>{{ tree.waiting }}</strong>
-          of {{ tree.count }} {{ "project needs" if tree.waiting == 1 else "projects need" }} you
-        </p>
-      {% endif %}
-
-      {{ tree_ui.folder_datalist(folders) }}
-      {{ tree_ui.folder_cards(tree) }}
-
-      {% if tree.rows %}
-        {# Only worth a heading when there are folders to tell these apart from. #}
-        {% if tree.children %}
-          <h2 class="section-title unfiled-title">Not in a folder</h2>
-        {% endif %}
-        {{ tree_ui.project_rows(tree, folders) }}
-      {% endif %}
-
-      <p class="hint flush folder-note">
-        A folder is a label on the project, not a place on disk — open a project's
-        <em>Move</em> and type a new one to file it there. A folder with nothing left
-        in it simply stops appearing, so there is nothing to delete.
-      </p>
-    {% else %}
-      <p class="card empty-state flush">
-        You have no projects yet. Fill in a topic above and it will appear here,
-        scripted and waiting at gate 1.
-      </p>
-    {% endif %}
+  <section class="hero">
+    <h1 class="hero-line">Everything here goes the long way round.</h1>
+    <p class="hero-lede">A topic becomes a video you approved shot by shot. A book
+      becomes a page you can read, skim or hear. Nothing is voiced, rendered or
+      published without you.</p>
   </section>
 
-  {% if not first_run %}
-    <section class="stack">{% include "_new_project.html" %}</section>
+  {% include "_ways_in.html" %}
+
+  {% if anything %}
+    {# Silent when there is nothing to say: a workspace that reports `0 waiting`
+       every day teaches you to stop reading the line.
+
+       The numerator is `tree.waiting`, which is what the folder cards below
+       count with — one definition of "waiting" on the page, not two. The
+       denominator is the whole workspace, works included, because a work is a
+       thing you have open even though it can never be waiting for you. #}
+    {% if tree.waiting %}
+      <p class="summary-strip" data-waiting="{{ tree.waiting }}">
+        <strong>{{ tree.waiting }}</strong>
+        of {{ anything }} {{ "thing needs" if anything == 1 else "things need" }} you
+      </p>
+    {% endif %}
+
+    {% if folder_error %}
+      <p class="notice notice-bad" role="alert">{{ folder_error }}</p>
+    {% endif %}
+
+    {% if items %}
+      <section class="stack">
+        {# A heading only when the folders below need telling apart from these. #}
+        {% if tree.children %}<h2 class="section-title">Not in a folder</h2>{% endif %}
+        {% include "_open_list.html" %}
+      </section>
+    {% endif %}
+
+    {% if tree.children %}
+      <section class="stack">
+        <h2 class="section-title">Folders</h2>
+        {{ tree_ui.folder_datalist(folders) }}
+        {{ tree_ui.folder_cards(tree) }}
+        <p class="hint flush folder-note">
+          A folder is a label on the project, not a place on disk — open a project's
+          <em>Move</em> and type a new one to file it there. A folder with nothing left
+          in it simply stops appearing, so there is nothing to delete.
+        </p>
+      </section>
+    {% else %}
+      {{ tree_ui.folder_datalist(folders) }}
+    {% endif %}
+  {% else %}
+    <section class="stack">
+      <h2 class="section-title">Nothing open yet</h2>
+      <p class="prose flush">You have no projects and no works yet. Pick one of the
+        three above; whichever you pick appears here and waits for you.</p>
+    </section>
   {% endif %}
+
+  {% if first_run %}{% include "_welcome.html" %}{% endif %}
 {% endblock %}

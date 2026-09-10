@@ -63,6 +63,7 @@ from videomaker.web.worker import (
     JobQueueFull,
     JobState,
 )
+from videomaker.web.workspace import at_root, workspace_items
 
 #: Form defaults, kept identical to `videomaker new`'s CLI options so the two
 #: front ends cannot quietly create differently-shaped projects.
@@ -248,6 +249,41 @@ def _freeze(path: str, name: str, node: dict) -> FolderNode:
     )
 
 
+def render_new_project(
+    request: Request,
+    *,
+    error: str = "",
+    form: dict[str, object] | None = None,
+    status_code: int = 200,
+):
+    """The create form on its own page, with a rejected submission's values.
+
+    Split out of `_render_index` when the form moved to `/start/video`: a
+    rejected create has to come back to the page that has the form on it, and the
+    root no longer does. `web/routes/start.py` renders the same thing for the GET.
+    """
+    templates: Jinja2Templates = request.app.state.templates
+    names = list_templates()
+    return templates.TemplateResponse(
+        request,
+        "start_video.html",
+        {
+            "templates_available": names,
+            "voices": available_voices(request.app.state.settings),
+            "error": error,
+            "form": form
+            or {
+                "topic": "",
+                "template": DEFAULT_TEMPLATE if DEFAULT_TEMPLATE in names else "",
+                "minutes": DEFAULT_MINUTES,
+                "voice": DEFAULT_VOICE,
+            },
+            "first_run": False,
+        },
+        status_code=status_code,
+    )
+
+
 def _render_index(
     request: Request,
     *,
@@ -264,11 +300,23 @@ def _render_index(
     """
     templates: Jinja2Templates = request.app.state.templates
     names = list_templates()
-    rows = project_rows(request.app.state.store)
+    store = request.app.state.store
+    rows = project_rows(store)
+    # Both kinds, one list. The projection is read-only and creates no `Project`
+    # for a work — see `web/workspace.py` for why that matters.
+    items = workspace_items(request.app.state.settings, store)
     return templates.TemplateResponse(
         request,
         "index.html",
         {
+            # The root lists what is not filed in a folder; the folder cards
+            # below carry the rest. The count above them is of the *whole*
+            # workspace, because a project in a folder still needs you.
+            "items": at_root(items),
+            # How much is in the workspace at all, folders included. The root's
+            # own list is `items`; this is what decides between showing a
+            # workspace and showing an invitation.
+            "anything": len(items),
             "rows": rows,
             # The same rows, grouped. Both are passed because the empty state and
             # the "no projects yet" copy still ask a flat question of the list.
@@ -279,7 +327,9 @@ def _render_index(
             # separate destination: the create form is the thing it argues for,
             # and a redirect would put a wall between reading it and using it.
             # The same partial is served on its own at `/guide` afterwards.
-            "first_run": not rows,
+            # First run is now "nothing at all in the workspace", not "no video
+            # projects": someone who has imported a book has started.
+            "first_run": not items,
             **welcome_context(request),
             "templates_available": names,
             # Never raises, even with no `ml` extra and no model weights — see
@@ -440,11 +490,11 @@ def create_project(
     topic = topic.strip()
     submitted = {"topic": topic, "template": template, "minutes": minutes, "voice": voice}
     if not topic:
-        return _render_index(
+        return render_new_project(
             request, error="Give the video a topic.", form=submitted, status_code=422
         )
     if template not in list_templates():
-        return _render_index(
+        return render_new_project(
             request,
             error=f"Unknown template {template!r}.",
             form=submitted,
@@ -458,7 +508,7 @@ def create_project(
     # project's language comes from the voice in `ProjectStore.create`.
     refusal = refusal_for(voice.strip())
     if refusal:
-        return _render_index(request, error=refusal, form=submitted, status_code=422)
+        return render_new_project(request, error=refusal, form=submitted, status_code=422)
 
     store: ProjectStore = request.app.state.store
     project = store.create(topic, template, target_minutes=minutes, voice=voice.strip())

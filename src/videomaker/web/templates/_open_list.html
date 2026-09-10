@@ -1,0 +1,22 @@
+{#
+  What is already open in this workspace. Context: `items` (WorkspaceItem).
+
+  One list for both kinds. A project and a work are different shapes on disk and
+  the same question here — what is this, where do I go, does it want me — so the
+  row is the same row and the kind is a word rather than an icon.
+
+  `data-project` and `data-status` survive from the list this replaced: they are
+  the handles the rest of the suite reaches for, and a row that stopped carrying
+  them would break tests that are about the pipeline rather than about the page.
+#}
+<ul class="open-list flush">
+  {% for item in items %}
+    <li class="open-item"
+        {% if item.kind == "video" %}data-project="{{ item.id }}"{% else %}data-work="{{ item.id }}"{% endif %}>
+      <span class="open-title"><a href="{{ item.href }}">{{ item.title }}</a></span>
+      <span class="open-kind">{{ item.kind }}</span>
+      <span class="open-detail {{ item.tone }}"
+            {% if item.status %}data-status="{{ item.status }}"{% endif %}>{{ item.detail }}</span>
+    </li>
+  {% endfor %}
+</ul>

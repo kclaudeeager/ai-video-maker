@@ -128,7 +128,7 @@ def test_the_list_reports_the_status_derived_now_not_one_stored_earlier(app, cli
 
 
 def test_the_template_dropdown_is_populated_from_list_templates(client):
-    body = client.get("/").text
+    body = client.get("/start/video").text
 
     names = list_templates()
     assert names, "the repo ships at least one template"
@@ -240,7 +240,7 @@ def test_a_full_queue_is_reported_rather_than_crashing(app, client, monkeypatch)
 
 def test_the_voice_field_is_a_select_with_the_default_preselected(client):
     """Kokoro's voice set is fixed and known, so nobody should have to type an id."""
-    body = client.get("/").text
+    body = client.get("/start/video").text
 
     assert '<select id="voice" name="voice">' in body
     assert '<input type="text" id="voice"' not in body
@@ -257,7 +257,7 @@ def test_the_voice_menu_is_grouped_by_language(client, monkeypatch):
     monkeypatch.setattr(MockTTS, "voices", lambda self: ["bm_george", "af_heart", "ef_dora"])
     clear_voice_cache()
 
-    body = client.get("/").text
+    body = client.get("/start/video").text
 
     for label in ("American English", "British English", "Spanish"):
         assert f'<optgroup label="{label}">' in body
@@ -273,7 +273,7 @@ def test_the_form_still_renders_when_the_voice_list_cannot_be_read(client, monke
     monkeypatch.setattr(MockTTS, "voices", no_weights)
     clear_voice_cache()
 
-    response = client.get("/")
+    response = client.get("/start/video")
 
     assert response.status_code == 200
     assert '<option value="af_heart" selected>Heart — female</option>' in response.text
@@ -313,7 +313,7 @@ def test_a_rejected_form_keeps_an_unlisted_voice_selected(client):
 
 
 def test_the_language_field_filters_the_voice_menu_over_htmx(client):
-    body = client.get("/").text
+    body = client.get("/start/video").text
 
     assert '<select id="language" name="language"' in body
     assert 'hx-get="/voice-options"' in body
@@ -327,7 +327,7 @@ def test_the_language_menu_only_lists_languages_that_were_measured_to_work(
     monkeypatch.setattr(MockTTS, "voices", lambda self: ["af_heart", "ef_dora", "jf_alpha"])
     clear_voice_cache()
 
-    body = client.get("/").text
+    body = client.get("/start/video").text
 
     assert '<option value="Spanish">Spanish</option>' in body
     assert ">Japanese<" not in body
