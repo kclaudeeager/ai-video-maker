@@ -452,7 +452,7 @@ validates as an `HTTPTTSConfig`.
 
 ### Task 7: Reading audio, built straight from the text
 
-- [ ] **Files:** new `corpus/audio.py`; test `tests/unit/test_reading_audio.py`,
+- [x] **Files:** new `corpus/audio.py`; test `tests/unit/test_reading_audio.py`,
   `tests/integration/test_reading_audio_mock.py`
 
 **Interfaces (normative):**
