@@ -59,6 +59,21 @@ An empty library is **not an error** — the pipeline renders narration only. Se
 `assets/music/README.md` for where to get licence-clear audio (and for why you must
 never rip audio from a YouTube video), and `docs/audio-design.md` for the design.
 
+## Voices in other languages
+
+Kokoro narrates the five languages `docs/language-support.md` measured, and it
+cannot reach Kinyarwanda: it phonemises through espeak-ng, which has no voice for
+it. A vendor's HTTP API can. Describe the vendor in `config.yaml` under
+`voice_providers:` — endpoint, key variable, field names, cost per minute — and it
+becomes a `tts` provider by name; no code, and no vendor name in the code.
+
+**A metered vendor spends real money.** A whole Bible is ~5,270 narration
+minutes, ~$527 at $0.10/min. Every paid run is estimated first and refused past
+30 minutes or $1.00 unless you confirm it, and a refused run makes no request. The
+per-minute cap is paced client-side and the daily cap is counted in the shared
+quota ledger, so a run stops before the first verse rather than at verse 300.
+[`docs/voice-providers.md`](docs/voice-providers.md) has the details.
+
 ## License
 
 AGPL-3.0-only. The project name is reserved by the maintainer; forks should

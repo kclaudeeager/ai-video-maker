@@ -429,7 +429,7 @@ network in the suite.
 
 ### Task 6: A configured example, and the documentation
 
-- [ ] **Files:** modify `config.example.yaml`, `.env.example`, `README.md`,
+- [x] **Files:** modify `config.example.yaml`, `.env.example`, `README.md`,
   new `docs/voice-providers.md`; test `tests/unit/test_voice_provider_config.py`
 
 Ship one worked example in `config.example.yaml`, **commented out**, showing a
