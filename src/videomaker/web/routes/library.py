@@ -38,7 +38,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ValidationError
 
-from videomaker.config import Settings
+from videomaker.config import Audience, Settings
 from videomaker.corpus.audio import (
     AUDIO_DIRNAME,
     Reading,
@@ -355,7 +355,10 @@ def modes_for(work: WorkRef, settings: Settings) -> list[ReadMode]:
     modes = [ReadMode.SOURCE, ReadMode.BRIEF]
     if work.language in spoken_languages(settings):
         modes.append(ReadMode.LISTEN)
-    modes.append(ReadMode.WATCH)
+    # Watch is a way *out* of the reader and into the studio, so a reading server
+    # does not offer it: the route it posts to is not mounted there.
+    if settings.audience is not Audience.READER:
+        modes.append(ReadMode.WATCH)
     return modes
 
 
@@ -495,6 +498,7 @@ def _mode_context(request: Request, ref: UnitRef, mode: ReadMode, voice: str) ->
     unit = _unit(request, ref)
     context: dict[str, object] = {
         "MODE_LABELS": MODE_LABELS,
+        "reader_view": request.app.state.settings.audience is Audience.READER,
         "unit": unit,
         "ref": ref,
         "mode": mode.value,
@@ -511,8 +515,13 @@ def _mode_context(request: Request, ref: UnitRef, mode: ReadMode, voice: str) ->
         except ProviderError as exc:
             context["brief"] = None
             context["brief_error"] = str(exc)
+        # Which model wrote it is a fact about the workshop, not about the
+        # passage. The retelling label stays either way: that is the feature.
+        context["show_model"] = request.app.state.settings.audience is not Audience.READER
     if mode is ReadMode.LISTEN:
         context.update(_listen_context(request, unit, voice))
+        if request.app.state.settings.audience is Audience.READER:
+            _ask_for_narration(request, unit, voice, context)
     if mode is ReadMode.WATCH:
         context.update(_watch_context(request, ref))
     return context
@@ -536,6 +545,35 @@ def _watch_context(request: Request, ref: UnitRef) -> dict[str, object]:
         spec = project.outputs.get(Aspect.WIDE)
         rendered = spec.video_path if spec is not None else None
     return {"project": project, "rendered": rendered}
+
+
+def _ask_for_narration(
+    request: Request, unit: UnitText, voice: str, context: dict[str, object]
+) -> None:
+    """Start the narration on sight, on a reading server.
+
+    A button whose only answer is yes is a question nobody needed asking, so a
+    reader who opens Listen gets the narration rather than an invitation to
+    request it. `JobQueue.submit` is a no-op for a key already in flight, so
+    opening the tab twice — or the poll re-rendering this fragment every 1.5 s —
+    enqueues exactly one job.
+
+    **It refuses rather than asks where a paid voice is over budget.** The studio
+    shows the estimate and a confirm button because the person looking at it owns
+    the account. A reader does not, so they are told the narration is not
+    available here instead of being invited to spend somebody else's money.
+    """
+    if context.get("reading") is not None or context.get("poll"):
+        return
+    if context.get("needs_confirmation"):
+        context["unavailable"] = True
+        return
+    jobs: JobQueue = request.app.state.jobs
+    key = job_key(unit.ref, voice)
+    jobs.submit(key, READING_JOB_KIND, _reading_job(request.app.state.settings, unit.ref, voice, False))
+    state = jobs.state_for(key)
+    context["job"] = state
+    context["poll"] = state is not None and state.state in {"queued", "running"}
 
 
 def _reading_root(settings: Settings, ref: UnitRef, key: str) -> Path:

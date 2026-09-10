@@ -41,7 +41,16 @@
             {% if brief.places %}<dt>Places</dt><dd>{{ brief.places|join(", ") }}</dd>{% endif %}
           </dl>
         {% endif %}
-        <p class="hint flush">Written by {{ brief.model }} from {{ unit.title }}.</p>
+        {% if show_model %}
+          <p class="hint flush">Written by {{ brief.model }} from {{ unit.title }}.</p>
+        {% else %}
+          <p class="hint flush">Written from {{ unit.title }}.</p>
+        {% endif %}
+      {% elif reader_view %}
+        {# A reader gets a sentence, not a stack of provider diagnostics. The
+           studio gets the detail below, because the studio can act on it. #}
+        <p class="flush" role="alert">There is no brief of {{ unit.title }} yet.
+          The passage itself is below.</p>
       {% else %}
         <p class="flush" role="alert">No brief could be written: {{ brief_error }}</p>
       {% endif %}
@@ -91,9 +100,26 @@
         <p class="hint flush">{{ reading.voice }} · {{ "%.1f"|format(reading.duration_s / 60) }} min ·
           the source text, verse by verse.</p>
       {% elif poll %}
-        <p class="flush" aria-live="polite">Synthesising {{ unit.title }}…
-          {% if job and job.message %}<span class="job-message">{{ job.message }}</span>{% endif %}</p>
-        <progress max="1" value="{{ '%.3f'|format(job.progress if job else 0) }}"></progress>
+        {# A reader is told what is happening, not which stage is happening.
+           "Synthesising", a stage name and a provider are facts about the
+           workshop; "preparing" is the fact about their page. #}
+        {% if reader_view %}
+          <p class="flush" aria-live="polite">Preparing the narration of
+            {{ unit.title }} — this usually takes about a minute.</p>
+          <progress max="1" value="{{ '%.3f'|format(job.progress if job else 0) }}"></progress>
+        {% else %}
+          <p class="flush" aria-live="polite">Synthesising {{ unit.title }}…
+            {% if job and job.message %}<span class="job-message">{{ job.message }}</span>{% endif %}</p>
+          <progress max="1" value="{{ '%.3f'|format(job.progress if job else 0) }}"></progress>
+        {% endif %}
+      {% elif unavailable %}
+        {# A paid voice, over budget. The studio would show the estimate and a
+           confirm button; a reader does not own the account, so they are told
+           rather than asked. #}
+        <p class="flush">The narration of {{ unit.title }} is not available here.
+          You can still read it, or read the brief.</p>
+      {% elif reader_view %}
+        <p class="flush" aria-live="polite">Preparing the narration of {{ unit.title }}…</p>
       {% else %}
         {% if job and job.state == "failed" %}
           <p class="notice notice-bad flush" role="alert">{{ job.error }}</p>
