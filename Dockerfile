@@ -16,8 +16,23 @@
 # `tts: [kokoro]` and `stt: [fasterwhisper]`, so a container without these weights
 # cannot voice or align a single scene.
 
+# **`ML=0` builds a reading server.** The `ml` extra and the weights it needs are
+# ~480 MB of model plus onnxruntime and ctranslate2, and a box too small to run
+# Kokoro (311 MB resident) gains nothing by carrying them. `ML=0` drops the extra
+# and skips the model stage: **980 MB against 2.56 GB**, both measured on the same
+# commit. Narration and alignment are then absent rather than broken — measured on
+# the `ML=0` image, `voices()` raises `ProviderConfigError`, `spoken_languages()`
+# returns an empty set, so no Listen tab is offered and `doctor` says WARN, not
+# FAIL. Text, briefs and the library are unaffected.
+#
+# Declared before the first FROM because `FROM models-${ML}` reads it. On Render
+# it is set as an environment variable, which that platform translates into a
+# build argument. Locally: `docker build --build-arg ML=0 .`
+ARG ML=1
+
 # ---------------------------------------------------------------- build stage
 FROM python:3.12-slim-bookworm AS build
+ARG ML
 
 # uv resolves and installs from the committed lockfile, so the image gets the
 # exact versions CI tested rather than whatever resolves on build day.
@@ -45,19 +60,28 @@ WORKDIR /app
 # template. Only the lockfile and manifest are copied here.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --extra ml
+    if [ "$ML" = 1 ]; then uv sync --frozen --no-install-project --extra ml; \
+    else uv sync --frozen --no-install-project; fi
 
 COPY src/ ./src/
 COPY templates/ ./templates/
 COPY README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --extra ml
+    if [ "$ML" = 1 ]; then uv sync --frozen --extra ml; else uv sync --frozen; fi
 
 
 # --------------------------------------------------------------- model stage
 # Separate so the ~480 MB of weights is one cached layer that survives every
 # code change. It is by far the most expensive thing to rebuild.
-FROM python:3.12-slim-bookworm AS models
+
+# Nothing to fetch: `ML=0` has no faster-whisper to seed a cache for and no
+# kokoro-onnx to hand a model to. The directory still has to exist, because the
+# runtime stage copies it either way.
+FROM python:3.12-slim-bookworm AS models-0
+RUN mkdir -p /models
+
+
+FROM python:3.12-slim-bookworm AS models-1
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -74,6 +98,12 @@ ENV PATH="/venv/bin:$PATH"
 RUN python -c "\
 from faster_whisper import WhisperModel; \
 WhisperModel('base', device='cpu', compute_type='int8', download_root='/models/whisper')"
+
+
+# Resolves to `models-0` or `models-1`. A stage cannot be skipped, but it can be
+# chosen — and an unreferenced stage is never built, so `ML=0` never downloads a
+# byte of weights.
+FROM models-${ML} AS models
 
 
 # -------------------------------------------------------------- runtime stage

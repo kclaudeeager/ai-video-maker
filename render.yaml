@@ -79,3 +79,11 @@ services:
       # container is directly reachable.
       - key: FORWARDED_ALLOW_IPS
         value: "*"
+
+      # Render turns a service's environment variables into Docker build
+      # arguments, which is how this reaches the Dockerfile. `1` is the full
+      # build: local voices and alignment. See the free-tier notes in
+      # docs/deploying.md before changing it — `0` halves the image and removes
+      # narration with it, and a work with no narration has no podcast feed.
+      - key: ML
+        value: "1"

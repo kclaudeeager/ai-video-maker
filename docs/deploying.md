@@ -92,6 +92,35 @@ from the request — the podcast feed address, and every enclosure inside the fe
 Render's proxy can reach the container; it is not safe on a directly reachable
 one.
 
+### Starting on the free plan
+
+Free is 512 MB, 0.1 CPU, no disk, and it spins the container down when idle. That
+rules out the studio and rules out narration, and it is still enough to serve the
+**library**: measured in the container, a reading server sits at **52 MB** with
+the `ML=0` image and answers pages without touching the models.
+
+Four edits to `render.yaml`:
+
+| edit | why |
+|---|---|
+| `plan: free` | — |
+| delete the `disk:` block | free plans cannot mount one |
+| `AUDIENCE: reader` | mounts no studio routes at all, which is what you want facing the public anyway |
+| `ML: "0"` | drops the `ml` extra and the weights: **980 MB against 2.56 GB** |
+
+What you lose, and it is not subtle: **no narration, so no podcast feed.** The
+feed lists only chapters that have audio, and audio needs Kokoro — 311 MB
+resident, which does not fit beside everything else in 512 MB. Text and briefs
+work; briefs call a hosted model, so they cost RAM only for the request.
+
+The second cost is the missing disk. Without one the container filesystem is
+wiped on every deploy **and every spin-down**, so a cold start finds an empty
+library and the work has to be imported again (~30 s, and it needs egress). Free
+is therefore a demo of the reading view, not somewhere to keep anything.
+
+Moving up later is `plan: standard`, the `disk:` block back, and `ML: "1"` — no
+code changes, and nothing to migrate because there was nothing to keep.
+
 ### After it is up
 
 `GET /healthz` is the only unauthenticated path — a platform health check cannot

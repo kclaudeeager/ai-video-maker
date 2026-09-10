@@ -9,7 +9,9 @@ from pathlib import Path
 
 import yaml
 
-BLUEPRINT = Path(__file__).resolve().parents[2] / "render.yaml"
+REPO = Path(__file__).resolve().parents[2]
+BLUEPRINT = REPO / "render.yaml"
+DOCKERFILE = REPO / "Dockerfile"
 
 
 def _web_service() -> dict:
@@ -54,3 +56,29 @@ def test_provider_keys_are_prompted_for_not_read_from_the_repo():
         assert env[key]["sync"] is False, f"{key} must be sync: false"
         assert "value" not in env[key]
 
+
+def test_the_ml_extra_is_a_build_argument():
+    """`ML=0` is the free-tier build: no `ml` extra, no model stage, 980 MB
+    against 2.56 GB. It only works if the Dockerfile keeps asking — a sync that
+    goes back to a hard-coded `--extra ml` would build the large image silently
+    and only run out of memory on the box that cannot afford it.
+    """
+    dockerfile = DOCKERFILE.read_text()
+
+    lines = dockerfile.splitlines()
+
+    assert "ARG ML=1" in lines, "ML must default to the full build"
+    # Global, above the first stage, or `FROM models-${ML}` cannot read it.
+    first_stage = next(i for i, line in enumerate(lines) if line.startswith("FROM "))
+    assert lines.index("ARG ML=1") < first_stage, "ARG ML must precede the first FROM"
+    assert "FROM models-${ML} AS models" in dockerfile
+    for stage in ("models-0", "models-1"):
+        assert f"AS {stage}" in dockerfile, f"{stage} is what `FROM models-${{ML}}` selects"
+    assert "uv sync --frozen --extra ml;" in dockerfile
+    assert "else uv sync --frozen; fi" in dockerfile
+
+
+def test_the_blueprint_asks_for_the_full_build():
+    """The standard plan runs the voices; the free notes in docs/deploying.md are
+    where `0` belongs."""
+    assert _env(_web_service())["ML"]["value"] == "1"
