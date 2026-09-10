@@ -329,20 +329,24 @@ def _check_reader_budget(settings: Settings) -> CheckResult:
             "reader budget", "ok", "not a reading server — no visitor budget applies"
         )
     path = USER_CACHE_DIR / QUOTA_FILENAME if USER_CACHE_DIR else DEFAULT_QUOTA_PATH
-    left = QuotaTracker(path).remaining(READER_BRIEF_KEY, reader_budget(settings))
-    day, minute = left.get("per_day"), left.get("rpm")
+    from videomaker.corpus.audio import READER_NARRATION_KEY, narration_budget
+
+    tracker = QuotaTracker(path)
+    briefs = tracker.remaining(READER_BRIEF_KEY, reader_budget(settings)).get("per_day")
+    minutes = tracker.remaining(READER_NARRATION_KEY, narration_budget(settings)).get("per_day")
     detail = (
-        f"{day if day is not None else 'unlimited'} of "
-        f"{settings.reader_briefs_per_day} briefs left today; "
-        f"{minute if minute is not None else 'unlimited'} of "
-        f"{settings.reader_briefs_per_minute} this minute"
+        f"{briefs if briefs is not None else 'unlimited'} of "
+        f"{settings.reader_briefs_per_day} briefs and "
+        f"{minutes if minutes is not None else 'unlimited'} of "
+        f"{settings.reader_narration_minutes_per_day} narration minutes left today"
     )
-    if day == 0:
+    spent = [name for name, left in (("briefs", briefs), ("narration", minutes)) if left == 0]
+    if spent:
         return CheckResult(
             "reader budget",
             "warn",
-            f"{detail} — visitors are reading without briefs until 00:00 UTC",
-            fix="raise reader_briefs_per_day in config.yaml, or wait for the reset",
+            f"{detail} — visitors get no {' or '.join(spent)} until 00:00 UTC",
+            fix="raise the reader_ limits in config.yaml, or wait for the reset",
         )
     return CheckResult("reader budget", "ok", detail)
 

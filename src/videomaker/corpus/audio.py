@@ -26,6 +26,7 @@ than the last segment's `end_s`; the segments are the timeline the VTT is cut on
 """
 
 import os
+from math import ceil
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -36,6 +37,7 @@ from videomaker.corpus.models import UnitRef, UnitText
 from videomaker.media.ffmpeg import probe_duration, run_ffmpeg
 from videomaker.pipeline.base import StageDeps
 from videomaker.providers.base import CorpusProvider, TTSProvider
+from videomaker.providers.ratelimit import Budget
 from videomaker.providers.tts.http_api import (
     HTTPTTSProvider,
     TTSBudget,
@@ -91,6 +93,35 @@ class Reading(BaseModel):
     audio_relpath: str
     vtt_relpath: str
     segments: list[ReadingSegment]
+
+
+#: What visitor-requested narration is counted under, in the shared ledger.
+READER_NARRATION_KEY = "reader:narration"
+
+
+def narration_budget(settings) -> Budget:
+    """The cap on *new* narration synthesised for visitors, in minutes of audio.
+
+    The CPU counterpart of `providers/tts/http_api.TTSBudget`, which guards money.
+    A local voice costs nothing and can still queue a machine solid, so both
+    exist and neither substitutes for the other.
+    """
+    return Budget(
+        per_day=settings.reader_narration_minutes_per_day or None,
+        rpm=settings.reader_narration_burst_minutes or None,
+    )
+
+
+def narration_minutes(unit: UnitText, *, speed: float = 1.0) -> int:
+    """What this passage would cost, in whole minutes, rounded up.
+
+    Rounded up and never below one, so a two-verse chapter still costs something:
+    a cap that charges nothing for small requests is not a cap against somebody
+    making thousands of them.
+    """
+    from videomaker.providers.tts.http_api import estimate_minutes
+
+    return max(1, ceil(estimate_minutes(unit.plain) / max(speed, 0.01)))
 
 
 def segment_for_reading(unit: UnitText) -> list[tuple[int, str]]:

@@ -52,7 +52,7 @@ from videomaker.corpus.importer import DERIVED_DIRNAME, LIBRARY_DIRNAME, library
 from videomaker.corpus.models import UnitRef, UnitText, WorkRef
 from videomaker.corpus.refs import BOOK_ORDER, book_label
 from videomaker.providers.base import CorpusProvider, TTSProvider
-from videomaker.providers.errors import ProviderError
+from videomaker.providers.errors import ProviderError, QuotaExceeded
 from videomaker.providers.tts.http_api import HTTPTTSProvider, TTSBudgetExceeded, estimate_minutes
 from videomaker.web import media
 from videomaker.web.worker import JobQueue
@@ -623,6 +623,61 @@ def _watch_context(request: Request, ref: UnitRef) -> dict[str, object]:
     return {"project": existing_for(store, ref), "rendered": None, "watch_url": ""}
 
 
+class AtCapacity(RuntimeError):
+    """A visitor asked for more narration than this server will make today."""
+
+
+def request_narration(
+    request: Request, unit: UnitText, voice: str, *, confirmed: bool = False
+) -> str:
+    """Enqueue the narration of `unit`, counting what a visitor spends. Returns the job key.
+
+    **One place, because there are two ways in**: the auto-request when a reader
+    opens Listen, and `POST .../audio`, which a reading server still routes even
+    though its template offers no button. A guard on the path with a button is not
+    a guard.
+
+    Three things are free and must stay free:
+
+    * a reading already on disk — re-hearing a chapter costs nothing, and a
+      visitor is never refused something the machine has already made;
+    * a request already in flight — the panel polls itself, and a poll that
+      booked minutes would charge a visitor once a second for waiting;
+    * everything, in a studio. The owner's machine is theirs to grind.
+
+    Raises `AtCapacity` when a visitor is over the cap, having enqueued nothing.
+    """
+    from videomaker.corpus.audio import (
+        READER_NARRATION_KEY,
+        narration_budget,
+        narration_minutes,
+    )
+
+    jobs: JobQueue = request.app.state.jobs
+    settings: Settings = request.app.state.settings
+    key = job_key(unit.ref, voice)
+
+    state = jobs.state_for(key)
+    if state is not None and state.state in {"queued", "running"}:
+        return key
+
+    if settings.audience is Audience.READER:
+        deps = _deps(request)
+        minutes = narration_minutes(unit)
+        try:
+            deps.quota.check(READER_NARRATION_KEY, narration_budget(settings))
+        except QuotaExceeded as exc:
+            raise AtCapacity(str(exc)) from exc
+        jobs.submit(key, READING_JOB_KIND, _reading_job(settings, unit.ref, voice, confirmed))
+        # Booked after the submit, so a queue that refuses the job charges nobody.
+        deps.quota.record(READER_NARRATION_KEY, minutes)
+        deps.quota.save()
+        return key
+
+    jobs.submit(key, READING_JOB_KIND, _reading_job(settings, unit.ref, voice, confirmed))
+    return key
+
+
 def _ask_for_narration(
     request: Request, unit: UnitText, voice: str, context: dict[str, object]
 ) -> None:
@@ -644,10 +699,14 @@ def _ask_for_narration(
     if context.get("needs_confirmation"):
         context["unavailable"] = True
         return
-    jobs: JobQueue = request.app.state.jobs
-    key = job_key(unit.ref, voice)
-    jobs.submit(key, READING_JOB_KIND, _reading_job(request.app.state.settings, unit.ref, voice, False))
-    state = jobs.state_for(key)
+    try:
+        key = request_narration(request, unit, voice)
+    except AtCapacity:
+        # Not an error and not the same as the paid refusal: this one changes by
+        # waiting, so the page says so and the passage is right there.
+        context["at_capacity"] = True
+        return
+    state = request.app.state.jobs.state_for(key)
     context["job"] = state
     context["poll"] = state is not None and state.state in {"queued", "running"}
 
@@ -791,11 +850,12 @@ def build_audio(
     if ReadMode.LISTEN not in modes_for(work, settings):
         raise HTTPException(status_code=404, detail="this work has no voice")
     ref = _ref(work_id, book, chapter)
-    # 404 a chapter that is not there before a job is queued for it.
-    _unit(request, ref)
     voice = default_voice(settings, work.language)
-    jobs: JobQueue = request.app.state.jobs
-    jobs.submit(job_key(ref, voice), READING_JOB_KIND, _reading_job(settings, ref, voice, bool(confirmed)))
+    unit = _unit(request, ref)
+    try:
+        request_narration(request, unit, voice, confirmed=bool(confirmed))
+    except AtCapacity:
+        pass  # The panel below says so; `_listen_context` will find no job.
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(
         request,

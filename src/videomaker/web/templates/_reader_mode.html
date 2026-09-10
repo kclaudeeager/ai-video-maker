@@ -121,6 +121,12 @@
             {% if job and job.message %}<span class="job-message">{{ job.message }}</span>{% endif %}</p>
           <progress max="1" value="{{ '%.3f'|format(job.progress if job else 0) }}"></progress>
         {% endif %}
+      {% elif at_capacity %}
+        {# Different from the paid refusal below: this one changes by waiting.
+           A visitor is told what they can do now, not what the server's
+           allowance is — that is the owner's business, not theirs. #}
+        <p class="flush">The narration of {{ unit.title }} is not ready just now.
+          You can read it below, or read the brief, and try listening later.</p>
       {% elif unavailable %}
         {# A paid voice, over budget. The studio would show the estimate and a
            confirm button; a reader does not own the account, so they are told

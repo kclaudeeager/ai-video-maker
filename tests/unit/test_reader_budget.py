@@ -247,7 +247,8 @@ def test_doctor_reports_the_headroom_on_a_reading_server(tmp_path, monkeypatch):
     row = _check_reader_budget(settings_for(tmp_path, reader_briefs_per_day=9))
 
     assert row.level == "ok"
-    assert "9 of 9 briefs left today" in row.detail
+    assert "9 of 9 briefs" in row.detail
+    assert "narration minutes left today" in row.detail
 
 
 def test_doctor_says_nothing_about_it_in_a_studio(tmp_path):
@@ -274,4 +275,5 @@ def test_a_spent_day_is_a_warning_naming_the_reset(tmp_path, monkeypatch):
 
     assert row.level == "warn"
     assert "00:00 UTC" in row.detail
+    assert "briefs" in row.detail
     assert row.fix

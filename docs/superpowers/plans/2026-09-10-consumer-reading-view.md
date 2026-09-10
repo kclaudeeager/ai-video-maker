@@ -239,3 +239,62 @@ def set_published(work_id, published, root) -> WorkRef: ...
 studio lists both; a reader lists only published; an unpublished work 404s on
 every reader route including its chapters and its media; publishing is idempotent.
 
+---
+
+### Task 6: A visitor may not queue the machine solid
+
+- [x] **Files:** modify `corpus/audio.py`, `config.py`, `web/routes/library.py`,
+  `web/templates/_reader_mode.html`, `doctor.py`;
+  test `tests/unit/test_reader_narration_cap.py`
+
+**The exposure the brief budget does not cover.** A paid voice is guarded by
+`TTSBudget` — that one is about money. A *local* voice is CPU: Kokoro runs at
+roughly realtime, so a chapter of 51 verses is about six minutes of synthesis. A
+visitor walking chapters on a reading server queues that work, and with one
+worker the machine grinds. `MAX_QUEUED_JOBS` bounds the queue at 32 and then
+raises, which is a wall rather than a policy.
+
+**The unit is minutes of audio, not requests.** Psalm 119 is 176 verses and 2
+John is 13; counting both as "one request" would make the cap meaningless at one
+end and cruel at the other. `estimate_minutes` already exists — it is what the
+paid-voice guard prices with — and `QuotaTracker.record` already takes a unit
+count, because Cloudflare's budget is in neurons rather than calls. So this is
+the ledger being used as designed.
+
+**Interfaces (normative):**
+
+```python
+# corpus/audio.py
+READER_NARRATION_KEY = "reader:narration"
+
+def narration_budget(settings) -> Budget: ...
+def narration_minutes(unit, *, speed=1.0) -> int: ...
+
+# config.py
+reader_narration_minutes_per_day: int = 60
+reader_narration_burst_minutes: int = 10
+```
+
+Rules, all normative:
+
+- **A reading already on disk is free**, and a request for one is never refused.
+  Re-opening a chapter you have heard costs nothing, exactly as re-reading a
+  brief does.
+- **A request already in flight is free**, and does not count twice: the panel
+  polls itself, and a poll must not book minutes.
+- **Only `Audience.READER` is capped.** The owner's own machine is theirs to
+  grind.
+- Both entry points are covered — the auto-request when Listen opens, *and*
+  `POST .../audio`, which a reading server still routes even though its template
+  offers no button. A guard on the path with a button is not a guard.
+- Over the cap is **not an error**: the panel says the narration is not available
+  just now and the passage is right there. It reads differently from the
+  paid-voice refusal, which will not change by waiting.
+- `videomaker doctor` reports the headroom next to the brief one.
+
+**Tests:** a cached reading is free however often it is opened; an in-flight one
+is counted once; a long chapter costs more than a short one; the day's cap
+refuses the next request and enqueues nothing; the burst cap refuses a rapid
+second chapter; the `POST` route is capped as well as the auto-request; the
+studio is capped by neither.
+

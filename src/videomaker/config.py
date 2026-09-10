@@ -110,6 +110,20 @@ class Settings(BaseSettings):
     reader_briefs_per_day: int = 50
     reader_briefs_per_minute: int = 5
 
+    #: How much *new* narration a reading server will synthesise for visitors,
+    #: in estimated minutes of audio per UTC day and per rolling minute.
+    #:
+    #: Minutes rather than requests because the cost is proportional to length:
+    #: Psalm 119 is 176 verses and 2 John is 13, and a local voice runs at about
+    #: realtime, so one request is anywhere from seconds to a quarter of an hour
+    #: of CPU. A reading already on disk is free and is never counted.
+    #:
+    #: This is the CPU counterpart of `TTSBudget`, which guards money. Neither
+    #: substitutes for the other: a free local voice costs nothing and can still
+    #: bring a machine to its knees.
+    reader_narration_minutes_per_day: int = 60
+    reader_narration_burst_minutes: int = 10
+
     #: `music_sources:` from `config.yaml`, as written — the catalogues
     #: `videomaker music fetch` asks. Raw for the same reason `voice_providers`
     #: is: this module cannot import the one that validates them. Empty means the
@@ -145,7 +159,12 @@ def load_settings(config_file: Path | None = None) -> Settings:
     overrides: dict[str, object] = {}
     if path.exists():
         raw = yaml.safe_load(path.read_text()) or {}
-        for key in ("reader_briefs_per_day", "reader_briefs_per_minute"):
+        for key in (
+            "reader_briefs_per_day",
+            "reader_briefs_per_minute",
+            "reader_narration_minutes_per_day",
+            "reader_narration_burst_minutes",
+        ):
             if key in raw:
                 overrides[key] = int(raw[key])
         audience = raw.get("audience")
