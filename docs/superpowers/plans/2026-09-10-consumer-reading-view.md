@@ -48,7 +48,7 @@ the bookmark — is the same code and the same templates.
 
 ### Task 1: The audience, and what a reading server mounts
 
-- [ ] **Files:** modify `config.py`, `web/app.py`, `cli.py`,
+- [x] **Files:** modify `config.py`, `web/app.py`, `cli.py`,
   `web/templates/_nav.html`; test `tests/unit/test_audience.py`
 
 **Interfaces (normative):**
@@ -80,7 +80,7 @@ redirects; the nav has no studio links; `providers` and `dev` still work.
 
 ### Task 2: Reading words, not building words
 
-- [ ] **Files:** modify `web/routes/library.py`,
+- [x] **Files:** modify `web/routes/library.py`,
   `web/templates/_reader_mode.html`, new `web/templates/_listen_reader.html`;
   test `tests/unit/test_reader_view.py`
 

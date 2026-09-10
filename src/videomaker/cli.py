@@ -307,6 +307,9 @@ def _is_loopback(host: str) -> bool:
 def serve(
     host: str = typer.Option("127.0.0.1", "--host", help="Address to bind. Keep it loopback."),
     port: int = typer.Option(8000, "--port", help="Port to listen on."),
+    reader: bool = typer.Option(
+        False, "--reader", help="Serve the library only: no studio routes at all."
+    ),
     providers: str | None = typer.Option(
         None, "--providers", help="Force every provider kind to this one (e.g. `mock`)."
     ),
@@ -317,7 +320,8 @@ def serve(
 
     import uvicorn
 
-    from videomaker.web.app import PROVIDERS_ENV_VAR, create_app
+    from videomaker.config import Audience, load_settings
+    from videomaker.web.app import AUDIENCE_ENV_VAR, PROVIDERS_ENV_VAR, create_app
     from videomaker.web.auth import (
         PASSWORD_ENV,
         USERNAME,
@@ -346,12 +350,20 @@ def serve(
             f"behind the {PASSWORD_ENV} gate (user [bold]{USERNAME}[/bold])."
         )
 
-    console.print(f"serving the review UI on [bold]http://{host}:{port}[/bold] (Ctrl-C to stop)")
+    if reader:
+        console.print(
+            "[bold]reader mode[/bold] — the library only. No route on this server "
+            "can create a project, run a stage or start a render."
+        )
+    what = "the library" if reader else "the review UI"
+    console.print(f"serving {what} on [bold]http://{host}:{port}[/bold] (Ctrl-C to stop)")
     if reload:
         # uvicorn's reloader re-imports the app in a child process, so it only
         # accepts an import string; `--providers` travels in the environment.
         if providers:
             os.environ[PROVIDERS_ENV_VAR] = providers
+        if reader:
+            os.environ[AUDIENCE_ENV_VAR] = Audience.READER.value
         uvicorn.run(
             "videomaker.web.app:create_app_from_env",
             host=host,
@@ -360,7 +372,10 @@ def serve(
             reload=True,
         )
         return
-    uvicorn.run(create_app(providers=providers), host=host, port=port)
+    settings = load_settings()
+    if reader:
+        settings = settings.model_copy(update={"audience": Audience.READER})
+    uvicorn.run(create_app(settings, providers=providers), host=host, port=port)
 
 
 # --------------------------------------------------------------------------- M3

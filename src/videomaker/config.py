@@ -1,3 +1,4 @@
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from videomaker.media.audio import DEFAULT_DUCK_DB, DEFAULT_VOLUME_DB
 
 DEFAULT_CONFIG_FILE = Path("config.yaml")
+
+
+class Audience(StrEnum):
+    """Who this server is for, which decides what it mounts.
+
+    Not a role and not a permission: a *deployment* choice. A `READER` app never
+    registers the studio routers, so it cannot create a project, run a stage,
+    approve a gate or start a render — the code that does those things is not
+    there. That is what lets a household share a library without the tool growing
+    accounts, and it is why this is one setting rather than a permission system.
+    """
+
+    STUDIO = "studio"
+    READER = "reader"
 
 #: The `audio:` keys `config.yaml` may set. Anything else there is ignored.
 AUDIO_LEVELS = frozenset({"music_volume_db", "duck_amount_db"})
@@ -27,6 +42,10 @@ RENDER_TOGGLES: dict[str, str] = {"fast_mode": "render_fast_mode"}
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    #: What this server is for. `studio` is everything; `reader` mounts the
+    #: library and nothing that can produce. See `Audience`.
+    audience: Audience = Audience.STUDIO
 
     workspace_dir: Path = Path("workspace")
     models_dir: Path = Path.home() / ".cache" / "ai-video-maker" / "models"
@@ -114,6 +133,9 @@ def load_settings(config_file: Path | None = None) -> Settings:
     overrides: dict[str, object] = {}
     if path.exists():
         raw = yaml.safe_load(path.read_text()) or {}
+        audience = raw.get("audience")
+        if isinstance(audience, str) and audience in set(Audience):
+            overrides["audience"] = Audience(audience)
         for key, value in (raw.get("paths") or {}).items():
             if key in {"workspace_dir", "models_dir", "music_dir", "sfx_dir"}:
                 overrides[key] = Path(str(value)).expanduser()

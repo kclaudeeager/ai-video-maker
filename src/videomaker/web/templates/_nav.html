@@ -12,7 +12,13 @@
   "Longhand" is the only place the product is named. See `docs/ui-design.md`:
   automation is shorthand, this is the long way round on purpose — and one
   project yields the long cut *and* the Short.
+
+  `audience` is a Jinja global rather than a context key, because this file is
+  included with no context and is rendered bare by the template test. On a
+  reading server the studio links are absent rather than disabled: the routes
+  they point at are not mounted, so a link to them would be a link to a 404.
 #}
+{% set studio = audience is not defined or audience != "reader" %}
 {% set here = request.url.path if request is defined and request else "" %}
 <header class="masthead">
   <a class="brand" href="/">
@@ -20,9 +26,13 @@
     <span class="brand-name">Longhand</span>
   </a>
   <nav class="masthead-nav" aria-label="Sections">
-    <a href="/"{% if here == "/" %} aria-current="page"{% endif %}>Workspace</a>
-    <a href="/start"{% if here.startswith("/start") %} aria-current="page"{% endif %}>Start</a>
+    {% if studio %}
+      <a href="/"{% if here == "/" %} aria-current="page"{% endif %}>Workspace</a>
+      <a href="/start"{% if here.startswith("/start") %} aria-current="page"{% endif %}>Start</a>
+    {% endif %}
     <a href="/library"{% if here.startswith("/library") or here.startswith("/read") %} aria-current="page"{% endif %}>Library</a>
-    <a href="/guide"{% if here == "/guide" %} aria-current="page"{% endif %}>How it works</a>
+    {% if studio %}
+      <a href="/guide"{% if here == "/guide" %} aria-current="page"{% endif %}>How it works</a>
+    {% endif %}
   </nav>
 </header>

@@ -16,12 +16,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from videomaker import __version__
 from videomaker.assets import ASSETS_DIR
-from videomaker.config import Settings, load_settings
+from videomaker.config import Audience, Settings, load_settings
 from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
 from videomaker.web import media
@@ -99,6 +100,11 @@ def create_app(
     # a `directory` or a whole prebuilt `env`, and nothing in between.
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
     templates.env.auto_reload = dev
+    # `_nav.html` is included by `base.html` with no context of its own — it is
+    # even rendered bare, with no request, by the template test — so the audience
+    # reaches it as an environment global rather than as a context key nobody
+    # could be relied on to pass.
+    templates.env.globals["audience"] = settings.audience.value
     app.state.templates = templates
 
     # **Before `media`, and this order is load-bearing.** `media` owns
@@ -113,6 +119,23 @@ def create_app(
     # one it would protect.
     app.include_router(library.router)
     app.include_router(media.router)
+
+    # **What a reading server does not have.** `Audience.READER` mounts nothing
+    # that can produce: no create form, no gates, no stage runner, no render. A
+    # request for `/projects/...` on such a server is a 404 because there is no
+    # route, not because a check said no — which is the difference between a
+    # deployment choice and a permission system, and the reason this needs no
+    # accounts. See `docs/superpowers/plans/2026-09-10-consumer-reading-view.md`.
+    if settings.audience is Audience.READER:
+
+        @app.get("/", include_in_schema=False)
+        def _library_is_the_front_door() -> RedirectResponse:
+            return RedirectResponse(url="/library", status_code=307)
+
+        password = os.environ.get(PASSWORD_ENV, "")
+        if password:
+            app.add_middleware(PasswordGate, password=password)
+        return app
     app.include_router(projects.router)
     # After `projects`, whose `/projects/{project_id}` would otherwise be a
     # candidate for nothing here — the paths are disjoint, but keeping the
@@ -151,6 +174,11 @@ def create_app(
 #: from the parent is the environment.
 PROVIDERS_ENV_VAR = "VIDEOMAKER_PROVIDERS"
 
+#: How `videomaker serve --reload --reader` reaches the reloader's child process,
+#: for the same reason `PROVIDERS_ENV_VAR` exists: uvicorn re-imports the app in a
+#: fresh process that cannot see our `Settings`.
+AUDIENCE_ENV_VAR = "VIDEOMAKER_AUDIENCE"
+
 
 def create_app_from_env() -> FastAPI:
     """An import-string entry point (`videomaker.web.app:create_app_from_env`).
@@ -161,4 +189,8 @@ def create_app_from_env() -> FastAPI:
     This entry point exists only for `--reload`, so it is by definition dev: hot
     templates are wanted here, and uvicorn restarts the process under it anyway.
     """
-    return create_app(providers=os.environ.get(PROVIDERS_ENV_VAR) or None, dev=True)
+    settings = load_settings()
+    audience = os.environ.get(AUDIENCE_ENV_VAR)
+    if audience in set(Audience):
+        settings = settings.model_copy(update={"audience": Audience(audience)})
+    return create_app(settings, providers=os.environ.get(PROVIDERS_ENV_VAR) or None, dev=True)
