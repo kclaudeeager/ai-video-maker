@@ -693,7 +693,7 @@ this is the machine reporting position, not a request for a human.
 
 ### Task 13: Doctor, README, and the acceptance test
 
-- [ ] **Files:** modify `doctor.py`, `README.md`; test
+- [x] **Files:** modify `doctor.py`, `README.md`; test
   `tests/unit/test_doctor.py`, `tests/integration/test_mvp_acceptance.py`
 
 `videomaker doctor` gains one check: which works are imported, whether each has

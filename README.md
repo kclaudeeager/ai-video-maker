@@ -59,6 +59,39 @@ An empty library is **not an error** — the pipeline renders narration only. Se
 `assets/music/README.md` for where to get licence-clear audio (and for why you must
 never rip audio from a YouTube video), and `docs/audio-design.md` for the design.
 
+## Reading a book
+
+The same tool reads. Import a text into your own workspace — the project ships
+none, and the importer **refuses anything whose licence it cannot state in one
+sentence** — then open `/library` and pick a chapter.
+
+```bash
+uv run videomaker library import web    # World English Bible, public domain
+uv run videomaker library list          # id, title, language, licence, chapters
+uv run videomaker library brief web --book JHN   # pre-write the briefs (resumable)
+uv run videomaker serve                 # then open /library
+```
+
+A chapter can be taken three ways:
+
+- **Read** — the source text, versified.
+- **Brief** — a plain-language summary of who, where and what changes. It is a
+  retelling and every screen that shows one says so, with the passage one control
+  away.
+- **Listen** — narration, with the verse being read lit as it goes.
+
+**The narration is the source text.** It is not a model's paraphrase read aloud:
+the chapter is segmented by rule, one verse per audio file, and the timings come
+from the length of each verse's own audio, so there is no forced alignment and
+nothing to drift. A test asserts it —
+`tests/unit/test_reading_audio.py::test_narration_is_the_source_text` reassembles
+the narration and compares it to the passage, and it fails if the segmenter drops
+so much as a word.
+
+Listen appears only for a language a configured voice actually speaks; a language
+with a text but no voice can still be read and briefed. `videomaker doctor` lists
+what is imported and which modes each work supports.
+
 ## Voices in other languages
 
 Kokoro narrates the five languages `docs/language-support.md` measured, and it

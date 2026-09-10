@@ -30,6 +30,16 @@ LIBRARY_FIX = (
 MODEL_FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
 MIN_FREE_GB = 20
 
+LIBRARY_IMPORT_FIX = "uv run videomaker library import web   # or bsb; both are free to redistribute"
+#: A work whose language has no voice is a WARN naming what it *can* still do.
+#: `docs/multimodal-reader-design.md` §6: a language with a text but no voice can
+#: be read, just not heard — that is a smaller library, not a broken install.
+VOICE_MISSING_FIX = (
+    "if this machine has no local voice at all, 'uv sync --extra ml' then "
+    f"'{SETUP_FIX}'; if it has one but not for that language, add an HTTP vendor "
+    "under `voice_providers:` (docs/voice-providers.md)"
+)
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -234,6 +244,73 @@ def _check_api_keys(settings: Settings) -> list[CheckResult]:
     return results
 
 
+def _check_library(settings: Settings) -> list[CheckResult]:
+    """Which works are imported, whether each states a licence, and what can be read.
+
+    Three separate questions, and only one of them can fail. An empty library is
+    `ok`: the project ships no scripture (`/CLAUDE.md`, rule 3), so empty is the
+    state of every fresh clone. A work whose language has no configured voice is a
+    **warn naming the modes it still supports**, never a fail — §6 of the design
+    doc, and the whole reason the mode table degrades per language instead of
+    blocking. A work whose `work.yaml` will not load is the one real problem, and
+    it is still a warn: one broken directory must not fail an otherwise good
+    install.
+
+    The voice question is asked through the reader's own `spoken_languages`, so
+    `doctor` and the mode switcher cannot disagree about what this machine can say.
+    """
+    from videomaker.corpus.importer import LIBRARY_DIRNAME, library_dir, list_works
+    from videomaker.web.routes.library import modes_for
+
+    root = library_dir(settings.workspace_dir)
+    rows = list_works(settings.workspace_dir)
+    if not rows:
+        return [
+            CheckResult(
+                "library",
+                "ok",
+                f"empty ({root}) — the project ships no texts",
+                fix=LIBRARY_IMPORT_FIX,
+            )
+        ]
+    results = [
+        CheckResult(
+            "library",
+            "ok",
+            ", ".join(f"{work.id} ({chapters} chapters)" for work, chapters in rows),
+        )
+    ]
+    unreadable = sum(
+        1
+        for entry in root.iterdir()
+        if entry.is_dir()
+        and not entry.name.startswith(".")
+        and entry.name not in {work.id for work, _ in rows}
+    )
+    if unreadable:
+        results.append(
+            CheckResult(
+                "library entries",
+                "warn",
+                f"{unreadable} directory(ies) under {LIBRARY_DIRNAME}/ have no readable work.yaml",
+                fix="re-import them, or delete the directory",
+            )
+        )
+    for work, _chapters in rows:
+        modes = [mode.value for mode in modes_for(work, settings)]
+        detail = f"{work.title}: {', '.join(modes)} — {work.licence}"
+        level = "ok" if "listen" in modes else "warn"
+        results.append(
+            CheckResult(
+                f"library: {work.id}",
+                level,
+                detail if level == "ok" else f"{detail} (no voice speaks {work.language})",
+                fix="" if level == "ok" else VOICE_MISSING_FIX,
+            )
+        )
+    return results
+
+
 def run_checks(settings: Settings, caps: FFmpegCaps) -> list[CheckResult]:
     results = [_check_python()]
     results.extend(_check_ffmpeg(caps))
@@ -243,4 +320,5 @@ def run_checks(settings: Settings, caps: FFmpegCaps) -> list[CheckResult]:
     results.append(_check_audio_library(settings))
     results.append(_check_models(settings))
     results.extend(_check_api_keys(settings))
+    results.extend(_check_library(settings))
     return results
