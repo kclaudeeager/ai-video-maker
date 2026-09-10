@@ -630,7 +630,7 @@ rather than raising; an unknown mode in the cookie falls back.
 
 ### Task 11: Make the reading page a reading page
 
-- [ ] **Files:** modify `web/static/style.css`, `web/templates/read.html`;
+- [x] **Files:** modify `web/static/style.css`, `web/templates/read.html`;
   test `tests/unit/test_palette_contrast.py` (extend)
 
 Apply `docs/ui-design.md`. Do not invent a second direction: the chrome is

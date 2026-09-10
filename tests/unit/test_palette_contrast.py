@@ -68,6 +68,19 @@ THEMES = palettes()
 TEXT_ON = ["paper", "ground"]
 TEXT_TOKENS = ["ink", "ink-soft", "accent", "ok", "warn", "bad"]
 
+#: The reader draws on `--sunk` as well: the brief sits in a sunk card, and the
+#: verse the narration has reached is given a sunk ground. Both are surfaces the
+#: rest of the app only ever puts thumbnails and logs on, so they were never
+#: checked as *text* backgrounds until the reader arrived.
+READING_ON = ["paper", "sunk"]
+
+#: `--verse-num` is an alias, so its value is resolved before it is measured. It
+#: is held to the non-text floor rather than the text one: a verse number is a
+#: locator you scan for, not prose, and `docs/ui-design.md` §10's own reasoning
+#: for `--rule-field` applies to it unchanged. It happens to clear the text floor
+#: too in both themes today; this asserts the floor it must never fall below.
+ALIASES = {"verse-num": "ink-soft"}
+
 
 @pytest.mark.parametrize("theme", ["light", "dark"])
 @pytest.mark.parametrize("surface", TEXT_ON)
@@ -141,3 +154,66 @@ def test_warn_is_the_one_token_that_is_actually_warm(theme):
 
     assert r > b, f"{theme} --warn is not warm: {THEMES[theme]['warn']}"
     assert (r - b) >= 40, f"{theme} --warn is too close to grey to read as a signal"
+
+
+# ------------------------------------------------------------------ the reader
+
+
+def _resolved(theme: str, token: str) -> str:
+    return THEMES[theme][ALIASES.get(token, token)]
+
+
+def test_the_reader_tokens_are_aliases_of_real_ones():
+    """`--verse-num: var(--ink-soft)` — a name for a role, not a new colour.
+
+    Asserted rather than assumed: the moment it becomes its own hex value it is a
+    colour nothing measures, which is the thing the token block exists to prevent.
+    """
+    css = STYLESHEET.read_text()
+    for token, target in ALIASES.items():
+        assert f"--{token}: var(--{target})" in css
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("surface", READING_ON)
+@pytest.mark.parametrize("token", ["ink", "ink-soft", "warn"])
+def test_reading_text_clears_aa_on_both_reading_surfaces(theme, surface, token):
+    """The passage, the brief's body and the brief's warm eyebrow.
+
+    `--warn` is here because the brief's eyebrow is the one warm thing on the
+    reading page, and it is drawn on `--sunk` rather than on paper.
+    """
+    ratio = contrast(_resolved(theme, token), THEMES[theme][surface])
+
+    assert ratio >= AA_TEXT, (
+        f"{theme} --{token} on --{surface} is {ratio:.2f}:1, below AA's {AA_TEXT}:1"
+    )
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+@pytest.mark.parametrize("surface", READING_ON)
+def test_a_verse_number_is_findable(theme, surface):
+    ratio = contrast(_resolved(theme, "verse-num"), THEMES[theme][surface])
+
+    assert ratio >= AA_NON_TEXT, (
+        f"{theme} --verse-num on --{surface} is {ratio:.2f}:1, below {AA_NON_TEXT}:1"
+    )
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_the_current_verse_is_visible_without_a_hue(theme):
+    """`.verse-current` is a `--sunk` ground on `--paper`. It has to be seen, and
+    it has to stay achromatic: this is the machine reporting position, not a
+    request for a human."""
+    palette = THEMES[theme]
+    ratio = contrast(palette["sunk"], palette["paper"])
+
+    assert ratio > 1.02, f"{theme} sunk on paper is {ratio:.2f}:1 — the lit verse is invisible"
+
+
+def test_the_reading_measure_is_a_token():
+    """Nothing in the reader may hard-code a width; `--measure` is the number."""
+    css = STYLESHEET.read_text()
+    reader = css.split("THE READER.", 1)[1]
+    assert "max-width: var(--measure)" in reader
+    assert not re.search(r"max-width:\s*\d", reader)
