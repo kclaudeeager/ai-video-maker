@@ -82,6 +82,14 @@ class WorkRef(BaseModel):
     licence_url: str
     source_url: str
     versification: Versification = Versification.KJV
+    #: Whether a reading server shows this work at all.
+    #:
+    #: Optional with a falsy default, so every `work.yaml` already on disk loads
+    #: unchanged — the same compatibility rule `Project`'s newer fields follow.
+    #: The default is deliberately the private one: importing a text is not the
+    #: same act as putting it in front of other people, and the safe direction for
+    #: a flag nobody has set yet is "not yet".
+    published: bool = False
 
 
 class UnitRef(BaseModel):

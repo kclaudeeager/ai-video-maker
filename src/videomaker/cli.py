@@ -680,10 +680,11 @@ def library_list() -> None:
         console.print("the library is [bold]empty[/bold]: `videomaker library import web` fetches one.")
         return
     table = Table(title="library")
-    for column in ("id", "title", "language", "licence", "chapters"):
+    for column in ("id", "title", "language", "shown to readers", "licence", "chapters"):
         table.add_column(column)
     for work, chapters in rows:
-        table.add_row(work.id, work.title, work.language, work.licence, str(chapters))
+        shown = "[green]published[/green]" if work.published else "private"
+        table.add_row(work.id, work.title, work.language, shown, work.licence, str(chapters))
     console.print(table)
 
 
@@ -717,6 +718,33 @@ def library_add(
     console.print(f"[green]added[/green] {work.title} ({work.id}) — {chapters} section(s)")
     console.print(f"  licence: {work.licence}")
     console.print(f"  read it: /library/{work.id}")
+
+
+@library_app.command("publish")
+def library_publish(
+    work_id: str = typer.Argument(..., help="A work already imported."),
+    unpublish: bool = typer.Option(False, "--unpublish", help="Take it back instead."),
+) -> None:
+    """Decide whether a reading server shows this work.
+
+    Importing a text and putting it in front of other people are two decisions.
+    A work is private until you say otherwise, and `videomaker serve --reader`
+    shows only what you have published.
+    """
+    from pydantic import ValidationError
+
+    from videomaker.config import load_settings
+    from videomaker.corpus.importer import set_published
+
+    settings = load_settings()
+    try:
+        work = set_published(work_id, not unpublish, settings.workspace_dir)
+    except (OSError, ValueError, ValidationError):
+        _fail(f"no work called {work_id!r} — see `videomaker library list`")
+    state = "published" if work.published else "private"
+    console.print(f"[green]{state}[/green] {work.title} ({work.id})")
+    if work.published:
+        console.print("  a reading server will now show it: `videomaker serve --reader`")
 
 
 @library_app.command("brief")

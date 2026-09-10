@@ -210,7 +210,7 @@ a 404 on a reading server.
 
 ### Task 5: Published
 
-- [ ] **Files:** modify `corpus/importer.py`, `corpus/bible.py`, `cli.py`,
+- [x] **Files:** modify `corpus/importer.py`, `corpus/bible.py`, `cli.py`,
   `web/routes/library.py`; test `tests/unit/test_published.py`
 
 A work is **published** when its owner says so. Consumers see published works;

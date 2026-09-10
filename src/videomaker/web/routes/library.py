@@ -439,8 +439,29 @@ def _deps(request: Request):
     return reader_deps(request.app.state.settings)
 
 
+def visible_works(request: Request) -> list[WorkRef]:
+    """The works this audience may see.
+
+    **The corpus is a library, not a policy**: `BibleCorpus.works()` returns
+    everything imported and the filtering happens here, where the audience is
+    known. A studio sees the lot; a reading server sees what its owner published.
+    """
+    works = _corpus(request).works()
+    if request.app.state.settings.audience is not Audience.READER:
+        return works
+    return [work for work in works if work.published]
+
+
 def _work(request: Request, work_id: str) -> WorkRef:
-    for work in _corpus(request).works():
+    """The work, or a 404.
+
+    An unpublished work is a 404 on a reading server rather than a hidden row or
+    a 403: a reader must not be able to tell a private work from one that was
+    never imported. Every reader route goes through here — the outline, the
+    chapters, the modes, the audio and the video — so there is one place to be
+    right rather than six.
+    """
+    for work in visible_works(request):
         if work.id == work_id:
             return work
     raise HTTPException(status_code=404, detail="no such work")
@@ -501,7 +522,7 @@ def library_page(request: Request):
     """Every imported work, each with the licence it was imported under."""
     templates: Jinja2Templates = request.app.state.templates
     settings: Settings = request.app.state.settings
-    works = _corpus(request).works()
+    works = visible_works(request)
     return templates.TemplateResponse(
         request,
         "library.html",

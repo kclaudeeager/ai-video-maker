@@ -378,6 +378,12 @@ class MockCorpus(CorpusProvider):
                 licence="CC0 (synthetic test fixture, written for this repository).",
                 licence_url="https://mock.invalid/licence",
                 source_url="https://mock.invalid/work",
+                # Published, unlike a real import, which starts private. The mock
+                # work exists to be *read* by whatever surface is under test, and a
+                # reading server hides what is unpublished — so a private mock would
+                # make every reader test assert against a 404 it did not mean.
+                # `tests/unit/test_published.py` covers the real default.
+                published=True,
             )
         ]
 

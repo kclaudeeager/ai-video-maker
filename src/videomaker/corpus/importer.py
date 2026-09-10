@@ -207,6 +207,20 @@ def _note_in_notice(work: WorkRef) -> None:
 # ------------------------------------------------------------------------ import
 
 
+def set_published(work_id: str, published: bool, root: Path) -> WorkRef:
+    """Publish a work, or take it back. Rewrites `work.yaml` and nothing else.
+
+    Deliberately not part of `ImportSpec`: importing a text and putting it in
+    front of other people are two decisions, and conflating them would mean every
+    import published. Re-importing keeps whatever was set, because `import_work`
+    reads the flag back off disk before it writes.
+    """
+    target = work_dir(root, work_id)
+    work = read_work(target).model_copy(update={"published": published})
+    _write_atomic(target / WORK_FILE, yaml.safe_dump(work.model_dump(mode="json"), sort_keys=False))
+    return work
+
+
 def import_work(spec: ImportSpec, root: Path) -> WorkRef:
     """Fetch, parse and file one work. Returns the `WorkRef` written to `work.yaml`.
 
@@ -215,6 +229,13 @@ def import_work(spec: ImportSpec, root: Path) -> WorkRef:
     caller that forgot — is still refused with nothing on disk to clean up.
     """
     work = spec.work()
+    # A re-import must not quietly unpublish. `ImportSpec` has no `published`
+    # field — publishing is a separate decision — so the flag is read back off
+    # the work already on disk, if there is one.
+    try:
+        work = work.model_copy(update={"published": read_work(work_dir(root, work.id)).published})
+    except (OSError, ValueError, ValidationError):
+        pass
     if spec.archive is None:
         raise ValueError(f"{spec.work_id!r} has no archive; pass --from <url|path>")
     target = work_dir(root, work.id)
