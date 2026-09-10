@@ -23,11 +23,13 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from videomaker.cache import _write_atomic, hash_inputs
+from videomaker.config import Settings
 from videomaker.corpus.importer import DERIVED_DIRNAME, work_dir
 from videomaker.corpus.models import UnitText
 from videomaker.pipeline.base import ADVANCE_ON, StageDeps, call_chain
 from videomaker.providers.base import LLMProvider
 from videomaker.providers.errors import ProviderResponseError
+from videomaker.providers.ratelimit import Budget
 
 BRIEF_DIRNAME = "brief"
 
@@ -178,6 +180,48 @@ def _ask(name: str, llm: LLMProvider, unit: UnitText, *, model_hint: str) -> Bri
         raise ProviderResponseError(
             f"{name} returned an unusable brief twice; last error: {second}"
         ) from second
+
+
+#: What visitor-written briefs are counted under in the shared quota ledger.
+#: A key rather than a second ledger: it then persists across restarts, is shared
+#: between the CLI and the web worker, and resets on the same UTC boundary as
+#: every other counter. The `reader:` prefix cannot collide with a provider name.
+READER_BRIEF_KEY = "reader:brief"
+
+
+def reader_budget(settings: Settings) -> Budget:
+    """The cap on *new* briefs written for visitors.
+
+    Separate from, and below, the provider budget. `SOFT_BUDGETS` stops the owner
+    exceeding a free tier and turning it into a bill; this stops one visitor
+    spending the whole of that free tier before the owner gets to it. Both are
+    needed and neither substitutes for the other.
+    """
+    return Budget(
+        per_day=settings.reader_briefs_per_day or None,
+        rpm=settings.reader_briefs_per_minute or None,
+    )
+
+
+def build_brief_within_budget(unit: UnitText, deps: StageDeps) -> Brief:
+    """`build_brief`, counted against the visitor budget when it writes a new one.
+
+    **A cached brief is free and is never counted.** That is what the cache is
+    for: a popular chapter costs one call ever rather than one per reader, and a
+    reader re-opening a page they have already seen can never be refused.
+
+    Raises `QuotaExceeded` when the budget is spent. The caller shows the passage
+    and says there is no brief yet — over budget is a quieter day, not an error.
+    """
+    model = deps.leading_name("llm")
+    cached = brief_path(deps.settings.workspace_dir, unit, brief_key(unit, model=model))
+    if cached.is_file():
+        return build_brief(unit, deps)
+    deps.quota.check(READER_BRIEF_KEY, reader_budget(deps.settings))
+    brief = build_brief(unit, deps)
+    deps.quota.record(READER_BRIEF_KEY)
+    deps.quota.save()
+    return brief
 
 
 def build_brief(unit: UnitText, deps: StageDeps) -> Brief:

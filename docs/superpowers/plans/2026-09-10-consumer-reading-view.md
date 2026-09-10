@@ -108,3 +108,59 @@ uv run videomaker serve --reader          # then open /
 
 The library, a chapter, three modes, audio that arrives on its own. No route on
 the site can start a render.
+
+---
+
+### Task 3: A visitor may not spend the whole day's quota
+
+- [x] **Files:** modify `corpus/digest.py`, `config.py`, `web/routes/library.py`,
+  `doctor.py`; test `tests/unit/test_reader_budget.py`
+
+**The exposure.** A brief is written on `GET` of the brief mode. On a reading
+server that is one LLM call per chapter, triggered by anybody who can reach the
+page — and a crawler walking 1,189 chapters of a Bible is 1,189 calls. The
+provider budget in `providers/ratelimit.SOFT_BUDGETS` already stops that becoming
+a *bill*: Gemini's free tier is capped at 240 a day and the chain refuses past it.
+What it does not stop is one visitor spending the owner's whole day by lunchtime.
+
+So the reader gets a budget of its own, **below** the provider's, counted in the
+same ledger.
+
+**Interfaces (normative):**
+
+```python
+# corpus/digest.py
+READER_BRIEF_KEY = "reader:brief"
+
+def reader_budget(settings) -> Budget: ...
+def build_brief_within_budget(unit, deps) -> Brief: ...   # raises QuotaExceeded
+
+# config.py
+class Settings(BaseSettings):
+    reader_briefs_per_day: int = 50
+    reader_briefs_per_minute: int = 5
+```
+
+Rules, all normative:
+
+- **A cached brief is free and is never counted.** That is the whole point of the
+  cache, and it means a popular chapter costs one call ever rather than one per
+  reader. The count is of *new* briefs only.
+- **The budget applies to `Audience.READER` and to nothing else.** The owner
+  working in the studio, and `videomaker library brief`, spend the owner's own
+  quota deliberately; they keep the provider budget as their only limit. A
+  visitor is the one who should not be able to exhaust it.
+- Counted in the existing `QuotaTracker` under `READER_BRIEF_KEY`, so it persists
+  across restarts, is shared between the CLI and the web worker, and resets on the
+  same UTC boundary as everything else. **No second ledger.**
+- Over budget is **not an error page**: the reader is told there is no brief yet
+  and the passage is right there, which is the copy that already exists for a
+  provider failure. Nothing is billed and nothing is logged as broken.
+- `videomaker doctor` reports the headroom, so the owner can see what visitors
+  have spent.
+
+**Tests:** a cached brief costs nothing however often it is read; a new one is
+counted once; the day's cap refuses the next and the page still reads; the
+per-minute cap refuses a burst; the studio is not subject to either; the counter
+survives a new `QuotaTracker` over the same file.
+

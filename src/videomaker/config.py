@@ -98,6 +98,18 @@ class Settings(BaseSettings):
     #: but a mode and a language; see `web/routes/library.py`.
     reader_cookie_secret: str = ""
 
+    #: How many *new* briefs a reading server will write for visitors, per UTC
+    #: day and per minute. Cached briefs are free and are not counted, so a
+    #: popular chapter costs one call ever rather than one per reader.
+    #:
+    #: Deliberately well under the provider budgets in
+    #: `providers/ratelimit.SOFT_BUDGETS` — Gemini's free tier is 240 a day — so a
+    #: visitor cannot spend the owner's whole allowance before the owner gets to
+    #: it. The per-minute cap is what a crawler walking 1,189 chapters meets
+    #: first. Neither applies in the studio: see `corpus/digest.reader_budget`.
+    reader_briefs_per_day: int = 50
+    reader_briefs_per_minute: int = 5
+
     #: `music_sources:` from `config.yaml`, as written — the catalogues
     #: `videomaker music fetch` asks. Raw for the same reason `voice_providers`
     #: is: this module cannot import the one that validates them. Empty means the
@@ -133,6 +145,9 @@ def load_settings(config_file: Path | None = None) -> Settings:
     overrides: dict[str, object] = {}
     if path.exists():
         raw = yaml.safe_load(path.read_text()) or {}
+        for key in ("reader_briefs_per_day", "reader_briefs_per_minute"):
+            if key in raw:
+                overrides[key] = int(raw[key])
         audience = raw.get("audience")
         if isinstance(audience, str) and audience in set(Audience):
             overrides["audience"] = Audience(audience)

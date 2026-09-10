@@ -311,6 +311,42 @@ def _check_library(settings: Settings) -> list[CheckResult]:
     return results
 
 
+def _check_reader_budget(settings: Settings) -> CheckResult:
+    """What visitors have left to spend today, on a reading server.
+
+    Only reported for `Audience.READER`: in the studio the owner spends their own
+    quota deliberately and there is no visitor budget to report. Reads the shared
+    ledger rather than a second one, so this is the same number the reader is
+    refused against.
+    """
+    from videomaker.config import Audience
+    from videomaker.corpus.digest import READER_BRIEF_KEY, reader_budget
+    from videomaker.providers.ratelimit import DEFAULT_QUOTA_PATH, QuotaTracker
+    from videomaker.runner import QUOTA_FILENAME, USER_CACHE_DIR
+
+    if settings.audience is not Audience.READER:
+        return CheckResult(
+            "reader budget", "ok", "not a reading server — no visitor budget applies"
+        )
+    path = USER_CACHE_DIR / QUOTA_FILENAME if USER_CACHE_DIR else DEFAULT_QUOTA_PATH
+    left = QuotaTracker(path).remaining(READER_BRIEF_KEY, reader_budget(settings))
+    day, minute = left.get("per_day"), left.get("rpm")
+    detail = (
+        f"{day if day is not None else 'unlimited'} of "
+        f"{settings.reader_briefs_per_day} briefs left today; "
+        f"{minute if minute is not None else 'unlimited'} of "
+        f"{settings.reader_briefs_per_minute} this minute"
+    )
+    if day == 0:
+        return CheckResult(
+            "reader budget",
+            "warn",
+            f"{detail} — visitors are reading without briefs until 00:00 UTC",
+            fix="raise reader_briefs_per_day in config.yaml, or wait for the reset",
+        )
+    return CheckResult("reader budget", "ok", detail)
+
+
 def run_checks(settings: Settings, caps: FFmpegCaps) -> list[CheckResult]:
     results = [_check_python()]
     results.extend(_check_ffmpeg(caps))
@@ -321,4 +357,5 @@ def run_checks(settings: Settings, caps: FFmpegCaps) -> list[CheckResult]:
     results.append(_check_models(settings))
     results.extend(_check_api_keys(settings))
     results.extend(_check_library(settings))
+    results.append(_check_reader_budget(settings))
     return results

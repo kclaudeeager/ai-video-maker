@@ -213,6 +213,9 @@ def test_a_reader_never_sees_a_providers_diagnostics(reader, studio, monkeypatch
             "1 validation error for Brief ... https://errors.pydantic.dev/2.13/v/value_error"
         )
 
+    # The reader goes through the budgeted wrapper; the studio does not, so both
+    # names are patched to make this test about the *copy* rather than the route.
+    monkeypatch.setattr(library_routes, "build_brief_within_budget", refuse)
     monkeypatch.setattr(library_routes, "build_brief", refuse)
 
     with TestClient(reader) as client:

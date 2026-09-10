@@ -46,7 +46,7 @@ from videomaker.corpus.audio import (
     reader_deps,
     reading_key,
 )
-from videomaker.corpus.digest import Brief, build_brief
+from videomaker.corpus.digest import Brief, build_brief, build_brief_within_budget
 from videomaker.corpus.documents import DOCUMENT_BOOK
 from videomaker.corpus.importer import DERIVED_DIRNAME, LIBRARY_DIRNAME, library_dir
 from videomaker.corpus.models import UnitRef, UnitText, WorkRef
@@ -510,8 +510,18 @@ def _mode_context(request: Request, ref: UnitRef, mode: ReadMode, voice: str) ->
     }
     if mode is ReadMode.BRIEF:
         deps = _deps(request)
+        # A visitor's brief is counted; the owner's is not. Writing one is an LLM
+        # call triggered by a GET, so on a reading server it is the one thing a
+        # stranger can spend. `QuotaExceeded` is a `ProviderError`, so the
+        # existing "there is no brief yet" path catches it — over budget is a
+        # quieter day rather than a failure.
+        write = (
+            build_brief_within_budget
+            if request.app.state.settings.audience is Audience.READER
+            else build_brief
+        )
         try:
-            context["brief"] = build_brief(unit, deps)
+            context["brief"] = write(unit, deps)
         except ProviderError as exc:
             context["brief"] = None
             context["brief_error"] = str(exc)
