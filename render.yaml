@@ -1,41 +1,54 @@
 # Render blueprint. `render.yaml` in the repo root is what Render reads when you
 # create a Blueprint from this repository — see docs/deploying.md.
 #
-# Two things here are deliberate and cost money, and both are the difference
-# between "it deploys" and "it works".
+# **This file describes the free deployment: a reading server, and nothing else.**
+# It is the cheap way to put a library in front of people, and every line below
+# that looks like a limitation is one. What it can do: serve the text, the briefs,
+# the shelf, the feed and the zip. What it cannot: narrate, align or render, and
+# it keeps nothing across a restart.
 #
-# **`plan: standard`, not `free`.** Free is 512 MB of RAM and 0.1 CPU. Kokoro's
-# ONNX model is 311 MB and faster-whisper base is another 142 MB; both are
-# resident while a project is voiced and aligned, so the pipeline runs out of
-# memory on free before it renders a frame. The 0.1 CPU is the second wall: a
-# two-minute video took ~70 s of libx264 on a full desktop core, so a tenth of a
-# core turns every render into a quarter of an hour. Free also has no persistent
-# disk at all.
+# Three facts decide the whole shape, and none of them are ours:
 #
-# **A disk, not ephemeral storage.** `workspace/` is the entire product state —
-# projects, approvals, voiced takes, the stage cache that makes a re-run cheap.
-# Render's filesystem is otherwise wiped on every deploy and every restart, so
-# without this every project you have ever made disappears the next time you push.
-# 10 GB is about five finished projects at the ~390 MB M3 measured, plus room;
-# `videomaker clean` reclaims the build intermediates when it gets tight.
+# **Free is 512 MB and 0.1 CPU.** Kokoro's ONNX model is 311 MB resident and
+# faster-whisper base another 142 MB, so voicing runs out of memory before it
+# finishes a chapter; a two-minute video took ~70 s of libx264 on a full desktop
+# core, so a tenth of one turns a render into a quarter of an hour. `ML: "0"`
+# therefore builds the image without them at all — 980 MB against 2.56 GB,
+# measured — and narration is then absent rather than broken.
+#
+# **Free has no persistent disk.** The filesystem is wiped on every deploy *and*
+# every spin-down, so an imported work has to be imported again after each cold
+# start. Nothing here is somewhere to keep anything.
+#
+# **A studio on a public URL is a studio anyone can spend your quota on.**
+# `AUDIENCE: reader` mounts no route that can create, run or render, so this is a
+# deployment choice rather than a permission system: `/projects/...` is a 404
+# because there is no such route.
+#
+# To run the real thing — voices, renders, and projects that survive a deploy —
+# `plan: standard`, `ML: "1"`, drop `AUDIENCE`, and put back:
+#
+#     disk:
+#       name: longhand-workspace
+#       mountPath: /data
+#       sizeGB: 10
+#
+# 10 GB is about five finished projects at the ~390 MB M3 measured. Without that
+# block, `WORKSPACE_DIR` below points at ephemeral storage — which is exactly what
+# free gives you, and why it is fine to leave it pointing there.
 
 services:
   - type: web
     name: longhand
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: standard # 2 GB / 1 CPU — see the note above before dropping this
+    plan: free # 512 MB / 0.1 CPU — read the header before raising this
     region: frankfurt # nearest to Rwanda of Render's regions; change if you move
     healthCheckPath: /healthz
     # One instance, always. The worker is a single in-process thread holding a
-    # `flock` per project, and the disk cannot be attached to more than one
-    # instance anyway. Scaling this out needs a real job queue first.
+    # `flock` per project, and a disk cannot be attached to more than one instance
+    # anyway. Scaling this out needs a real job queue first.
     numInstances: 1
-
-    disk:
-      name: longhand-workspace
-      mountPath: /data
-      sizeGB: 10
 
     envVars:
       # Generated once by Render and never shown in the repo. Read it from the
@@ -57,10 +70,16 @@ services:
       - key: CLOUDFLARE_API_TOKEN
         sync: false
 
-      # Matches the Dockerfile, restated so it is visible in the dashboard next
-      # to the disk it depends on.
+      # Matches the Dockerfile. On free this is ephemeral storage and the
+      # library is empty after every spin-down; with a disk mounted at /data it
+      # is where everything is kept. Restated here so it is visible in the
+      # dashboard next to the thing it depends on.
       - key: WORKSPACE_DIR
         value: /data/workspace
+
+      # No route that can create, run or render — see the header.
+      - key: AUDIENCE
+        value: reader
 
       # Render terminates TLS at its edge and forwards plain HTTP to the
       # container, saying so in `X-Forwarded-Proto`. Uvicorn ignores that header
@@ -81,9 +100,9 @@ services:
         value: "*"
 
       # Render turns a service's environment variables into Docker build
-      # arguments, which is how this reaches the Dockerfile. `1` is the full
-      # build: local voices and alignment. See the free-tier notes in
-      # docs/deploying.md before changing it — `0` halves the image and removes
-      # narration with it, and a work with no narration has no podcast feed.
+      # arguments, which is how this reaches the Dockerfile. `0` drops the model
+      # stack a 512 MB box cannot run anyway: 980 MB of image against 2.56 GB.
+      # It also removes narration, and a work with no narration has no podcast
+      # feed — the trade the header describes.
       - key: ML
-        value: "1"
+        value: "0"

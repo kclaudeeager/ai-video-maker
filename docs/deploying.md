@@ -69,20 +69,22 @@ path](#cloudflare-tunnel--the-free-path) below.
 
 ## Render
 
+**The blueprint deploys a free reading server.** That is a deliberate default:
+free is where you find out whether anyone wants this, and it is the shape that is
+safe to put on a public URL. See *Running the whole thing* below for the studio.
+
 1. Push this repo to GitHub (it already is).
 2. Render dashboard → **New → Blueprint**, point it at the repository. It reads
-   `render.yaml` and proposes one web service, one 10 GB disk.
+   `render.yaml` and proposes one web service on the free plan, no disk.
 3. Fill in the provider keys it asks for — `GROQ_API_KEY`, `GEMINI_API_KEY`,
    `PEXELS_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`. They are
    marked `sync: false`, which is why they are prompted for rather than read out
-   of the repo.
+   of the repo. Only the LLM keys do anything on a reading server: they write the
+   briefs.
 4. `LONGHAND_PASSWORD` is generated for you. Read it from **Environment** after
    the first deploy; log in as `longhand`.
-5. First build takes a while — it downloads ~480 MB of model weights into an
-   image layer. Later builds reuse that layer unless the model stage changes.
-
-The disk mounts at `/data` and `WORKSPACE_DIR` points at `/data/workspace`, so
-projects survive deploys. Nothing outside `/data` does.
+5. After it is up, import a work — the container ships none, and on free it will
+   need doing again after each spin-down.
 
 `FORWARDED_ALLOW_IPS=*` is set for one reason: Render terminates TLS at its edge
 and forwards plain HTTP, and Uvicorn ignores `X-Forwarded-Proto` from a peer that
@@ -92,34 +94,54 @@ from the request — the podcast feed address, and every enclosure inside the fe
 Render's proxy can reach the container; it is not safe on a directly reachable
 one.
 
-### Starting on the free plan
+### What free actually gives you
 
-Free is 512 MB, 0.1 CPU, no disk, and it spins the container down when idle. That
-rules out the studio and rules out narration, and it is still enough to serve the
-**library**: measured in the container, a reading server sits at **52 MB** with
-the `ML=0` image and answers pages without touching the models.
+Measured in the container, not estimated: a reading server on the `ML=0` image
+sits at **52 MB** resident and answers `/healthz`, the shelf, a chapter, the feed
+and the zip without touching a model.
 
-Four edits to `render.yaml`:
+What it cannot do, and none of it is subtle:
+
+**No narration, so no podcast feed.** Kokoro is 311 MB resident and the box is
+512 MB. The feed lists only chapters that have audio, so on free it is a valid,
+empty channel. The zip still works — it bundles the text.
+
+**Nothing is kept.** Free has no disk, so the filesystem is wiped on every deploy
+*and every spin-down*. A cold start finds an empty library and the work has to be
+imported again (~30 s, and it needs egress).
+
+**It sleeps.** Render spins a free instance down when idle, so the first request
+after a quiet spell waits for a cold start — and, per the line above, finds
+nothing imported.
+
+Briefs do work: they call a hosted model, so they cost RAM only for the length of
+the request.
+
+### Running the whole thing
+
+Voices, renders, and projects that survive a deploy. Four edits to `render.yaml`,
+no code changes, and nothing to migrate because free kept nothing:
 
 | edit | why |
 |---|---|
-| `plan: free` | — |
-| delete the `disk:` block | free plans cannot mount one |
-| `AUDIENCE: reader` | mounts no studio routes at all, which is what you want facing the public anyway |
-| `ML: "0"` | drops the `ml` extra and the weights: **980 MB against 2.56 GB** |
+| `plan: standard` | 2 GB / 1 CPU. Kokoro (311 MB) and faster-whisper (142 MB) are both resident while a project is voiced and aligned |
+| `ML: "1"` | builds the image with the model stack: 2.56 GB against 980 MB |
+| drop `AUDIENCE: reader` | mounts the studio: create, gates, runner, render |
+| put the `disk:` block back | `workspace/` is the entire product state; without it every project vanishes on the next deploy |
 
-What you lose, and it is not subtle: **no narration, so no podcast feed.** The
-feed lists only chapters that have audio, and audio needs Kokoro — 311 MB
-resident, which does not fit beside everything else in 512 MB. Text and briefs
-work; briefs call a hosted model, so they cost RAM only for the request.
+```yaml
+    disk:
+      name: longhand-workspace
+      mountPath: /data
+      sizeGB: 10
+```
 
-The second cost is the missing disk. Without one the container filesystem is
-wiped on every deploy **and every spin-down**, so a cold start finds an empty
-library and the work has to be imported again (~30 s, and it needs egress). Free
-is therefore a demo of the reading view, not somewhere to keep anything.
+10 GB is about five finished projects at the ~390 MB M3 measured;
+`videomaker clean` reclaims the build intermediates when it gets tight.
 
-Moving up later is `plan: standard`, the `disk:` block back, and `ML: "1"` — no
-code changes, and nothing to migrate because there was nothing to keep.
+**Do not put the studio on a public URL casually.** It can spend your provider
+quota and it runs FFmpeg on downloaded footage. `LONGHAND_PASSWORD` is the whole
+gate, and the container refuses to start without it.
 
 ### After it is up
 

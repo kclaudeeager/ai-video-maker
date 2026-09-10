@@ -34,12 +34,21 @@ def test_the_proxy_is_trusted_so_urls_come_out_https():
     assert _env(_web_service())["FORWARDED_ALLOW_IPS"]["value"] == "*"
 
 
-def test_the_workspace_lives_on_the_disk():
-    """`WORKSPACE_DIR` outside the mount means every project is lost on restart."""
-    service = _web_service()
-    mount = service["disk"]["mountPath"]
+def test_the_workspace_lives_on_the_disk_when_there_is_one():
+    """`WORKSPACE_DIR` outside the mount means every project is lost on restart.
 
-    assert str(_env(service)["WORKSPACE_DIR"]["value"]).startswith(f"{mount}/")
+    Conditional because the free plan has no disk at all — there the workspace is
+    ephemeral by definition and there is nothing to be inside of. The moment a
+    disk is declared, though, the workspace has to be on it, or the disk is paid
+    for and unused.
+    """
+    service = _web_service()
+    disk = service.get("disk")
+    if disk is None:
+        assert service["plan"] == "free", "only the free plan may go without a disk"
+        return
+
+    assert str(_env(service)["WORKSPACE_DIR"]["value"]).startswith(f'{disk["mountPath"]}/')
 
 
 def test_the_password_is_generated_rather_than_committed():
@@ -78,7 +87,16 @@ def test_the_ml_extra_is_a_build_argument():
     assert "else uv sync --frozen; fi" in dockerfile
 
 
-def test_the_blueprint_asks_for_the_full_build():
-    """The standard plan runs the voices; the free notes in docs/deploying.md are
-    where `0` belongs."""
-    assert _env(_web_service())["ML"]["value"] == "1"
+def test_the_build_matches_what_the_plan_can_run():
+    """`ML` and `plan` are one decision written in two places, and a mismatch is
+    silent both ways.
+
+    `ML=1` on free builds a 2.56 GB image whose models cannot be loaded in 512 MB
+    — the deploy succeeds and narration OOMs. `ML=0` on a paid plan quietly
+    removes narration from a box that was bought to do it, and the only symptom is
+    a Listen tab that never appears.
+    """
+    service = _web_service()
+
+    expected = "0" if service["plan"] == "free" else "1"
+    assert _env(service)["ML"]["value"] == expected
