@@ -1,0 +1,81 @@
+{#
+  One reading mode, swapped in by htmx. Context: `unit`, `ref`, `mode`, `modes`,
+  `work`, plus `brief`/`brief_error` in brief mode and the player context in listen.
+
+  A bare fragment — no `{% extends %}` — because htmx puts it inside a page that
+  already exists. The mode switcher is re-rendered with it so the active state
+  arrives with the content rather than needing a second swap.
+#}
+<div id="reader" class="reader">
+  <nav class="modes" aria-label="How to read this">
+    {% for name in modes %}
+      <a class="mode{% if name == mode %} mode-on{% endif %}"
+         href="/read/{{ ref.work_id }}/{{ ref.book }}/{{ ref.chapter }}?mode={{ name }}"
+         hx-get="/read/{{ ref.work_id }}/{{ ref.book }}/{{ ref.chapter }}/mode/{{ name }}"
+         hx-target="#reader"
+         hx-swap="outerHTML"
+         {% if name == mode %}aria-current="page"{% endif %}
+      >{{ {"source": "Read", "brief": "Brief", "listen": "Listen"}[name] }}</a>
+    {% endfor %}
+  </nav>
+
+  {% if mode == "source" %}
+    {% include "_verse_list.html" %}
+
+  {% elif mode == "brief" %}
+    {# The one warm thing on this page, and it is a label rather than a warning:
+       a brief is a retelling, and the text it retells is one tap away. #}
+    <section class="brief card-sunk stack">
+      <p class="eyebrow eyebrow-warn flush">A retelling — tap a verse for the text</p>
+      {% if brief %}
+        <p class="brief-summary flush">{{ brief.summary }}</p>
+        {% if brief.turn %}<p class="brief-turn flush">{{ brief.turn }}</p>{% endif %}
+        {% if brief.people or brief.places %}
+          <dl class="brief-facts flush">
+            {% if brief.people %}<dt>People</dt><dd>{{ brief.people|join(", ") }}</dd>{% endif %}
+            {% if brief.places %}<dt>Places</dt><dd>{{ brief.places|join(", ") }}</dd>{% endif %}
+          </dl>
+        {% endif %}
+        <p class="hint flush">Written by {{ brief.model }} from {{ unit.title }}.</p>
+      {% else %}
+        <p class="flush" role="alert">No brief could be written: {{ brief_error }}</p>
+      {% endif %}
+    </section>
+    {% include "_verse_list.html" %}
+
+  {% elif mode == "listen" %}
+    <section class="listen stack"
+             {% if poll %}hx-get="/read/{{ ref.work_id }}/{{ ref.book }}/{{ ref.chapter }}/mode/listen"
+             hx-trigger="every 1500ms" hx-target="#reader" hx-swap="outerHTML"{% endif %}>
+      {% if reading %}
+        <audio id="reader-audio" controls preload="metadata" src="{{ media_base }}/reading.mp3">
+          <track id="reader-cues" kind="metadata" default src="{{ media_base }}/reading.vtt">
+        </audio>
+        <p class="hint flush">{{ reading.voice }} · {{ "%.1f"|format(reading.duration_s / 60) }} min ·
+          the source text, verse by verse.</p>
+      {% elif poll %}
+        <p class="flush" aria-live="polite">Synthesising {{ unit.title }}…
+          {% if job and job.message %}<span class="job-message">{{ job.message }}</span>{% endif %}</p>
+        <progress max="1" value="{{ '%.3f'|format(job.progress if job else 0) }}"></progress>
+      {% else %}
+        {% if job and job.state == "failed" %}
+          <p class="notice notice-bad flush" role="alert">{{ job.error }}</p>
+        {% endif %}
+        <form hx-post="/read/{{ ref.work_id }}/{{ ref.book }}/{{ ref.chapter }}/audio"
+              hx-target="#reader" hx-swap="outerHTML">
+          {% if needs_confirmation %}
+            <p class="notice notice-warn flush">
+              About {{ "%.0f"|format(estimate_minutes) }} minutes of narration,
+              roughly ${{ "%.2f"|format(cost_usd) }} with the voice you have configured.
+            </p>
+            <input type="hidden" name="confirmed" value="yes">
+            <button class="button button-primary" type="submit">Confirm and build it</button>
+          {% else %}
+            <button class="button button-primary" type="submit">Build the narration</button>
+          {% endif %}
+        </form>
+      {% endif %}
+    </section>
+    {% include "_verse_list.html" %}
+  {% endif %}
+</div>

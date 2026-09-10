@@ -26,7 +26,7 @@ from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
 from videomaker.web import media
 from videomaker.web.auth import PASSWORD_ENV, PasswordGate
-from videomaker.web.routes import projects, render, script, storyboard
+from videomaker.web.routes import library, projects, render, script, storyboard
 from videomaker.web.worker import JobQueue
 
 #: Templates and static assets live inside the package, not at the repo root, so
@@ -38,12 +38,21 @@ TEMPLATES_DIR = _WEB_DIR / "templates"
 STATIC_DIR = _WEB_DIR / "static"
 
 
-def create_app(settings: Settings | None = None, *, providers: str | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    providers: str | None = None,
+    dev: bool = False,
+) -> FastAPI:
     """Build a review-UI app over `settings` (loaded from config.yaml when omitted).
 
     `providers` mirrors the CLI's `--providers`: it forces every provider kind to
     that one name, which is how the tests and the offline golden path stay away
     from the network.
+
+    `dev` turns on Jinja's template auto-reload. Off by default so a running
+    server cannot drift into rendering new templates against old handler code —
+    see the note beside `app.state.templates`.
     """
     settings = settings if settings is not None else load_settings()
     if providers:
@@ -72,8 +81,37 @@ def create_app(settings: Settings | None = None, *, providers: str | None = None
     # `static/`: thumbnail rendering (M3 Task 15) reads the same files off disk
     # and should not have to reach through the web package to find them.
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
-    app.state.templates = Jinja2Templates(directory=TEMPLATES_DIR)
+    # `auto_reload=False` unless we are explicitly in dev, and this is a
+    # correctness fix rather than a performance one.
+    #
+    # Jinja re-reads a changed template off disk by default; the Python module
+    # around it does not. A long-running server whose source has moved on
+    # therefore renders **new templates against old route code**, and the failure
+    # that produces is a 500 on an undefined variable — a template asking for a
+    # context key the running handler was written before. That bit three times in
+    # one afternoon (`next`, the folder routes, then `thumbnail`), and each time
+    # it looked like a bug in the new code rather than a stale process.
+    #
+    # Frozen, the two halves stay in step: an old server serves a consistently old
+    # page, which is obvious and harmless. Under `--reload` uvicorn replaces the
+    # process on a source change, so dev keeps hot templates by asking for them.
+    # Set on the environment rather than passed in: Starlette's constructor takes
+    # a `directory` or a whole prebuilt `env`, and nothing in between.
+    templates = Jinja2Templates(directory=TEMPLATES_DIR)
+    templates.env.auto_reload = dev
+    app.state.templates = templates
 
+    # **Before `media`, and this order is load-bearing.** `media` owns
+    # `/media/{project_id}/{path:path}`, which would otherwise swallow
+    # `/media/reading/...` as a project literally named `reading` and 404 every
+    # reading artefact. FastAPI matches in registration order, so the reader's
+    # narrower route has to come first. The residual collision — a real project
+    # named `reading` holding a file at `<anything>/reading.mp3` or
+    # `.../reading.vtt`, the only two names the reader route will serve — is left
+    # unhandled deliberately: guarding it would mean a lookup in the reader route
+    # against the project store, which is a second, subtler path surface than the
+    # one it would protect.
+    app.include_router(library.router)
     app.include_router(media.router)
     app.include_router(projects.router)
     # After `projects`, whose `/projects/{project_id}` would otherwise be a
@@ -116,5 +154,8 @@ def create_app_from_env() -> FastAPI:
 
     uvicorn's `--reload` refuses anything but an import string, and the subprocess
     it spawns cannot see our `Settings`; it reads `VIDEOMAKER_PROVIDERS` instead.
+
+    This entry point exists only for `--reload`, so it is by definition dev: hot
+    templates are wanted here, and uvicorn restarts the process under it anyway.
     """
-    return create_app(providers=os.environ.get(PROVIDERS_ENV_VAR) or None)
+    return create_app(providers=os.environ.get(PROVIDERS_ENV_VAR) or None, dev=True)

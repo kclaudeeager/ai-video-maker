@@ -566,7 +566,7 @@ chain; the cache is not re-read across a `PROMPT_VERSION` bump; a summary over
 
 ### Task 9: The reader in the browser
 
-- [ ] **Files:** new `web/routes/library.py`,
+- [x] **Files:** new `web/routes/library.py`,
   `web/templates/{library,work,read}.html`,
   `web/templates/_reader_mode.html`, `web/templates/_verse_list.html`;
   modify `web/app.py`, `web/templates/_nav.html`; test

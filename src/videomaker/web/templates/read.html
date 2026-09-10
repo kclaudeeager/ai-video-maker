@@ -1,0 +1,28 @@
+{#
+  The reading page. Context: `work`, `unit`, `ref`, `mode`, `modes`, `previous`,
+  `next_ref`, plus whatever the chosen mode needs.
+
+  The whole page is one column at `--measure`, and the previous/next controls sit
+  at the foot of that column rather than in a sidebar: this is a page for reading,
+  and everything that is not the passage is chrome.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ unit.title }}{% endblock %}
+{% block eyebrow %}<a href="/library/{{ work.id }}">{{ work.title }}</a>{% endblock %}
+{% block heading %}{{ unit.title }}{% endblock %}
+
+{% block content %}
+  <article class="reading-column">
+    {% include "_reader_mode.html" %}
+
+    <nav class="chapter-nav" aria-label="Chapters">
+      {% if previous %}
+        <a class="chapter-prev" href="/read/{{ previous.work_id }}/{{ previous.book }}/{{ previous.chapter }}">Previous</a>
+      {% endif %}
+      {% if next_ref %}
+        <a class="chapter-next" href="/read/{{ next_ref.work_id }}/{{ next_ref.book }}/{{ next_ref.chapter }}">Next</a>
+      {% endif %}
+    </nav>
+  </article>
+{% endblock %}

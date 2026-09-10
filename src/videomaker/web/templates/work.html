@@ -1,0 +1,27 @@
+{#
+  One work's outline: its books in canonical order, each with its chapters.
+
+  Context: `work`, `books` — `{code, name, chapters}` in `BOOK_ORDER` order.
+
+  A chapter is a number in a grid rather than a row in a list: a reader picking
+  John 3 is aiming at a target, not reading a menu.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ work.title }}{% endblock %}
+{% block eyebrow %}<a href="/library">Library</a>{% endblock %}
+{% block heading %}{{ work.title }}{% endblock %}
+
+{% block content %}
+  <p class="hint">{{ work.licence }}</p>
+  {% for book in books %}
+    <section class="stack book-block">
+      <h2 class="section-title flush">{{ book.name }}</h2>
+      <ul class="chapter-grid flush">
+        {% for chapter in book.chapters %}
+          <li><a href="/read/{{ work.id }}/{{ book.code }}/{{ chapter }}">{{ chapter }}</a></li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endfor %}
+{% endblock %}

@@ -21,6 +21,7 @@
   </a>
   <nav class="masthead-nav" aria-label="Sections">
     <a href="/"{% if here == "/" %} aria-current="page"{% endif %}>Projects</a>
+    <a href="/library"{% if here.startswith("/library") or here.startswith("/read") %} aria-current="page"{% endif %}>Library</a>
     <a href="/guide"{% if here == "/guide" %} aria-current="page"{% endif %}>How it works</a>
   </nav>
 </header>

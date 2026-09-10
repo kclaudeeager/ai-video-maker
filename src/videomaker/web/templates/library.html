@@ -1,0 +1,38 @@
+{#
+  The library: every work that has been imported, with the licence it came under.
+
+  Context: `works` — one `{work, modes}` row each.
+
+  **The licence is on the card, not behind a link.** `docs/multimodal-reader-design.md`
+  §5 makes a stateable licence the condition of a text being here at all; printing
+  it is what makes that visible rather than merely true.
+#}
+{% extends "base.html" %}
+
+{% block title %}Library{% endblock %}
+{% block eyebrow %}Read{% endblock %}
+{% block heading %}Library{% endblock %}
+
+{% block content %}
+  {% if not works %}
+    <section class="card stack">
+      <p class="flush">The library is empty. The project ships no texts — import one:</p>
+      <pre class="log">uv run videomaker library import web</pre>
+      <p class="hint flush">Only a text whose licence can be stated in one sentence
+        can be imported, and the importer refuses anything else.</p>
+    </section>
+  {% else %}
+    <ul class="card-grid flush">
+      {% for row in works %}
+        <li class="card stack">
+          <h2 class="card-title flush"><a href="/library/{{ row.work.id }}">{{ row.work.title }}</a></h2>
+          <p class="eyebrow flush">{{ row.work.language }} · {{ row.work.versification }}</p>
+          <p class="flush">{{ row.work.licence }}</p>
+          <p class="hint flush">
+            {% for mode in row.modes %}<span class="mode-chip">{{ mode }}</span>{% endfor %}
+          </p>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endblock %}

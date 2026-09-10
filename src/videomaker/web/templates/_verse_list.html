@@ -1,0 +1,14 @@
+{#
+  The passage itself. Context: `unit`.
+
+  The verse number is a `<sup>` marked `user-select: none` in the stylesheet, so
+  copying a passage copies the words and not the numbering. Each verse carries its
+  number as `data-verse`, which is what `reader.js` matches a VTT cue against.
+#}
+<div class="verses" id="verses">
+  {% for verse in unit.verses %}
+    <p class="verse" data-verse="{{ verse.number }}" id="v{{ verse.number }}">
+      <sup class="verse-num" aria-hidden="true">{{ verse.number }}</sup>{{ verse.text }}
+    </p>
+  {% endfor %}
+</div>

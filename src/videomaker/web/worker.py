@@ -38,7 +38,7 @@ from videomaker.runner import GATE_REVIEW, GateBlocked, StageFailed
 
 #: What M2 submits. `run` advances the pipeline; `preview` builds the 480p proxy
 #: (Task 11); `revoice` and `research` redo one scene.
-JOB_KINDS: tuple[str, ...] = ("run", "preview", "revoice", "research")
+JOB_KINDS: tuple[str, ...] = ("run", "preview", "revoice", "research", "reading")
 
 #: The queue is bounded so a client looping on a submit endpoint cannot grow it
 #: without limit. With one job per project, filling it takes 32 distinct projects.
