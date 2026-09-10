@@ -99,6 +99,7 @@ _CONCRETE_MODULES: tuple[str, ...] = (
     "videomaker.providers.stock.pexels",
     "videomaker.providers.image.cloudflare",
     "videomaker.providers.vision.gemini",
+    "videomaker.corpus.bible",
 )
 
 for _module in _CONCRETE_MODULES:  # pragma: no cover - grows from Task 7 onwards

@@ -272,7 +272,7 @@ which carries a footnote and a section heading.
 
 ### Task 4: `BibleCorpus` and the catalogue
 
-- [ ] **Files:** new `corpus/bible.py`, `corpus/catalogue.py`; test
+- [x] **Files:** new `corpus/bible.py`, `corpus/catalogue.py`; test
   `tests/unit/test_bible_corpus.py`
 
 `BibleCorpus(CorpusProvider)` reads `<workspace>/library/`. It holds no
