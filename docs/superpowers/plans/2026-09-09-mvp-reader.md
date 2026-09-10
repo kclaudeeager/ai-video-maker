@@ -613,7 +613,7 @@ reading end to end against `MockTTS` and gets an mp3 back.
 
 ### Task 10: Reader preference
 
-- [ ] **Files:** modify `web/routes/library.py`, `web/templates/base.html`;
+- [x] **Files:** modify `web/routes/library.py`, `web/templates/base.html`;
   test `tests/unit/test_reader_prefs.py`
 
 Preferred mode and preferred language per reader, in a signed cookie —

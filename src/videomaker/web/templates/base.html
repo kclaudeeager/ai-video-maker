@@ -15,9 +15,13 @@
   `_nav.html` is included with no context of its own, because this template is
   also rendered bare (no request, no child) by that test — so everything the nav
   reads has to have a default.
+
+  `<html lang>` follows the reader's own language when a page sets one — the
+  reading pages do, from the work being read — so a screen reader pronounces a
+  passage in the language it is written in rather than in the UI's.
 #}
 <!doctype html>
-<html lang="en">
+<html lang="{% block lang %}en{% endblock %}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">

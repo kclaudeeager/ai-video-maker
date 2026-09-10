@@ -15,11 +15,21 @@ Three things in this module are load-bearing rather than incidental:
   when a configured `tts` provider lists the work's language
   (`docs/multimodal-reader-design.md` §6: a language with a text but no voice can
   be read, just not heard). The switcher is built from what is actually possible.
+* **The reader's preference is a signed cookie, not a setting.** `Settings` is
+  machine-wide; which mode a person prefers is per person, and two readers on one
+  self-hosted instance must not overwrite each other. It is signed rather than
+  encrypted because there is nothing secret in it — the signature is only there so
+  a tampered value falls back to the default instead of reaching `ReadMode`.
+
 * **Building audio goes through the `JobQueue`,** like every other long job: the
   POST returns a polling fragment immediately. A chapter of forty verses is forty
   synthesis calls and a concat, which is not a request cycle.
 """
 
+import hashlib
+import hmac
+import secrets
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from enum import StrEnum
 from pathlib import Path
 
@@ -63,6 +73,82 @@ class ReadMode(StrEnum):
     SOURCE = "source"
     BRIEF = "brief"
     LISTEN = "listen"
+
+
+#: What a reader who has expressed no preference gets. The brief is the way in:
+#: it is the mode that says what the chapter is about before asking anyone to read
+#: it, and the source text is one control away from it.
+DEFAULT_MODE = ReadMode.BRIEF
+
+PREFS_COOKIE = "longhand_reader"
+#: A year. The cookie holds a mode and a language; there is nothing in it that
+#: needs to expire, and a preference that resets every session is not one.
+PREFS_MAX_AGE_S = 365 * 24 * 3600
+
+#: Used when `Settings.reader_cookie_secret` is empty: a per-process key, so
+#: preferences survive as long as the server does and no longer.
+_PROCESS_SECRET = secrets.token_urlsafe(32)
+
+
+def _secret(settings: Settings) -> bytes:
+    return (settings.reader_cookie_secret or _PROCESS_SECRET).encode()
+
+
+def _sign(payload: str, settings: Settings) -> str:
+    digest = hmac.new(_secret(settings), payload.encode(), hashlib.sha256).digest()
+    return urlsafe_b64encode(digest).decode().rstrip("=")
+
+
+def encode_prefs(settings: Settings, *, mode: str, language: str = "") -> str:
+    """`<mode>|<language>.<signature>` — small, readable, and tamper-evident."""
+    payload = urlsafe_b64encode(f"{mode}|{language}".encode()).decode().rstrip("=")
+    return f"{payload}.{_sign(payload, settings)}"
+
+
+def decode_prefs(settings: Settings, raw: str) -> tuple[ReadMode, str]:
+    """The reader's preference, or the default for anything that is not one.
+
+    Every failure lands on the same answer: no cookie, a truncated one, a forged
+    signature, an unknown mode. A preference is not worth an error page, and
+    falling back is what keeps a stale cookie from a previous version harmless.
+    """
+    payload, _, signature = (raw or "").partition(".")
+    if not payload or not signature:
+        return DEFAULT_MODE, ""
+    if not hmac.compare_digest(signature, _sign(payload, settings)):
+        return DEFAULT_MODE, ""
+    try:
+        decoded = urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+    except (ValueError, UnicodeDecodeError):
+        return DEFAULT_MODE, ""
+    mode, _, language = decoded.partition("|")
+    if mode not in {m.value for m in ReadMode}:
+        return DEFAULT_MODE, ""
+    return ReadMode(mode), language
+
+
+def _first_supported(modes: list[ReadMode], *wanted: str) -> ReadMode:
+    """The first of `wanted` this work supports, else its first supported mode."""
+    supported = {m.value for m in modes}
+    for candidate in wanted:
+        if candidate in supported:
+            return ReadMode(candidate)
+    return modes[0]
+
+
+def preferred(request: Request) -> tuple[ReadMode, str]:
+    return decode_prefs(request.app.state.settings, request.cookies.get(PREFS_COOKIE, ""))
+
+
+def remember(response, settings: Settings, *, mode: ReadMode, language: str) -> None:
+    """Write the preference back. `httponly` because no script reads it."""
+    response.set_cookie(
+        PREFS_COOKIE,
+        encode_prefs(settings, mode=mode.value, language=language),
+        max_age=PREFS_MAX_AGE_S,
+        httponly=True,
+        samesite="lax",
+    )
 
 
 def job_key(ref: UnitRef, voice: str) -> str:
@@ -310,12 +396,17 @@ def read_page(request: Request, work_id: str, book: str, chapter: str, mode: str
     settings: Settings = request.app.state.settings
     ref = _ref(work_id, book, chapter)
     modes = modes_for(work, settings)
-    chosen = ReadMode(mode) if mode in {m.value for m in modes} else modes[0]
+    remembered, _language = preferred(request)
+    # An explicit `?mode=` first, then the cookie, then the default, then whatever
+    # this work does support — so a reader whose preference is Listen can still
+    # open a work that has no voice, and lands on the brief rather than on
+    # whichever mode happens to sort first.
+    chosen = _first_supported(modes, mode, remembered.value, DEFAULT_MODE.value)
     voice = default_voice(settings, work.language)
     outline = _corpus(request).outline(work_id)
     previous, following = neighbours(outline, ref)
     templates: Jinja2Templates = request.app.state.templates
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request,
         "read.html",
         {
@@ -326,6 +417,8 @@ def read_page(request: Request, work_id: str, book: str, chapter: str, mode: str
             **_mode_context(request, ref, chosen, voice),
         },
     )
+    remember(response, settings, mode=chosen, language=work.language)
+    return response
 
 
 @router.get("/read/{work_id}/{book}/{chapter}/mode/{mode}")
@@ -341,9 +434,13 @@ def read_mode(request: Request, work_id: str, book: str, chapter: str, mode: str
     context = _mode_context(
         request, ref, ReadMode(mode), default_voice(settings, work.language)
     )
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request, "_reader_mode.html", {"work": work, "modes": [m.value for m in modes], **context}
     )
+    # Switching mode *is* the preference: there is no separate control to set it,
+    # which is the only reason a cookie is worth having here at all.
+    remember(response, settings, mode=ReadMode(mode), language=work.language)
+    return response
 
 
 @router.post("/read/{work_id}/{book}/{chapter}/audio")
@@ -417,11 +514,16 @@ def get_reading_media(request: Request, work_id: str, reading_key: str, name: st
 
 #: Imported for the doctor and the tests, which describe the library by name.
 __all__ = [
+    "DEFAULT_MODE",
     "LIBRARY_DIRNAME",
+    "PREFS_COOKIE",
     "Brief",
     "ReadMode",
+    "decode_prefs",
+    "encode_prefs",
     "modes_for",
     "neighbours",
+    "preferred",
     "router",
     "spoken_languages",
 ]

@@ -8,6 +8,7 @@
 #}
 {% extends "base.html" %}
 
+{% block lang %}{{ work.language }}{% endblock %}
 {% block title %}{{ unit.title }}{% endblock %}
 {% block eyebrow %}<a href="/library/{{ work.id }}">{{ work.title }}</a>{% endblock %}
 {% block heading %}{{ unit.title }}{% endblock %}

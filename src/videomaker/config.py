@@ -72,6 +72,13 @@ class Settings(BaseSettings):
         default="", validation_alias=AliasChoices("CLOUDFLARE_API_TOKEN")
     )
 
+    #: Signs the reader's preference cookie. Empty — the default — means a secret
+    #: generated per process, so a restart simply forgets everyone's preference
+    #: and nobody has to invent a value to run the tool locally. Set it to keep
+    #: preferences across restarts. It is not a session key and guards nothing
+    #: but a mode and a language; see `web/routes/library.py`.
+    reader_cookie_secret: str = ""
+
     #: `voice_providers:` from `config.yaml`, as written. Kept raw here because this
     #: module cannot import `providers.tts.http_api` (it imports us); the entries
     #: are validated into `HTTPTTSConfig` where they are used. Any name listed
