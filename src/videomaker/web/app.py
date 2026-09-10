@@ -26,7 +26,7 @@ from videomaker.project import ProjectStore
 from videomaker.runner import provider_override
 from videomaker.web import media
 from videomaker.web.auth import PASSWORD_ENV, PasswordGate
-from videomaker.web.routes import library, projects, render, script, storyboard
+from videomaker.web.routes import library, projects, render, script, start, storyboard
 from videomaker.web.worker import JobQueue
 
 #: Templates and static assets live inside the package, not at the repo root, so
@@ -127,6 +127,9 @@ def create_app(
     # `/preview/build`, `/approve/preview` and `/render` collide with nothing
     # above them.
     app.include_router(render.router)
+    # `/start` and the three pages behind it. After `projects`, whose `/projects`
+    # POST it links to and does not replace.
+    app.include_router(start.router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

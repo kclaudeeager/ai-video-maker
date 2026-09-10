@@ -121,7 +121,7 @@ apologises.
 
 ### Task 4: `/start` — one place to begin
 
-- [ ] **Files:** new `web/routes/start.py`, `web/templates/start.html`,
+- [x] **Files:** new `web/routes/start.py`, `web/templates/start.html`,
   `start_video.html`, `start_read.html`, `start_document.html`; modify
   `web/app.py`; test `tests/unit/test_start_routes.py`
 
@@ -180,7 +180,7 @@ unchanged.
 
 ### Task 6: Uploading one from the browser
 
-- [ ] **Files:** modify `web/routes/start.py`; test `tests/unit/test_upload.py`
+- [x] **Files:** modify `web/routes/start.py`; test `tests/unit/test_upload.py`
 
 `POST /start/document` writes the upload to a temporary path, imports it, and
 redirects to the work. A file larger than `MAX_UPLOAD_BYTES` or of an unknown
@@ -190,7 +190,7 @@ suffix is refused with the reason on the form, not a 500.
 
 ### Task 7: The library and the reader in the new direction
 
-- [ ] **Files:** modify `web/templates/{library,work,read}.html`,
+- [x] **Files:** modify `web/templates/{library,work,read}.html`,
   `web/static/style.css`; test `tests/unit/test_web_library.py` (extend)
 
 The library page becomes a shelf rather than a card grid, the work page leads

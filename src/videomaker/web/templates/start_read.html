@@ -1,0 +1,44 @@
+{#
+  Way in two: a text somebody published. Context: `rows` ({spec, imported}), `error`.
+
+  **The licence is the row, not a footnote on it.** Nothing reaches this list
+  without one that can be stated in a sentence — that is what `ImportSpec`
+  enforces — so printing it is the honest way to show what the gate is for.
+#}
+{% extends "base.html" %}
+
+{% block title %}Start from a work{% endblock %}
+{% block eyebrow %}<a href="/start">Start something</a>{% endblock %}
+{% block heading %}Start from a work{% endblock %}
+
+{% block content %}
+  <p class="prose">Longhand ships no texts. These are the ones whose licence can
+    be stated in one sentence; anything else has to be imported by hand, and the
+    importer refuses what it cannot describe.</p>
+
+  {% if error %}
+    <p class="notice notice-bad" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <ul class="open-list flush">
+    {% for row in rows %}
+      <li class="open-item shelf-row">
+        <span class="open-title">{{ row.spec.title }}</span>
+        <span class="open-kind">{{ row.spec.language }}</span>
+        <span class="shelf-licence">{{ row.spec.licence }}</span>
+        <span class="shelf-action">
+          {% if row.imported %}
+            <a href="/library/{{ row.spec.work_id }}">Open it</a>
+          {% elif row.spec.archive %}
+            <form method="post" action="/start/read">
+              <input type="hidden" name="work_id" value="{{ row.spec.work_id }}">
+              <button class="button" type="submit">Bring it in</button>
+            </form>
+          {% else %}
+            <span class="hint">bundled — import it from the command line</span>
+          {% endif %}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+{% endblock %}

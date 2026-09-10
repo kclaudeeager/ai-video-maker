@@ -1,0 +1,37 @@
+{#
+  Way in three: a file you already have. Context: `error`, `suffixes`.
+
+  A plain multipart form with no htmx: an upload ends in a 303 to the work, which
+  is what a browser does well on its own, and it keeps working with JavaScript
+  off — the same rule the create form follows.
+#}
+{% extends "base.html" %}
+
+{% block title %}Start from your own file{% endblock %}
+{% block eyebrow %}<a href="/start">Start something</a>{% endblock %}
+{% block heading %}Start from your own file{% endblock %}
+
+{% block content %}
+  <p class="prose">Longhand reads {{ suffixes|join(", ") }}. Headings become
+    sections and paragraphs become the units it reads, skims and speaks — the
+    same three ways it reads anything else.</p>
+
+  <form class="card form-card" method="post" action="/start/document"
+        enctype="multipart/form-data">
+    {% if error %}
+      <p class="notice notice-bad" role="alert">{{ error }}</p>
+    {% endif %}
+    <div class="field">
+      <label for="document">Your file</label>
+      <input type="file" id="document" name="document" required
+             accept="{{ suffixes|join(',') }}">
+      <p class="hint flush">It is copied into your workspace and stays there.
+        Nothing is uploaded anywhere.</p>
+    </div>
+    <div class="field">
+      <label for="title">What to call it</label>
+      <input type="text" id="title" name="title" placeholder="the filename, if you leave this empty">
+    </div>
+    <button class="button button-primary" type="submit">Add it to the library</button>
+  </form>
+{% endblock %}

@@ -3,12 +3,18 @@
 
   The verse number is a `<sup>` marked `user-select: none` in the stylesheet, so
   copying a passage copies the words and not the numbering. Each verse carries its
-  number as `data-verse`, which is what `reader.js` matches a VTT cue against.
+  number as `data-verse` whether or not it is shown, because that is what
+  `reader.js` matches a VTT cue against and what a click seeks by.
+
+  `numbered` is false for a document of your own: its paragraph numbers are this
+  importer's invention rather than part of the text, and set as superscripts they
+  read as footnote markers on something that has no footnotes.
 #}
 <div class="verses" id="verses">
   {% for verse in unit.verses %}
     <p class="verse" data-verse="{{ verse.number }}" id="v{{ verse.number }}">
-      <sup class="verse-num" aria-hidden="true">{{ verse.number }}</sup>{{ verse.text }}
+      {%- if numbered %}<sup class="verse-num" aria-hidden="true">{{ verse.number }}</sup>{% endif -%}
+      {{ verse.text }}
     </p>
   {% endfor %}
 </div>

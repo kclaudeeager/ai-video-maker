@@ -1,0 +1,19 @@
+{#
+  Way in one: a sentence becomes a video. The form itself is `_new_project.html`,
+  unchanged and still posting to `/projects` — it was moved off the root, not
+  rewritten, which is why `projects.render_new_project` draws this page for a
+  rejected create too.
+
+  Context: `templates_available`, `voices`, `form`, `error`, `first_run`.
+#}
+{% extends "base.html" %}
+
+{% block title %}Start from an idea{% endblock %}
+{% block eyebrow %}<a href="/start">Start something</a>{% endblock %}
+{% block heading %}Start from an idea{% endblock %}
+
+{% block content %}
+  <p class="prose">One sentence is enough. It writes a script from it and stops
+    at the first gate so you can read it before anything is spoken.</p>
+  {% include "_new_project.html" %}
+{% endblock %}

@@ -66,6 +66,40 @@ def test_the_library_page_shows_every_work_with_its_licence(client):
     assert "CC0 (synthetic test fixture" in response.text
 
 
+def test_the_shelf_says_what_you_can_do_rather_than_labelling_it(client):
+    """A chip reading `SOURCE BRIEF LISTEN` is a legend; a sentence is an answer
+    (`docs/ui-design.md` §12), and the all-caps chips were one of the four
+    treatments that section bans."""
+    body = client.get("/library").text
+
+    assert "Read it, skim it, or hear it" in body
+    assert "SOURCE" not in body and "LISTEN" not in body
+    assert "·" not in body, "no middle-dot meta strings"
+
+
+def test_a_work_with_no_voice_says_what_it_can_still_do(app, monkeypatch):
+    from videomaker.web.routes import library as library_routes
+
+    monkeypatch.setattr(library_routes, "spoken_languages", lambda settings: set())
+    body = TestClient(app).get("/library").text
+
+    assert "Read it or skim it" in body
+    assert "hear it" not in body
+
+
+def test_an_empty_library_offers_both_ways_to_fill_it(app, tmp_path):
+    empty = create_app(
+        Settings(
+            workspace_dir=tmp_path / "nothing",
+            provider_chains={"corpus": ["bible"], "tts": ["mock"], "llm": ["mock"]},
+        )
+    )
+    body = TestClient(empty).get("/library").text
+
+    assert 'href="/start/read"' in body
+    assert 'href="/start/document"' in body
+
+
 def test_an_empty_library_says_so_rather_than_erroring(real_library, tmp_path):
     empty = create_app(
         Settings(
@@ -75,7 +109,7 @@ def test_an_empty_library_says_so_rather_than_erroring(real_library, tmp_path):
     )
     response = TestClient(empty).get("/library")
     assert response.status_code == 200
-    assert "library is empty" in response.text
+    assert "Nothing here yet" in response.text
 
 
 def test_the_work_page_lists_books_and_chapters(client):
@@ -325,3 +359,54 @@ def test_a_real_import_is_readable_end_to_end(real_library):
 
 def test_the_nav_links_to_the_library(client):
     assert '/library"' in client.get("/library").text
+
+
+# ------------------------------------------------------- a document of your own
+
+
+@pytest.fixture
+def document_app(tmp_path, monkeypatch):
+    """A work made from a Markdown file, served by the real corpus."""
+    from videomaker.corpus.documents import DocumentSpec, import_document
+
+    monkeypatch.setattr(importer_module, "NOTICE_PATH", tmp_path / "NOTICE.md")
+    source = tmp_path / "field-notes.md"
+    source.write_text("# The first part\n\nA paragraph of prose.\n\nAnd another.\n")
+    workspace = tmp_path / "workspace"
+    import_document(source, DocumentSpec(work_id="notes", title="Field Notes"), workspace)
+    settings = Settings(
+        workspace_dir=workspace,
+        provider_chains={**{kind: ["mock"] for kind in PROVIDER_KINDS}, "corpus": ["bible"]},
+    )
+    return create_app(settings)
+
+
+def test_a_document_reads_like_any_other_work(document_app):
+    client = TestClient(document_app)
+    assert "Field Notes" in client.get("/library").text
+
+    page = client.get("/read/notes/DOC/1")
+    assert page.status_code == 200
+    assert "A paragraph of prose." in page.text
+    assert "The first part" in page.text
+
+
+def test_a_document_keeps_its_paragraph_handles_but_not_its_numbers(document_app):
+    """The number is how a cue and a click find a paragraph; it is not text."""
+    body = TestClient(document_app).get("/read/notes/DOC/1").text
+
+    assert 'data-verse="1"' in body, "reader.js still needs the handle"
+    assert '<sup class="verse-num"' not in body, "a made-up number is not part of the document"
+
+
+def test_a_versified_work_still_shows_its_verse_numbers(client):
+    body = client.get("/read/mock/JHN/1").text
+
+    assert '<sup class="verse-num"' in body
+    assert 'data-verse="1"' in body
+
+
+def test_a_document_offers_the_same_three_modes(document_app):
+    body = TestClient(document_app).get("/read/notes/DOC/1").text
+    for label in (">Read<", ">Brief<", ">Listen<"):
+        assert label in body

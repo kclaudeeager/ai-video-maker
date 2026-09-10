@@ -46,9 +46,10 @@ from videomaker.corpus.audio import (
     reading_key,
 )
 from videomaker.corpus.digest import Brief, build_brief
+from videomaker.corpus.documents import DOCUMENT_BOOK
 from videomaker.corpus.importer import DERIVED_DIRNAME, LIBRARY_DIRNAME, library_dir
 from videomaker.corpus.models import UnitRef, UnitText, WorkRef
-from videomaker.corpus.refs import BOOK_ORDER, book_name
+from videomaker.corpus.refs import BOOK_ORDER, book_label
 from videomaker.providers.base import CorpusProvider, TTSProvider
 from videomaker.providers.errors import ProviderError
 from videomaker.providers.tts.http_api import HTTPTTSProvider, TTSBudgetExceeded, estimate_minutes
@@ -67,6 +68,10 @@ JOB_PREFIX = "reading:"
 #: media route matches on them, so a request for anything else is refused before
 #: a path is built at all.
 SERVABLE = {"reading.mp3": "audio/mpeg", "reading.vtt": "text/vtt"}
+
+#: Every book code a URL may name: the canon, plus the code documents are filed
+#: under. Fixed, so validating a path segment costs no filesystem access.
+READABLE_BOOKS: frozenset[str] = frozenset(BOOK_ORDER) | {DOCUMENT_BOOK}
 
 
 class ReadMode(StrEnum):
@@ -242,14 +247,16 @@ def _work(request: Request, work_id: str) -> WorkRef:
 def _ref(work_id: str, book: str, chapter: str) -> UnitRef:
     """Validate the URL segments before anything touches the filesystem.
 
-    `book` is checked against `BOOK_ORDER` rather than against the directory
-    listing: the canon is a fixed table, so a hostile segment is refused without a
-    single `stat`. `chapter` is taken as a string and parsed here rather than
+    `book` is checked against `READABLE_BOOKS` rather than against the directory
+    listing: it is a fixed table, so a hostile segment is refused without a single
+    `stat`. The table is the 66 canonical codes plus the one a document of your
+    own is filed under — a code deliberately outside every canon, so admitting it
+    widens what can be read without widening what can be reached. `chapter` is taken as a string and parsed here rather than
     declared `int`, because FastAPI's own coercion answers a non-numeric segment
     with a 422 carrying the offending value back — a reader who mistyped a URL
     should get the same plain 404 as one who asked for a chapter that is not there.
     """
-    if book.upper() not in BOOK_ORDER or not chapter.isdigit() or int(chapter) < 1:
+    if book.upper() not in READABLE_BOOKS or not chapter.isdigit() or int(chapter) < 1:
         raise HTTPException(status_code=404, detail="no such chapter")
     return UnitRef(work_id=work_id, book=book.upper(), chapter=int(chapter))
 
@@ -269,7 +276,7 @@ def _chapters_by_book(refs: list[UnitRef]) -> list[dict[str, object]]:
     books: list[dict[str, object]] = []
     for ref in refs:
         if not books or books[-1]["code"] != ref.book:
-            books.append({"code": ref.book, "name": book_name(ref.book), "chapters": []})
+            books.append({"code": ref.book, "name": book_label(ref.book), "chapters": []})
         books[-1]["chapters"].append(ref.chapter)
     return books
 
@@ -324,7 +331,16 @@ def _mode_context(request: Request, ref: UnitRef, mode: ReadMode, voice: str) ->
     a request on a brief nobody looked at.
     """
     unit = _unit(request, ref)
-    context: dict[str, object] = {"unit": unit, "ref": ref, "mode": mode.value, "voice": voice}
+    context: dict[str, object] = {
+        "unit": unit,
+        "ref": ref,
+        "mode": mode.value,
+        "voice": voice,
+        # A verse number is part of a versified text and a reader looks for it.
+        # A paragraph number is something this importer made up, and printed as a
+        # superscript it reads as a footnote marker on a document that has none.
+        "numbered": ref.book != DOCUMENT_BOOK,
+    }
     if mode is ReadMode.BRIEF:
         deps = _deps(request)
         try:

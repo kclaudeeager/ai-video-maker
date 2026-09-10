@@ -1,38 +1,51 @@
 {#
-  The library: every work that has been imported, with the licence it came under.
+  The library: every work that has been imported, whatever it was imported from.
 
   Context: `works` — one `{work, modes}` row each.
 
-  **The licence is on the card, not behind a link.** `docs/multimodal-reader-design.md`
-  §5 makes a stateable licence the condition of a text being here at all; printing
-  it is what makes that visible rather than merely true.
+  A shelf rather than a card grid, and the same row as the workspace root and the
+  catalogue: title, language, licence, and what you can do with it. The three
+  things a card used to say in chips are said here in a sentence, because
+  "SOURCE BRIEF LISTEN" is a legend and "Read it, skim it, or hear it" is an
+  answer (`docs/ui-design.md` §12).
+
+  **The licence is on the shelf, not behind a link.** Nothing reaches this page
+  without one that can be stated in a sentence — that is what the importer
+  enforces — so printing it is what makes the gate visible rather than merely
+  true.
 #}
 {% extends "base.html" %}
 
 {% block title %}Library{% endblock %}
-{% block eyebrow %}Read{% endblock %}
+{% block eyebrow %}{% endblock %}
 {% block heading %}Library{% endblock %}
 
 {% block content %}
   {% if not works %}
-    <section class="card stack">
-      <p class="flush">The library is empty. The project ships no texts — import one:</p>
-      <pre class="log">uv run videomaker library import web</pre>
-      <p class="hint flush">Only a text whose licence can be stated in one sentence
-        can be imported, and the importer refuses anything else.</p>
-    </section>
+    <p class="prose">Nothing here yet. Longhand ships no texts of its own — bring
+      one in, or add a document you already have.</p>
+    <p class="flush">
+      <a class="button button-primary" href="/start/read">Start from a work</a>
+      <a class="button" href="/start/document">Start from your own file</a>
+    </p>
   {% else %}
-    <ul class="card-grid flush">
+    <ul class="open-list flush">
       {% for row in works %}
-        <li class="card stack">
-          <h2 class="card-title flush"><a href="/library/{{ row.work.id }}">{{ row.work.title }}</a></h2>
-          <p class="eyebrow flush">{{ row.work.language }} · {{ row.work.versification }}</p>
-          <p class="flush">{{ row.work.licence }}</p>
-          <p class="hint flush">
-            {% for mode in row.modes %}<span class="mode-chip">{{ mode }}</span>{% endfor %}
-          </p>
+        <li class="open-item shelf-row" data-work="{{ row.work.id }}">
+          <span class="open-title"><a href="/library/{{ row.work.id }}">{{ row.work.title }}</a></span>
+          <span class="open-kind">{{ row.work.language }}</span>
+          <span class="shelf-licence">{{ row.work.licence }}</span>
+          <span class="open-detail">
+            {%- if "listen" in row.modes -%}
+              Read it, skim it, or hear it
+            {%- else -%}
+              Read it or skim it
+            {%- endif -%}
+          </span>
         </li>
       {% endfor %}
     </ul>
+    <p class="hint">Every one of these states the licence it came under. Longhand
+      will not import a text whose licence it cannot describe in a sentence.</p>
   {% endif %}
 {% endblock %}

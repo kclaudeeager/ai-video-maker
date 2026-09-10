@@ -1,0 +1,19 @@
+{#
+  The three ways in, on their own page — for a link from anywhere that is not the
+  root. Same partial the root uses, so the two can never drift apart.
+#}
+{% extends "base.html" %}
+
+{% block title %}Start something{% endblock %}
+{% block eyebrow %}{% endblock %}
+{% block heading %}{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <h1 class="hero-line">What are you starting from?</h1>
+    <p class="hero-lede">A sentence you have not written yet, a text somebody
+      published, or a file already on your disk.</p>
+  </section>
+
+  {% include "_ways_in.html" %}
+{% endblock %}
