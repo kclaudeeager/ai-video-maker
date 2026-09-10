@@ -23,6 +23,17 @@ FROM python:3.12-slim-bookworm AS build
 # exact versions CI tested rather than whatever resolves on build day.
 COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /usr/local/bin/uv
 
+# A C toolchain, for exactly one dependency. `usfm-grammar` pulls
+# `tree-sitter-usfm3`, which publishes an sdist and no wheel at all — so every
+# install of it compiles the tree-sitter grammar from C. Without this the build
+# dies at `uv sync` with `error: [Errno 2] No such file or directory: 'gcc'`,
+# which reads like a broken package and is not: slim images ship no compiler.
+# It stays in the build stage, so the runtime image carries none of it.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gcc \
+        libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never
