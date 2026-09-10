@@ -218,14 +218,18 @@ def test_a_vendor_states_its_own_languages(tmp_path):
     assert spoken_languages(settings) == {"rw", "sw"}
 
 
-def test_modes_for_always_offers_the_source(tmp_path):
+def test_modes_for_always_offers_the_source_and_the_way_out(tmp_path):
+    """A language with no voice can be read and skimmed, and can still be *made*:
+    Watch needs no voice for the work's language, because the project it starts is
+    narrated in whatever the pipeline is configured for and gate 1 is where that
+    gets decided."""
     from videomaker.corpus.models import WorkRef
 
     work = WorkRef(
         id="w", title="W", language="rw", licence="X.", licence_url="u", source_url="u"
     )
     settings = Settings(workspace_dir=tmp_path, provider_chains={"tts": []})
-    assert modes_for(work, settings) == [ReadMode.SOURCE, ReadMode.BRIEF]
+    assert modes_for(work, settings) == [ReadMode.SOURCE, ReadMode.BRIEF, ReadMode.WATCH]
 
 
 # ------------------------------------------------------------- building audio
@@ -410,3 +414,17 @@ def test_a_document_offers_the_same_three_modes(document_app):
     body = TestClient(document_app).get("/read/notes/DOC/1").text
     for label in (">Read<", ">Brief<", ">Listen<"):
         assert label in body
+
+
+def test_every_mode_has_a_label(client):
+    """A mode in the enum and not in the label table renders as an empty tab —
+    which is what a Jinja lookup miss looks like, and what `watch` shipped as
+    until a browser showed a blank gap in the switcher."""
+    from videomaker.web.routes.library import MODE_LABELS
+
+    assert set(MODE_LABELS) == set(ReadMode)
+    assert all(label for label in MODE_LABELS.values())
+
+    body = client.get("/read/mock/JHN/1").text
+    for label in MODE_LABELS.values():
+        assert f">{label}</a>" in body

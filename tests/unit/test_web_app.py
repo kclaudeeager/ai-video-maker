@@ -92,3 +92,48 @@ def test_serve_is_quiet_on_loopback(monkeypatch):
 
     assert "REFUSED" not in output
     assert "binding" not in output
+
+
+# ---------------------------------------------- templates cannot outrun the code
+#
+# Jinja re-reads a changed template off disk by default; the Python module around
+# it does not. A long-running server whose source has moved on therefore renders
+# **new templates against old route code**, and what that produces is a 500 on an
+# undefined variable — a template asking for a context key the running handler was
+# written before it existed.
+#
+# It happened three times in one afternoon on the same server process (`next`,
+# then the folder routes, then `thumbnail`), and every time it read as a bug in
+# the new code rather than as a stale process. Frozen templates make an old server
+# serve a consistently old page instead, which is obvious and harmless.
+
+
+def test_templates_do_not_reload_by_default(tmp_path):
+    """The property that keeps a running server internally consistent."""
+    from videomaker.config import Settings
+    from videomaker.web.app import create_app
+
+    app = create_app(Settings(workspace_dir=tmp_path / "workspace"))
+
+    assert app.state.templates.env.auto_reload is False
+
+
+def test_dev_mode_turns_template_reload_back_on(tmp_path):
+    """`--reload` replaces the process on a source change, so hot templates there
+    cannot drift away from the code they are rendered by."""
+    from videomaker.config import Settings
+    from videomaker.web.app import create_app
+
+    app = create_app(Settings(workspace_dir=tmp_path / "workspace"), dev=True)
+
+    assert app.state.templates.env.auto_reload is True
+
+
+def test_the_reload_entry_point_is_dev(monkeypatch, tmp_path):
+    """`create_app_from_env` exists only for `--reload`, so it is dev by definition."""
+    from videomaker.web.app import create_app_from_env
+
+    monkeypatch.chdir(tmp_path)
+    app = create_app_from_env()
+
+    assert app.state.templates.env.auto_reload is True

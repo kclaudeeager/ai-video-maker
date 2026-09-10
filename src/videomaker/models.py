@@ -191,6 +191,19 @@ class MusicSelection(BaseModel):
     sfx_enabled: bool | None = None
 
 
+class SourceRef(BaseModel):
+    """Which passage a project was materialised from, when it was.
+
+    Recorded so the reader can find the project it already made for a chapter
+    rather than making a second one, and so a finished video can say what it is a
+    video *of*. It is provenance, not configuration: see `Project.source`.
+    """
+
+    work_id: str
+    #: `UnitRef.key()` — `"web/JHN/003"`. The identity of the passage.
+    unit_key: str
+
+
 class Project(BaseModel):
     id: str
     topic: str
@@ -221,6 +234,15 @@ class Project(BaseModel):
     #: Where the drawn thumbnail landed, relative to the project folder. `None`
     #: until the stage has run, which is exactly what `Unit.produced` reads.
     thumbnail_path: str | None = None
+    #: The passage this project was materialised from, for a project started in
+    #: the reader; `None` for one started from a topic. Optional with a falsy
+    #: default, so every `project.json` already on disk loads unchanged.
+    #:
+    #: **It feeds no stage fingerprint**, for the reason `folder`'s docstring
+    #: records: recording where a project came from changes nothing rendered, and
+    #: staling `script:all` would let the next run replace `scenes` wholesale,
+    #: taking every voiced take, chosen shot and approval with it (M3 Task 22).
+    source: SourceRef | None = None
 
     @field_validator("folder")
     @classmethod

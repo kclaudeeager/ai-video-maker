@@ -219,7 +219,7 @@ the library had more than one thing in it.
 
 ### Task 8: Where you stopped
 
-- [ ] **Files:** modify `web/routes/library.py`, `web/templates/library.html`,
+- [x] **Files:** modify `web/routes/library.py`, `web/templates/library.html`,
   `web/templates/index.html`; test `tests/unit/test_reader_prefs.py` (extend)
 
 A reader who closes the tab mid-chapter and comes back should not have to
@@ -256,7 +256,7 @@ with no bookmark offers nothing.
 
 ### Task 9: Watch it, from the page you are on
 
-- [ ] **Files:** new `corpus/materialise.py`; modify `models.py`,
+- [x] **Files:** new `corpus/materialise.py`; modify `models.py`,
   `web/routes/library.py`, `web/templates/_reader_mode.html`; test
   `tests/unit/test_materialise.py`, `tests/integration/test_watch_path.py`
 

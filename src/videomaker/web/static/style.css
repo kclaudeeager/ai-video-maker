@@ -2645,3 +2645,14 @@ video {
   margin: 0;
 }
 
+/* Watch: the one mode that leaves the reader. */
+.watch {
+  margin-bottom: var(--s5);
+}
+
+.watch video {
+  width: 100%;
+  border-radius: var(--r);
+  background: var(--sunk);
+}
+
