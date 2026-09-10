@@ -150,3 +150,17 @@ def test_the_bare_shell_still_renders_without_an_audience(tmp_path):
     env.globals.pop("audience", None)
 
     assert "Longhand" in env.get_template("base.html").render()
+
+
+@pytest.mark.parametrize("audience", list(Audience))
+def test_every_audience_answers_the_health_check(tmp_path, audience):
+    """`render.yaml` health-checks `/healthz` and the Dockerfile's HEALTHCHECK
+    curls it. A reading server that 404s there is killed by the platform while
+    serving pages perfectly well — which is what the built image did before this.
+    """
+    app = create_app(Settings(workspace_dir=tmp_path, audience=audience))
+    with TestClient(app) as client:
+        response = client.get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"

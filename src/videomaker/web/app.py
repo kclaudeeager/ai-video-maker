@@ -126,6 +126,17 @@ def create_app(
     if settings.audience is not Audience.READER:
         app.include_router(media.router)
 
+    # Before the audience branch, because a reading server is the audience most
+    # likely to be deployed on a platform that health-checks it. Registered after
+    # the early return, this route did not exist on a reader server at all:
+    # `render.yaml` sets `healthCheckPath: /healthz` and the Dockerfile's
+    # HEALTHCHECK curls it, so the container answered 404 to both and the platform
+    # would have killed a perfectly healthy deploy. Found by running the built
+    # image, which is the only place that combination is visible.
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        return {"status": "ok", "version": __version__}
+
     # **What a reading server does not have.** `Audience.READER` mounts nothing
     # that can produce: no create form, no gates, no stage runner, no render. A
     # request for `/projects/...` on such a server is a 404 because there is no
@@ -159,10 +170,6 @@ def create_app(
     # `/start` and the three pages behind it. After `projects`, whose `/projects`
     # POST it links to and does not replace.
     app.include_router(start.router)
-
-    @app.get("/healthz")
-    def healthz() -> dict[str, str]:
-        return {"status": "ok", "version": __version__}
 
     # Last, so it wraps every route and both mounted `StaticFiles` apps. Absent
     # when no password is set, which is the local single-user case: `serve`
