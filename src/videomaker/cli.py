@@ -622,6 +622,38 @@ def library_list() -> None:
     console.print(table)
 
 
+@library_app.command("add")
+def library_add(
+    path: str = typer.Argument(..., help="A .txt, .md or .epub file on this machine."),
+    title: str | None = typer.Option(None, "--title", help="What to call it."),
+    work_id: str | None = typer.Option(None, "--id", help="The id it is filed under."),
+) -> None:
+    """Read a document of your own into the library, alongside the imported texts."""
+    from pydantic import ValidationError
+
+    from videomaker.config import load_settings
+    from videomaker.corpus.documents import DocumentSpec, import_document, suggest_id
+    from videomaker.corpus.importer import list_works, work_dir
+
+    settings = load_settings()
+    source = Path(path).expanduser()
+    if not source.is_file():
+        _fail(f"no file at {source}")
+    taken = {work.id for work, _chapters in list_works(settings.workspace_dir)}
+    try:
+        spec = DocumentSpec(
+            work_id=work_id or suggest_id(source.name, taken=taken),
+            title=title or source.stem,
+        )
+        work = import_document(source, spec, settings.workspace_dir)
+    except (ValueError, ValidationError, OSError) as exc:
+        _fail(str(exc))
+    chapters = sum(1 for _ in (work_dir(settings.workspace_dir, work.id) / "units").glob("*/*.json"))
+    console.print(f"[green]added[/green] {work.title} ({work.id}) — {chapters} section(s)")
+    console.print(f"  licence: {work.licence}")
+    console.print(f"  read it: /library/{work.id}")
+
+
 @library_app.command("brief")
 def library_brief(
     work_id: str = typer.Argument(..., help="A work already imported — see `library list`."),

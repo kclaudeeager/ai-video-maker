@@ -167,6 +167,17 @@ def book_name(code: str) -> str:
         raise ValueError(f"unknown book code {code!r}") from None
 
 
+def book_label(code: str) -> str:
+    """`book_name`, but never raising — the code itself when no canon knows it.
+
+    A document imported from your own disk is filed under a code that is
+    deliberately not a book of any Bible (`corpus/documents.DOCUMENT_BOOK`), so
+    every *display* path needs an answer for it while `book_name` keeps its
+    contract of refusing a code it does not recognise.
+    """
+    return _TITLES.get(code, code)
+
+
 def parse_reference(text: str, *, work_id: str) -> UnitRef:
     """`"1 Cor 13"` -> `UnitRef(work_id=..., book="1CO", chapter=13)`.
 
@@ -190,7 +201,7 @@ def parse_reference(text: str, *, work_id: str) -> UnitRef:
 
 def format_reference(ref: UnitRef) -> str:
     """`"John 3:16-18"` — the form a reader would write, and `parse_reference` reads."""
-    title = book_name(ref.book)
+    title = book_label(ref.book)
     if ref.verses is None:
         return f"{title} {ref.chapter}"
     first, last = ref.verses

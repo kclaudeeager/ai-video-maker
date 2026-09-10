@@ -141,7 +141,7 @@ rewritten.
 
 ### Task 5: A document is a work
 
-- [ ] **Files:** new `corpus/documents.py`; modify `cli.py`; test
+- [x] **Files:** new `corpus/documents.py`; modify `cli.py`; test
   `tests/unit/test_documents.py`
 
 **Interfaces (normative):**
