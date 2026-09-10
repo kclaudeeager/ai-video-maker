@@ -40,6 +40,9 @@ PROMPT_VERSION = 1
 #: instead of it.
 MAX_SUMMARY_WORDS = 120
 
+#: The same limit in characters, for the JSON schema, which cannot say "words".
+SUMMARY_CHAR_HINT = 800
+
 TEMPERATURE = 0.3  # a retelling, not a composition
 MAX_TOKENS = 1024
 
@@ -91,7 +94,13 @@ def brief_schema() -> dict[str, Any]:
         "additionalProperties": False,
         "required": ["summary", "people", "places", "turn"],
         "properties": {
-            "summary": {"type": "string"},
+            # Stated here as well as in the validator: a model told the limit
+            # can respect it, and one that is not has to be corrected by a repair
+            # retry that costs a call. Characters rather than words because JSON
+            # Schema has no word count — 800 is 120 words at the ~6.5 characters
+            # English averages, so it is a hint rather than the rule. The rule is
+            # `Brief._short_enough_to_be_a_brief`, which counts words.
+            "summary": {"type": "string", "maxLength": SUMMARY_CHAR_HINT},
             "people": {"type": "array", "items": {"type": "string"}},
             "places": {"type": "array", "items": {"type": "string"}},
             "turn": {"type": "string"},

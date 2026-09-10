@@ -26,6 +26,7 @@ from videomaker.corpus.digest import (
     Brief,
     brief_key,
     brief_path,
+    brief_schema,
     build_brief,
     build_prompt,
     parse_brief,
@@ -298,3 +299,33 @@ def test_the_command_paces_against_the_shared_quota_ledger(library, monkeypatch)
     assert result.exit_code == 0, result.output
     assert slept == [4.0, 4.0]
     assert "pacing" in result.output
+
+
+def test_the_mock_can_satisfy_the_schema_it_is_handed(deps):
+    """A mock that cannot is a second bug, not a fixture.
+
+    `_mock_string` echoed the prompt, and the reader's prompt carries a whole
+    chapter — so the summary came back past its 120-word limit, failed validation
+    twice and exhausted the chain. Every brief failed offline on any real text.
+    """
+    long_unit = UnitText(
+        ref=UnitRef(work_id="w", book="JHN", chapter=1),
+        title="John 1",
+        verses=[Verse(number=n, text=" ".join(["word"] * 120)) for n in range(1, 9)],
+    )
+
+    brief = build_brief(long_unit, deps)
+
+    assert len(brief.summary.split()) <= MAX_SUMMARY_WORDS
+    assert brief.summary
+
+
+def test_the_schema_states_the_limit_it_can_state():
+    """JSON Schema cannot say "words", so it says characters — a hint for the
+    model. The rule stays the validator's, which counts words."""
+    from videomaker.corpus.digest import SUMMARY_CHAR_HINT
+
+    summary = brief_schema()["properties"]["summary"]
+
+    assert summary["maxLength"] == SUMMARY_CHAR_HINT
+    assert SUMMARY_CHAR_HINT > MAX_SUMMARY_WORDS, "characters, not words"

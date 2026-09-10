@@ -113,7 +113,24 @@ def _run(args: list[str]) -> str:
 # --------------------------------------------------------------------------- LLM
 
 
+#: How much of the prompt a mock string echoes back.
+#:
+#: It used to echo all of it, and that is fine for `new "how ssds work"` and
+#: wrong for the reader, whose prompt carries a whole chapter: the brief's
+#: summary came back longer than its 120-word limit, failed validation twice, and
+#: exhausted the provider chain — so **every brief failed offline** on any real
+#: text. A mock that cannot satisfy the schema it was handed is a second bug, not
+#: a fixture.
+_TOPIC_WORDS = 8
+
+
+def _shorten(topic: str) -> str:
+    words = topic.split()
+    return " ".join(words[:_TOPIC_WORDS]) + ("…" if len(words) > _TOPIC_WORDS else "")
+
+
 def _mock_string(field: str, topic: str) -> str:
+    topic = _shorten(topic)
     if field in _NARRATION_FIELDS:
         return (
             f"Mock narration about {topic}, written with enough real words "
@@ -150,7 +167,15 @@ def _instance_from_schema(schema: dict, topic: str, field: str = "") -> object:
         return True
     if kind == "null":
         return None
-    return _mock_string(field, topic)
+    text = _mock_string(field, topic)
+    limit = schema.get("maxLength")
+    if isinstance(limit, int) and len(text) > limit:
+        # A mock that cannot satisfy the schema it was handed is not a mock, it
+        # is a second bug. `_mock_string` echoes the prompt, and a prompt that
+        # carries a whole chapter of text overran the brief's summary limit —
+        # every brief failed validation twice and exhausted the chain, offline.
+        text = text[: max(limit - 1, 0)].rstrip()
+    return text
 
 
 @register("llm", PROVIDER_NAME)
