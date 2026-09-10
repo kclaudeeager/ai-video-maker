@@ -418,6 +418,56 @@ def music_scan() -> None:
     console.print(f"index: {index_path}")
 
 
+@music_app.command("fetch")
+def music_fetch(
+    query: str = typer.Argument(..., help="What to search for, e.g. 'calm piano'."),
+    mood: str = typer.Option("calm", "--mood", help="Which assets/music/<mood>/ to file it under."),
+    limit: int = typer.Option(5, "--limit", help="How many candidates to show."),
+    take: int = typer.Option(0, "--take", help="Download the first N without asking."),
+) -> None:
+    """Find licence-clear music and download it into your own library.
+
+    Only CC0, Public Domain Mark, CC BY and CC BY-SA are accepted: NonCommercial
+    forbids the monetised use this tool is for, and NoDerivatives does not cover a
+    bed mixed under narration. The credit line is written into library.yaml at
+    download time, which is the only time anybody actually knows it.
+    """
+    from videomaker.config import load_settings
+    from videomaker.musicfetch import Refused, fetch, search
+
+    settings = load_settings()
+    try:
+        found = search(query, settings=settings, limit=max(limit, 1))
+    except Exception as exc:  # noqa: BLE001 - any transport failure is the same to a user
+        _fail(f"could not reach the music catalogue: {exc}")
+    if not found:
+        console.print(f"nothing licence-clear for [bold]{query}[/bold].")
+        console.print("  Only CC0, PDM, CC BY and CC BY-SA are accepted — try another wording.")
+        return
+
+    table = Table(title=f"licence-clear music for '{query}'")
+    for column in ("#", "title", "artist", "licence", "length"):
+        table.add_column(column)
+    for index, candidate in enumerate(found, start=1):
+        length = f"{candidate.duration_s:.0f}s" if candidate.duration_ms else "-"
+        table.add_row(str(index), candidate.title, candidate.artist, candidate.licence, length)
+    console.print(table)
+
+    wanted = found[:take] if take > 0 else []
+    if not wanted:
+        console.print("[dim]nothing downloaded — pass --take N to fetch the first N.[/dim]")
+        return
+    for candidate in wanted:
+        try:
+            path = fetch(candidate, mood=mood, settings=settings)
+        except (Refused, OSError) as exc:
+            console.print(f"  [yellow]skipped[/yellow] {candidate.title}: {exc}")
+            continue
+        console.print(f"  [green]fetched[/green] {path}")
+        console.print(f"    {candidate.attribution}")
+    console.print("recorded in assets/music/library.yaml — `videomaker music list` to check.")
+
+
 @music_app.command("list")
 def music_list() -> None:
     """Print the music and SFX library. Reads the index when it is fresh, disk always."""

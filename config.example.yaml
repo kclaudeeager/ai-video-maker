@@ -73,3 +73,33 @@ render:
 #     max_concurrency: 1
 #     retry_attempts: 4
 #     retry_base_delay_s: 1.0
+
+# Where `videomaker music fetch` looks for licence-clear music. Commented out
+# because the built-in default (Openverse — aggregates Freesound, Jamendo,
+# ccMixter and Wikimedia, no API key) is what a fresh clone should use. Configure
+# this only to add or replace a catalogue.
+#
+# **The project ships no audio and this does not change that**: fetched tracks
+# land in your own assets/music/<mood>/, which .gitignore excludes. Only CC0,
+# Public Domain Mark, CC BY and CC BY-SA are accepted — NonCommercial forbids the
+# monetised use this tool is for, and NoDerivatives does not cover a bed mixed
+# under narration. See docs/audio-design.md.
+#
+# music_sources:
+#   - name: openverse
+#     endpoint: https://api.openverse.org/v1/audio/
+#     query_param: q
+#     params: {license: "cc0,pdm,by,by-sa"}
+#     page_size_param: page_size
+#     results_path: results
+#     title_path: title
+#     artist_path: creator
+#     licence_path: license
+#     licence_url_path: license_url
+#     attribution_path: attribution
+#     source_url_path: foreign_landing_url
+#     download_path: url
+#     filetype_path: filetype
+#     duration_path: duration
+#     timeout_s: 30
+

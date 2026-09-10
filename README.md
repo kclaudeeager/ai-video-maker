@@ -51,9 +51,17 @@ effects into `assets/sfx/<role>/`, and record each one's licence in
 `assets/music/library.yaml` so video descriptions can credit them.
 
 ```bash
+uv run videomaker music fetch "calm piano" --mood calm --take 2   # licence-clear only
 uv run videomaker music scan   # ffprobe the library, cache the durations
 uv run videomaker music list   # print it, flagging anything uncredited
 ```
+
+`music fetch` searches a licence-clear catalogue and writes the credit line into
+`library.yaml` as it downloads. It accepts **only** CC0, Public Domain Mark, CC BY
+and CC BY-SA: NonCommercial forbids the monetised use this tool is for, and
+NoDerivatives does not cover a bed mixed under narration. Fetched tracks land in
+your own `assets/music/`, which `.gitignore` excludes — the project still ships no
+audio.
 
 An empty library is **not an error** — the pipeline renders narration only. See
 `assets/music/README.md` for where to get licence-clear audio (and for why you must

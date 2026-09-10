@@ -23,6 +23,36 @@ actually making videos for.
 | **Free Music Archive** | per-file; check each | manual download |
 | **Incompetech** (Kevin MacLeod) | CC-BY, attribution required | manual download |
 
+### Fetching, which does not change the principle
+
+`videomaker music fetch <query> --mood calm --take 2` searches a licence-clear
+catalogue and downloads into `assets/music/<mood>/`. **The project still ships no
+audio.** `.gitignore` excludes `assets/music/**`, so a fetched track cannot be
+committed even by accident — the rule holds by construction rather than by care,
+which is the only way a rule like this survives contact with a hurry.
+
+What the command adds is the tedious half: writing the credit line down *at
+download time*, into `library.yaml`, which is the one moment anybody actually
+knows it.
+
+**The gate is stricter than "free", and deliberately so.** Only CC0, Public
+Domain Mark, CC BY and CC BY-SA are accepted:
+
+* **NonCommercial is refused.** The videos this tool makes are meant to be
+  monetised, and NC is precisely the term that forbids that.
+* **NoDerivatives is refused.** A bed mixed under narration and ducked against it
+  is an adaptation, whatever it is called in conversation.
+
+There is no `--force`, for the same reason the text importer has none. A track
+whose licence cannot be stated is a Content ID claim waiting to happen, and that
+claim is the outcome this whole section exists to avoid.
+
+Sources live in `config.yaml` under `music_sources:`, the same shape as
+`voice_providers:` and for the same reason — a second catalogue should be a YAML
+entry, not a patch. The default is **Openverse**, which aggregates Freesound,
+Jamendo, ccMixter and Wikimedia, states a licence per item, needs no API key, and
+returns a ready-made attribution string.
+
 **Explicitly rejected: extracting audio from arbitrary YouTube videos**
 (`yt-dlp` against a watch URL). It violates YouTube's Terms of Service and the
 underlying music is virtually always copyrighted. It would generate exactly the

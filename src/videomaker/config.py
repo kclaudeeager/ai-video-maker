@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     #: but a mode and a language; see `web/routes/library.py`.
     reader_cookie_secret: str = ""
 
+    #: `music_sources:` from `config.yaml`, as written — the catalogues
+    #: `videomaker music fetch` asks. Raw for the same reason `voice_providers`
+    #: is: this module cannot import the one that validates them. Empty means the
+    #: single blessed default (`musicfetch.OPENVERSE`), so a fresh clone can fetch
+    #: without configuring anything.
+    music_sources: list[dict[str, Any]] = Field(default_factory=list)
+
     #: `voice_providers:` from `config.yaml`, as written. Kept raw here because this
     #: module cannot import `providers.tts.http_api` (it imports us); the entries
     #: are validated into `HTTPTTSConfig` where they are used. Any name listed
@@ -126,6 +133,9 @@ def load_settings(config_file: Path | None = None) -> Settings:
         }
         if chains:
             overrides["provider_chains"] = Settings().provider_chains | chains
+        sources = raw.get("music_sources")
+        if isinstance(sources, list):
+            overrides["music_sources"] = [row for row in sources if isinstance(row, dict)]
         voices = raw.get("voice_providers")
         if isinstance(voices, list):
             overrides["voice_providers"] = [entry for entry in voices if isinstance(entry, dict)]

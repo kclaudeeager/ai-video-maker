@@ -89,3 +89,40 @@ def caption_face():
         return ImageFont.truetype(bold.path, ppem)
 
     return face
+
+
+# ------------------------------------------- reading a commented-out YAML block
+
+
+@pytest.fixture(scope="session")
+def commented_example():
+    """Parse one commented-out block of `config.example.yaml`, by its key.
+
+    Both the voice-provider and the music-source examples are shipped commented
+    out and both are pinned by a test that uncomments them. Slicing to the end of
+    the file was fine while there was one such block; the second one turned the
+    first test's slice into the second one's *prose*, which is not YAML. So a
+    block is its key line plus the indented comment lines under it — the YAML —
+    and the unindented prose between blocks is skipped.
+    """
+    import re
+    from pathlib import Path
+
+    import yaml
+
+    repo = Path(__file__).resolve().parents[1]
+
+    def read(key: str) -> dict:
+        lines = (repo / "config.example.yaml").read_text().splitlines()
+        start = next(i for i, line in enumerate(lines) if line.startswith(f"# {key}:"))
+        block = [lines[start]]
+        for line in lines[start + 1 :]:
+            if re.match(r"^#\s{2,}\S", line):
+                block.append(line)
+            elif line.strip() in {"", "#"}:
+                continue
+            else:
+                break
+        return yaml.safe_load(re.sub(r"^# ?", "", "\n".join(block), flags=re.MULTILINE))
+
+    return read

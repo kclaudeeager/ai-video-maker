@@ -6,10 +6,7 @@ commented example, once uncommented, must be a valid `HTTPTTSConfig` — a worke
 example that does not validate is worse than none, because someone will copy it.
 """
 
-import re
 from pathlib import Path
-
-import yaml
 
 from videomaker.config import load_settings
 from videomaker.providers.tts.http_api import HTTPTTSConfig
@@ -18,26 +15,14 @@ REPO = Path(__file__).resolve().parents[2]
 EXAMPLE = REPO / "config.example.yaml"
 ENV_EXAMPLE = REPO / ".env.example"
 
-#: The commented block starts at `# voice_providers:` and runs to the end of the
-#: file; a hash and one space are stripped from each line to uncomment it.
-_COMMENTED = re.compile(r"^# ?", re.MULTILINE)
-
-
-def uncommented_example() -> str:
-    text = EXAMPLE.read_text()
-    start = text.index("# voice_providers:")
-    return _COMMENTED.sub("", text[start:])
-
-
 def test_the_example_loads_with_no_voice_provider_configured():
     settings = load_settings(EXAMPLE)
     assert settings.voice_providers == []
     assert settings.provider_chains["tts"] == ["kokoro"]
 
 
-def test_the_commented_example_validates_as_a_voice_provider():
-    raw = yaml.safe_load(uncommented_example())
-    (entry,) = raw["voice_providers"]
+def test_the_commented_example_validates_as_a_voice_provider(commented_example):
+    (entry,) = commented_example("voice_providers")["voice_providers"]
     cfg = HTTPTTSConfig.model_validate(entry)
     assert cfg.name == "vendor"
     assert cfg.api_key_env == "VOICE_API_KEY"
@@ -46,11 +31,10 @@ def test_the_commented_example_validates_as_a_voice_provider():
     assert cfg.max_concurrency == 1
 
 
-def test_the_example_names_every_field_of_the_model():
+def test_the_example_names_every_field_of_the_model(commented_example):
     # The example is the tour of the model; a field added to one and not the
     # other is how documentation rots.
-    raw = yaml.safe_load(uncommented_example())
-    (entry,) = raw["voice_providers"]
+    (entry,) = commented_example("voice_providers")["voice_providers"]
     assert set(entry) == set(HTTPTTSConfig.model_fields)
 
 
