@@ -52,7 +52,7 @@ it is why it is in this plan rather than the next one.
 
 ### Task 1: `WorkspaceItem` — one list over two stores
 
-- [ ] **Files:** new `src/videomaker/web/workspace.py`; test
+- [x] **Files:** new `src/videomaker/web/workspace.py`; test
   `tests/unit/test_workspace.py`
 
 **Interfaces (normative):**
