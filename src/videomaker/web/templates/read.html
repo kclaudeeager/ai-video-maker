@@ -5,6 +5,11 @@
   The whole page is one column at `--measure`, and the previous/next controls sit
   at the foot of that column rather than in a sidebar: this is a page for reading,
   and everything that is not the passage is chrome.
+
+  `reader.js` is loaded here rather than in `base.html`: it is the only page with
+  an `<audio>` element on it, and every other page would be paying for a file it
+  never uses. It re-attaches itself after each htmx swap, so switching mode does
+  not need a second copy of anything.
 #}
 {% extends "base.html" %}
 
@@ -12,6 +17,13 @@
 {% block title %}{{ unit.title }}{% endblock %}
 {% block eyebrow %}<a href="/library/{{ work.id }}">{{ work.title }}</a>{% endblock %}
 {% block heading %}{{ unit.title }}{% endblock %}
+
+{% block scripts %}
+  {# Only the reading page needs it, so only the reading page loads it. Served
+     from our own /static like the vendored htmx: no CDN, and the tool works
+     with no network at all. #}
+  <script src="/static/reader.js" defer></script>
+{% endblock %}
 
 {% block content %}
   <article class="reading-column">

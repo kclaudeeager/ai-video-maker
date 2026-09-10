@@ -670,7 +670,7 @@ asserting ≥4.5:1 for text and ≥3:1 for the verse numbers.
 
 ### Task 12: The player, with the current verse lit
 
-- [ ] **Files:** new `web/static/reader.js`; modify `web/templates/read.html`;
+- [x] **Files:** new `web/static/reader.js`; modify `web/templates/read.html`;
   test `tests/unit/test_web_templates.py` (extend)
 
 A native `<audio controls>` plus the generated `.vtt` as a `<track kind="metadata">`.
