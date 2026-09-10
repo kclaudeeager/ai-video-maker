@@ -1,5 +1,11 @@
 {#
-  Way in two: a text somebody published. Context: `rows` ({spec, imported}), `error`.
+  Way in two: a text somebody published.
+  Context: `rows` ({spec, imported, job, running, failed}), `error`, `polling`.
+
+  An import is a download and a parse of up to 66 books, so it runs on the job
+  queue and this page reports it. The `hx-trigger` is emitted **only** while
+  something is in flight, so a finished shelf stops asking — the same rule
+  `_job.html` follows, and for the same reason.
 
   **The licence is the row, not a footnote on it.** Nothing reaches this list
   without one that can be stated in a sentence — that is what `ImportSpec`
@@ -12,6 +18,8 @@
 {% block heading %}Start from a work{% endblock %}
 
 {% block content %}
+  <div id="shelf"
+       {% if polling %}hx-get="/start/read" hx-trigger="every 2s" hx-select="#shelf" hx-swap="outerHTML"{% endif %}>
   <p class="prose">Longhand ships no texts. These are the ones whose licence can
     be stated in one sentence; anything else has to be imported by hand, and the
     importer refuses what it cannot describe.</p>
@@ -27,8 +35,18 @@
         <span class="open-kind">{{ row.spec.language }}</span>
         <span class="shelf-licence">{{ row.spec.licence }}</span>
         <span class="shelf-action">
-          {% if row.imported %}
+          {% if row.running %}
+            <span class="hint" aria-live="polite">
+              {{ row.job.message or "bringing it in" }}…
+            </span>
+          {% elif row.imported %}
             <a href="/library/{{ row.spec.work_id }}">Open it</a>
+          {% elif row.failed %}
+            <span class="hint" role="alert">could not bring it in</span>
+            <form method="post" action="/start/read">
+              <input type="hidden" name="work_id" value="{{ row.spec.work_id }}">
+              <button class="button" type="submit">Try again</button>
+            </form>
           {% elif row.spec.archive %}
             <form method="post" action="/start/read">
               <input type="hidden" name="work_id" value="{{ row.spec.work_id }}">
@@ -41,4 +59,11 @@
       </li>
     {% endfor %}
   </ul>
+
+  {% if rows | selectattr("failed") | first %}
+    <p class="notice notice-bad">
+      {{ (rows | selectattr("failed") | first).job.error }}
+    </p>
+  {% endif %}
+  </div>
 {% endblock %}

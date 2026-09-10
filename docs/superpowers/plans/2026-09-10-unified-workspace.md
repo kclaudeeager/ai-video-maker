@@ -209,3 +209,90 @@ uv run videomaker serve            # then open /
 
 In the browser: the root offers three ways in; `/start/document` takes a file and
 lands on a work; that work reads as source, brief and narration like any other.
+
+---
+
+# Phase B — Picking it back up, and watching it
+
+Added after the first pass, from use. Two things a reader asked for the moment
+the library had more than one thing in it.
+
+### Task 8: Where you stopped
+
+- [ ] **Files:** modify `web/routes/library.py`, `web/templates/library.html`,
+  `web/templates/index.html`; test `tests/unit/test_reader_prefs.py` (extend)
+
+A reader who closes the tab mid-chapter and comes back should not have to
+remember where they were. The position goes in the **same signed cookie** the
+mode preference already uses — per person, not per machine — and is kept per
+work, so reading two books at once does not make them fight.
+
+**Interfaces (normative):**
+
+```python
+class Bookmark(BaseModel):
+    work_id: str
+    unit_key: str            # UnitRef.key()
+    title: str               # what to call it on the shelf
+    verse: int = 0           # 0 = the top of the unit
+
+MAX_BOOKMARKS = 8            # newest first; the cookie stays small
+def bookmarks(request) -> list[Bookmark]: ...
+def remember_place(response, settings, *, bookmarks: list[Bookmark]) -> None: ...
+```
+
+- Opening a unit records it. A tampered or unreadable cookie yields `[]`, exactly
+  as a tampered mode yields the default — a lost place is not worth an error.
+- The library shelf and the workspace root each offer **Pick it up** on a work
+  that has one, linking straight back to the unit.
+- The verse is recorded from the player when the reader is listening, so
+  resuming a narration resumes it where it stopped rather than at verse one.
+
+**Tests:** a bookmark round-trips; a second work gets its own; the ninth pushes
+the oldest out; a tampered cookie loses the place rather than raising; a work
+with no bookmark offers nothing.
+
+---
+
+### Task 9: Watch it, from the page you are on
+
+- [ ] **Files:** new `corpus/materialise.py`; modify `models.py`,
+  `web/routes/library.py`, `web/templates/_reader_mode.html`; test
+  `tests/unit/test_materialise.py`, `tests/integration/test_watch_path.py`
+
+This is `docs/superpowers/plans/2026-09-09-m7-library-and-reader.md` Tasks 8 and
+16, brought forward because the reader is now the front door.
+
+**Interfaces (normative), from M7 Task 8 unchanged:**
+
+```python
+class SourceRef(BaseModel):
+    work_id: str
+    unit_key: str
+
+# models.py
+class Project(BaseModel):
+    source: SourceRef | None = None       # optional, falsy default
+
+def materialise(ref: UnitRef, *, unit: UnitText, store: ProjectStore,
+                template: str = DEFAULT_TEMPLATE) -> Project: ...
+```
+
+- `topic` is the formatted reference, `folder` is `"<work-id>/<book>"`, and
+  **re-materialising the same unit returns the existing project** — the unit key
+  is the identity, so pressing Watch twice does not make two projects.
+- `Project.source` **feeds no stage fingerprint**, for the reason `folder`'s
+  docstring already records: staling `script:all` would let the next run replace
+  `scenes` wholesale, taking every voiced take and approval with it. A test pins
+  that the fingerprint does not move.
+- A fourth `ReadMode`, `WATCH`. It does **not** render anything: it materialises
+  the project and hands the reader to gate 1, because a reader asking to watch a
+  passage is a creator starting a project and the curation argument applies to
+  them too. **The three gates are not bypassed and no fourth is added.**
+- Where that project has already rendered, the mode plays the file instead.
+
+**Tests:** materialising twice returns one project; `Template.script_fingerprint`
+and every `status:` hash are unmoved by a `source`; a `project.json` written
+before this field loads unchanged; the mode hands off to gate 1 rather than
+starting a render; a rendered project plays instead.
+

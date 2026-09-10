@@ -224,7 +224,7 @@ def test_an_empty_library_is_ok_and_says_how_to_fill_it(tmp_path):
 def test_an_imported_work_is_listed_with_its_chapter_count(library, monkeypatch):
     _voiced(monkeypatch, {"en"})
     results = run_checks(Settings(workspace_dir=library), GOOD_CAPS)
-    assert _by_name(results, "library").detail == "fixture (5 chapters)"
+    assert _by_name(results, "library").detail == "fixture (6 chapters)"
 
 
 def test_a_work_whose_language_has_a_voice_lists_all_three_modes(library, monkeypatch):

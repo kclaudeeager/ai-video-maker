@@ -1,0 +1,10 @@
+\id MRK Longhand test fixture, invented text
+\h Mark
+\toc1 The Fixture of Mark
+\mt1 Mark
+\c 1
+\s1 A Heading
+\r (\ref Matthew 4:1-17|MAT 4:1-17\ref*; \ref Luke 4:1-15|LUK 4:1-15\ref*)
+\p
+\v 1 The narrator speaks a first sentence of invented prose.\f + \fr 1:1 \ft FIXTURE-FOOTNOTE\f*\wj \v 2 "These are quoted words that begin inside a span,"\wj* the narrator said, \wj "and end inside another."\wj*
+\v 3 A third sentence closes the chapter.

@@ -20,7 +20,7 @@ from videomaker.cli import app
 from videomaker.corpus import importer
 from videomaker.corpus.importer import ImportSpec, import_work, list_works, read_work, work_dir
 from videomaker.corpus.models import UnitText, WorkRef
-from videomaker.corpus.usfm import iter_chapters, parse_usfm
+from videomaker.corpus.usfm import iter_chapters, normalise_markup, parse_usfm
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "usfm"
 
@@ -67,6 +67,7 @@ def test_the_fixture_imports_to_the_documented_tree(tmp_path):
         "units/JHN/001.json",
         "units/JHN/002.json",
         "units/JHN/003.json",
+        "units/MRK/001.json",
     ]
     assert (root / "source" / "44-JHN.usfm").read_text() == (
         FIXTURE_DIR / "44-JHN.usfm"
@@ -89,7 +90,7 @@ def test_a_unit_file_is_a_unit_text_addressed_by_its_own_key(tmp_path):
 def test_list_works_reports_the_chapter_count(tmp_path):
     assert list_works(tmp_path) == []
     work = import_work(spec(), tmp_path)
-    assert list_works(tmp_path) == [(work, 5)]
+    assert list_works(tmp_path) == [(work, 6)]
 
 
 # ------------------------------------------------------------- the licence gate
@@ -235,3 +236,44 @@ def test_library_import_of_an_unknown_work_fails_naming_the_catalogue(cwd):
 def test_the_cli_has_no_force_flag():
     result = runner.invoke(app, ["library", "import", "--help"])
     assert "--force" not in result.output
+
+
+# --------------------------------------------- markup the grammar cannot read
+#
+# Both of these come from the Berean Standard Bible, where they are not rare:
+# measured 2026-09-10, 53 of its 66 books raise `IndexError` out of
+# `usfm_grammar` on the first and the remaining six on the second, so without
+# `normalise_markup` the importer produces an empty library from a real Bible.
+
+
+def test_a_words_of_jesus_span_straddling_a_verse_keeps_every_word():
+    """`\\wj` opens before `\\v 2` and closes after it — malformed USFM, and what
+    defeats the grammar's error recovery. The tags carry formatting this importer
+    does not keep; the words inside them are ordinary verse text."""
+    chapters = list(iter_chapters((FIXTURE_DIR / "41-MRK.usfm").read_text()))
+
+    (chapter,) = chapters
+    assert [verse.number for verse in chapter.verses] == [1, 2, 3]
+    assert "These are quoted words that begin inside a span," in chapter.verses[1].text
+    assert "and end inside another." in chapter.verses[1].text
+    assert "\\wj" not in chapter.plain
+
+
+def test_an_inline_ref_keeps_its_display_text_and_loses_its_target():
+    text = normalise_markup(r"see \ref Luke 24:36-49|LUK 24:36-49\ref* now")
+
+    assert text == "see Luke 24:36-49 now"
+    assert "|" not in text
+
+
+def test_the_normalisation_leaves_ordinary_usfm_alone():
+    original = "\\c 1\n\\p\n\\v 1 Plain words with \\nd Lord\\nd* in them.\n"
+    assert normalise_markup(original) == original
+
+
+def test_the_cross_reference_line_still_reaches_no_verse():
+    chapters = list(iter_chapters((FIXTURE_DIR / "41-MRK.usfm").read_text()))
+
+    spoken = " ".join(verse.text for chapter in chapters for verse in chapter.verses)
+    assert "Matthew 4:1-17" not in spoken, "an \\r line is apparatus, not the text"
+    assert "FIXTURE-FOOTNOTE" not in spoken

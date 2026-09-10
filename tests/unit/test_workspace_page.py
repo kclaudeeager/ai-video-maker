@@ -69,7 +69,7 @@ def test_a_work_reports_its_size_rather_than_a_status(client, settings):
     a_work(settings)
     body = client.get("/").text
 
-    assert "5 chapters" in body
+    assert "6 chapters" in body
     assert "data-status" not in body, "a reading has no status to derive"
 
 

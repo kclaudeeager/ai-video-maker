@@ -243,8 +243,8 @@ def test_re_running_skips_what_is_cached_and_continues(library):
     runner.invoke(app, ["library", "brief", "fixture", "--book", "JHN", "--providers", "mock"])
     result = runner.invoke(app, ["library", "brief", "fixture", "--providers", "mock"])
     assert result.exit_code == 0, result.output
-    assert "2 written, 3 already cached" in result.output
-    assert len(brief_files(library)) == 5
+    assert "3 written, 3 already cached" in result.output
+    assert len(brief_files(library)) == 6
 
 
 def test_the_bulk_command_keeps_the_real_library_under_providers_mock(library):
@@ -276,14 +276,14 @@ def test_a_spent_daily_cap_stops_cleanly_with_the_count_and_the_reset(library, m
     result = runner.invoke(app, ["library", "brief", "fixture", "--providers", "mock"])
     assert result.exit_code == 0, result.output
     assert "stopped" in result.output
-    assert "3/5" in result.output
+    assert "3/6" in result.output
     assert "2 written" in result.output
     assert "resets in" in result.output
     assert len(brief_files(library)) == 2
 
     monkeypatch.setattr(digest_module, "build_brief", real)
     again = runner.invoke(app, ["library", "brief", "fixture", "--providers", "mock"])
-    assert "3 written, 2 already cached" in again.output
+    assert "4 written, 2 already cached" in again.output
 
 
 def test_the_command_paces_against_the_shared_quota_ledger(library, monkeypatch):

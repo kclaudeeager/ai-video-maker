@@ -20,6 +20,7 @@ from videomaker.corpus.importer import import_work, list_works
 from videomaker.runner import PROVIDER_KINDS
 from videomaker.web.app import create_app
 from videomaker.web.routes.start import MAX_UPLOAD_BYTES
+from videomaker.web.worker import JobState
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "usfm"
 
@@ -141,7 +142,12 @@ def test_the_bundled_fixture_says_it_has_no_download(client):
     assert "library import fixture" in response.text
 
 
-def test_importing_a_real_row_goes_on_the_queue_and_redirects(client, app, monkeypatch):
+def test_importing_a_real_row_goes_on_the_queue_and_lands_back_on_the_shelf(
+    client, app, monkeypatch
+):
+    """Not on to `/library/<id>`: the import is a download and a parse of 66 books
+    on the queue, so for the next half-minute there is no work there to land on,
+    and redirecting to it answered a button press with a 404."""
     submitted = {}
 
     def fake_submit(key, kind, fn):
@@ -151,8 +157,38 @@ def test_importing_a_real_row_goes_on_the_queue_and_redirects(client, app, monke
     response = client.post("/start/read", data={"work_id": "web"}, follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/library/web"
+    assert response.headers["location"] == "/start/read"
     assert submitted == {"key": "import:web", "kind": "import"}
+
+
+def test_the_shelf_reports_an_import_in_flight_and_stops_asking_when_it_ends(client, app):
+    from videomaker.web.routes.start import import_job_key
+
+    app.state.jobs._states[import_job_key("web")] = JobState(
+        project_id=import_job_key("web"), kind="import", state="running",
+        message="fetching World English Bible",
+    )
+    running = client.get("/start/read").text
+    assert "fetching World English Bible" in running
+    assert 'hx-trigger="every 2s"' in running, "it asks again while something runs"
+
+    app.state.jobs._states[import_job_key("web")].state = "done"
+    finished = client.get("/start/read").text
+    assert "hx-trigger" not in finished, "and stops asking the moment nothing does"
+
+
+def test_a_failed_import_says_so_and_offers_another_go(client, app):
+    from videomaker.web.routes.start import import_job_key
+
+    app.state.jobs._states[import_job_key("web")] = JobState(
+        project_id=import_job_key("web"), kind="import", state="failed",
+        error="the archive could not be read",
+    )
+    body = client.get("/start/read").text
+
+    assert "could not bring it in" in body
+    assert "the archive could not be read" in body
+    assert "Try again" in body
 
 
 # --------------------------------------------------------------- from your own file

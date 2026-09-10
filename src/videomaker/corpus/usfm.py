@@ -24,6 +24,7 @@ whole of Psalms to protect it from nothing. A file with no chapter (front matter
 a glossary) yields no units and is skipped by having nothing to write.
 """
 
+import re
 from collections.abc import Iterator
 from typing import Any
 
@@ -40,10 +41,40 @@ from videomaker.corpus.refs import book_name
 UNKNOWN_WORK = ""
 
 
+#: Two constructs the grammar cannot read, rewritten before it is asked to.
+#:
+#: **Measured on the Berean Standard Bible (2026-09-10): 53 of its 66 books raise
+#: `IndexError` out of `usfm_grammar.usj_generator.node_2_usj_generic`, with or
+#: without `ignore_errors`.** A strict *or* tolerant parse therefore loses four
+#: fifths of that Bible, which is why this is a normalisation and not a `try`.
+#:
+#: `\ref display|TARGET\ref*` is USFM 3.0's inline scripture link. Keeping the
+#: display half and dropping the target is what this module does to every other
+#: link-shaped thing — the words survive, the apparatus does not — and deleting
+#: the span outright would be worse, because `\ref` is a character marker and in
+#: another translation may wrap words that are the text.
+#:
+#: `\wj ... \wj*` marks the words of Jesus, and in the BSB a span routinely
+#: *straddles a verse boundary*: `…\f*\wj \v 15 "The time is fulfilled,"\wj*`.
+#: That is malformed USFM — a character span may not contain a verse marker — and
+#: it is what defeats the grammar's error recovery. The tags carry no information
+#: this importer keeps: `\wj` is a *formatting* instruction (set them in red),
+#: its content is ordinary verse text, and nothing downstream renders colour. So
+#: the tags go and every word stays. The four Gospels, Acts and Revelation parse
+#: only because of this line; with it, all 66 books do.
+_INLINE_REF = re.compile(r"\\ref\s+([^|\\]*)\|[^\\]*\\ref\*")
+_WORDS_OF_JESUS = re.compile(r"\\wj\*?\s?")
+
+
+def normalise_markup(text: str) -> str:
+    """What has to be rewritten before the grammar will read the file at all."""
+    return _WORDS_OF_JESUS.sub(" ", _INLINE_REF.sub(r"\1", text))
+
+
 def _usj_content(text: str) -> list[Any]:
     from usfm_grammar import Filter, USFMParser
 
-    parser = USFMParser(text)
+    parser = USFMParser(normalise_markup(text))
     usj = parser.to_usj(include_markers=Filter.BCV + Filter.TEXT, ignore_errors=True)
     return usj["content"]
 

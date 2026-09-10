@@ -67,18 +67,48 @@ def start_video(request: Request):
 # -------------------------------------------------------------------- from a work
 
 
-def _catalogue_rows(settings: Settings) -> list[dict[str, object]]:
-    """Every blessed text, and whether it is already here.
+def import_job_key(work_id: str) -> str:
+    """One import per work, and a key that cannot collide with a project id."""
+    return f"import:{work_id}"
+
+
+def _catalogue_rows(request: Request, settings: Settings) -> list[dict[str, object]]:
+    """Every blessed text: whether it is here, and whether it is on its way.
 
     The fixture row is deliberately included: it is what the acceptance script
     imports, and hiding it would mean the page and the CLI disagree about what
     the catalogue holds.
     """
     imported = {work.id for work, _chapters in list_works(settings.workspace_dir)}
-    return [
-        {"spec": spec, "imported": work_id in imported}
-        for work_id, spec in sorted(CATALOGUE.items())
-    ]
+    jobs: JobQueue = request.app.state.jobs
+    rows = []
+    for work_id, spec in sorted(CATALOGUE.items()):
+        job = jobs.state_for(import_job_key(work_id))
+        rows.append(
+            {
+                "spec": spec,
+                "imported": work_id in imported,
+                "job": job,
+                "running": job is not None and job.state in {"queued", "running"},
+                "failed": job is not None and job.state == "failed",
+            }
+        )
+    return rows
+
+
+def _polling(request: Request) -> bool:
+    """Whether any catalogue import is still in flight, so the page can ask again.
+
+    The shelf re-fetches itself only while something is running, the same rule the
+    render page follows: a finished import stops the loop instead of re-reading
+    the library forty times a minute for as long as the tab is open.
+    """
+    jobs: JobQueue = request.app.state.jobs
+    return any(
+        (state := jobs.state_for(import_job_key(work_id))) is not None
+        and state.state in {"queued", "running"}
+        for work_id in CATALOGUE
+    )
 
 
 @router.get("/start/read")
@@ -87,7 +117,7 @@ def start_read(request: Request, error: str = ""):
     return _templates(request).TemplateResponse(
         request,
         "start_read.html",
-        {"rows": _catalogue_rows(settings), "error": error},
+        {"rows": _catalogue_rows(request, settings), "error": error, "polling": _polling(request)},
     )
 
 
@@ -104,7 +134,11 @@ def import_from_catalogue(request: Request, work_id: str = Form("")):
         return _templates(request).TemplateResponse(
             request,
             "start_read.html",
-            {"rows": _catalogue_rows(settings), "error": f"No text called {work_id!r}."},
+            {
+                "rows": _catalogue_rows(request, settings),
+                "error": f"No text called {work_id!r}.",
+                "polling": _polling(request),
+            },
             status_code=422,
         )
     if spec.archive is None:
@@ -112,7 +146,8 @@ def import_from_catalogue(request: Request, work_id: str = Form("")):
             request,
             "start_read.html",
             {
-                "rows": _catalogue_rows(settings),
+                "polling": _polling(request),
+                "rows": _catalogue_rows(request, settings),
                 "error": (
                     f"{spec.title} has no download of its own — it is the bundled "
                     "fixture. Import it with `videomaker library import fixture "
@@ -122,15 +157,19 @@ def import_from_catalogue(request: Request, work_id: str = Form("")):
             status_code=422,
         )
     jobs: JobQueue = request.app.state.jobs
-    jobs.submit(f"import:{work_id}", "import", _import_job(settings, spec))
-    return RedirectResponse(url=f"/library/{work_id}", status_code=303)
+    jobs.submit(import_job_key(work_id), "import", _import_job(settings, spec))
+    # **Back to the shelf, not on to the work.** The import is a download and a
+    # parse of 66 books on the job queue, so for the next half-minute there is no
+    # work at `/library/<id>` to land on — redirecting there answered a button
+    # press with a 404. The shelf can say the row is on its way.
+    return RedirectResponse(url="/start/read", status_code=303)
 
 
 def _import_job(settings: Settings, spec: ImportSpec):
     def job(progress) -> None:
         progress.update(stage="import", progress=0.1, message=f"fetching {spec.title}")
-        import_work(spec, settings.workspace_dir)
-        progress.update(stage="import", progress=1.0, message="imported")
+        work = import_work(spec, settings.workspace_dir)
+        progress.update(stage="import", progress=1.0, message=f"{work.title} is in the library")
 
     return job
 

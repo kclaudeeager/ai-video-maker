@@ -68,6 +68,7 @@ def test_the_outline_is_in_canonical_book_order(corpus, imported, settings):
     assert [ref.key() for ref in outline] == [
         "fixture/GEN/001",
         "fixture/GEN/002",
+        "fixture/MRK/001",
         "fixture/JHN/001",
         "fixture/JHN/002",
         "fixture/JHN/003",
