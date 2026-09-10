@@ -302,7 +302,7 @@ message contains the formatted reference.
 
 ### Task 5: A vendor-neutral HTTP voice provider, with a budget guard and a rate limiter
 
-- [ ] **Files:** new `providers/tts/http_api.py`; modify `config.py`,
+- [x] **Files:** new `providers/tts/http_api.py`; modify `config.py`,
   `config.example.yaml`, `.env.example`; test
   `tests/unit/test_http_tts.py`, `tests/unit/test_tts_budget.py`
 

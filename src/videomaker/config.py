@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import AliasChoices, Field
@@ -71,6 +72,12 @@ class Settings(BaseSettings):
         default="", validation_alias=AliasChoices("CLOUDFLARE_API_TOKEN")
     )
 
+    #: `voice_providers:` from `config.yaml`, as written. Kept raw here because this
+    #: module cannot import `providers.tts.http_api` (it imports us); the entries
+    #: are validated into `HTTPTTSConfig` where they are used. Any name listed
+    #: becomes selectable in `provider_chains["tts"]` — see `providers.get_provider`.
+    voice_providers: list[dict[str, Any]] = Field(default_factory=list)
+
     provider_chains: dict[str, list[str]] = Field(
         default_factory=lambda: {
             "llm": ["groq", "gemini"],
@@ -112,4 +119,7 @@ def load_settings(config_file: Path | None = None) -> Settings:
         }
         if chains:
             overrides["provider_chains"] = Settings().provider_chains | chains
+        voices = raw.get("voice_providers")
+        if isinstance(voices, list):
+            overrides["voice_providers"] = [entry for entry in voices if isinstance(entry, dict)]
     return Settings(**overrides)

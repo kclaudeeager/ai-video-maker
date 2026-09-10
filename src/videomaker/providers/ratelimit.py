@@ -172,6 +172,40 @@ class QuotaTracker:
         events.append((self._clock(), units))
         self._events[provider] = self._prune(events)
 
+    def wait_s(self, provider: str, budget: Budget) -> float:
+        """Seconds to wait before one more unit fits under every *sliding* axis.
+
+        `check` answers "may I, right now?"; this answers "when?". It exists for
+        callers that would rather pace than be refused — a vendor's per-minute cap
+        is a client-side sleep, not an event to catch (`providers/tts/http_api.py`).
+        `0.0` when the next unit fits now. Calendar axes (`per_day`) are not
+        waited on: a reset hours away is a stop, and `day_resets_in_s` says when.
+        """
+        now = self._clock()
+        wait = 0.0
+        for axis, window_s in _SLIDING_WINDOWS.items():
+            limit = getattr(budget, axis)
+            if limit is None:
+                continue
+            cutoff = now - window_s
+            live = sorted(at for at, _units in self._events.get(provider, []) if at > cutoff)
+            excess = len(live) - limit + 1
+            if excess > 0:
+                wait = max(wait, live[excess - 1] + window_s - now)
+        return wait
+
+    def since_last_s(self, provider: str) -> float | None:
+        """Seconds since `provider` was last booked; `None` if it never was."""
+        events = self._events.get(provider)
+        if not events:
+            return None
+        return self._clock() - max(at for at, _units in events)
+
+    def day_resets_in_s(self) -> float:
+        """Seconds until the next UTC midnight, when every `per_day` counter clears."""
+        now = self._clock()
+        return _utc_day_start(now) + DAY_WINDOW_S - now
+
     def remaining(self, provider: str, budget: Budget) -> dict[str, int | None]:
         """Headroom left on each axis; `None` where the budget is unlimited."""
         headroom: dict[str, int | None] = {}

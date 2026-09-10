@@ -40,3 +40,36 @@ render:
   # output/ once, and again if you change it back. `videomaker doctor` says
   # whether this machine has an encoder that will actually open.
   fast_mode: false
+
+# Voice vendors reached over HTTP, for languages the local Kokoro voice cannot
+# speak (Kinyarwanda, for one: espeak-ng, which Kokoro phonemises through, has
+# no voice for it). A vendor is described here and nowhere else — no vendor name
+# appears in the code. Anything listed becomes selectable by name under
+# `providers: tts:` above. See docs/voice-providers.md.
+#
+# **A metered vendor spends real money.** The budget guard refuses a run past
+# 30 minutes or $1.00 unless you confirm it (`--yes`, or the confirm button
+# that shows the estimate); a whole Bible is ~5,270 minutes, ~$527 at $0.10/min.
+#
+# voice_providers:
+#   - name: vendor                      # the name to use under providers: tts:
+#     endpoint: https://api.vendor.example/v1/tts
+#     api_key_env: VOICE_API_KEY        # the .env variable holding the key
+#     auth_header: Authorization
+#     auth_format: "Bearer {key}"
+#     text_field: text                  # the JSON field names the vendor expects
+#     voice_field: voice
+#     language_field: language
+#     speed_field: ""                   # "" when the vendor takes no speed
+#     extra_body: {format: mp3}         # anything else the vendor wants, verbatim
+#     audio_response: raw               # or base64_json, with audio_json_path
+#     audio_json_path: ""               # e.g. data.audio when base64_json
+#     voices: [nyira, mugabo]
+#     languages: [rw, sw]               # ISO 639-1; decides which works can Listen
+#     cost_per_minute_usd: 0.10
+#     timeout_s: 60
+#     requests_per_minute: 60           # 0 = no stated limit, no throttle
+#     requests_per_day: 1000
+#     max_concurrency: 1
+#     retry_attempts: 4
+#     retry_base_delay_s: 1.0

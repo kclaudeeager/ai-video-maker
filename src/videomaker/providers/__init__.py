@@ -70,6 +70,14 @@ def get_provider(kind: str, name: str, settings: Settings) -> object:
     try:
         cls = _REGISTRY[(kind, name)]
     except KeyError:
+        if kind == "tts":
+            # A voice vendor is configuration, not code: `voice_providers:` in
+            # `config.yaml` describes it and no class is ever registered for it.
+            from videomaker.providers.tts.http_api import configured_provider
+
+            configured = configured_provider(name, settings)
+            if configured is not None:
+                return configured
         known = ", ".join(known_providers(kind)) or "none"
         raise ProviderConfigError(
             f"unknown {kind} provider {name!r}; known {kind} providers: {known}"
