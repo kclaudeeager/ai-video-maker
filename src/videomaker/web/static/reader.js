@@ -9,6 +9,10 @@
  *
  * htmx replaces the whole #reader element when the mode changes, so `attach`
  * runs again after every swap and is idempotent (`data-wired`).
+ *
+ * It also tells the server which verse the narration has reached, so closing the
+ * tab mid-chapter and coming back resumes rather than restarts. One POST per
+ * verse, not per timeupdate — a cue change is already the right granularity.
  */
 (function () {
   "use strict";
@@ -26,6 +30,15 @@
     return undefined;
   }
 
+  function keepPlace(verse) {
+    var at = document.getElementById("reader-place");
+    if (!at) return;
+    var body = new FormData();
+    body.append("verse", verse);
+    // `keepalive` so the last verse before the tab closes is still recorded.
+    fetch(at.value, { method: "POST", body: body, keepalive: true }).catch(function () {});
+  }
+
   function attach() {
     var audio = document.getElementById("reader-audio");
     var element = document.getElementById("reader-cues");
@@ -38,6 +51,7 @@
       var cue = track.activeCues && track.activeCues[0];
       if (!cue) return;
       var number = cue.text.trim();
+      keepPlace(number);
       var current = null;
       document.querySelectorAll(".verse").forEach(function (verse) {
         var on = verse.dataset.verse === number;

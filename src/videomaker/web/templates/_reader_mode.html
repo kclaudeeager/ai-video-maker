@@ -5,6 +5,11 @@
   A bare fragment — no `{% extends %}` — because htmx puts it inside a page that
   already exists. The mode switcher is re-rendered with it so the active state
   arrives with the content rather than needing a second swap.
+
+  The labels come from `MODE_LABELS` in `web/routes/library.py` rather than a dict
+  literal here: a mode added to the enum and not to the literal rendered as an
+  empty tab, which is exactly what happened to `watch` and what a Jinja lookup
+  miss looks like — nothing at all.
 #}
 <div id="reader" class="reader">
   <nav class="modes" aria-label="How to read this">
@@ -15,7 +20,7 @@
          hx-target="#reader"
          hx-swap="outerHTML"
          {% if name == mode %}aria-current="page"{% endif %}
-      >{{ {"source": "Read", "brief": "Brief", "listen": "Listen"}[name] }}</a>
+      >{{ MODE_LABELS[name] }}</a>
     {% endfor %}
   </nav>
 
@@ -43,11 +48,43 @@
     </section>
     {% include "_verse_list.html" %}
 
+  {% elif mode == "watch" %}
+    {# The one mode that leaves the reader. It does not render anything here: it
+       materialises an ordinary project and hands you to gate 1, because a reader
+       asking to watch a chapter is a creator starting a project. Nothing is
+       created by looking at this panel — only by pressing the button. #}
+    <section class="watch stack">
+      {% if rendered %}
+        <video controls preload="metadata" src="/media/{{ project.id }}/{{ rendered }}"></video>
+        <p class="hint flush">Made from this passage.
+          <a href="/projects/{{ project.id }}">Open the project</a> to change it.</p>
+      {% elif project %}
+        <p class="flush">A project for this passage already exists, part way
+          through. <a href="/projects/{{ project.id }}">Pick it up at the gate it
+          stopped at.</a></p>
+      {% else %}
+        <p class="flush">An illustrated video of {{ unit.title }}: a script you
+          read first, a shot you choose for every line, and a preview you watch
+          before anything is rendered. It stops and waits for you three times.</p>
+        <form method="post" action="/read/{{ ref.work_id }}/{{ ref.book }}/{{ ref.chapter }}/watch">
+          <button class="button button-primary" type="submit">Start a video of this passage</button>
+        </form>
+        <p class="hint flush">This makes a project in your workspace. Nothing is
+          voiced or rendered until you have read the script.</p>
+      {% endif %}
+    </section>
+    {% include "_verse_list.html" %}
+
   {% elif mode == "listen" %}
     <section class="listen stack"
              {% if poll %}hx-get="/read/{{ ref.work_id }}/{{ ref.book }}/{{ ref.chapter }}/mode/listen"
              hx-trigger="every 1500ms" hx-target="#reader" hx-swap="outerHTML"{% endif %}>
       {% if reading %}
+        {# Where `reader.js` posts the verse it has reached. A hidden field
+           rather than a path in the script: the template already knows the
+           reference, and a URL built in JavaScript is a URL nobody tests. #}
+        <input type="hidden" id="reader-place"
+               value="/read/{{ ref.work_id }}/{{ ref.book }}/{{ ref.chapter }}/place">
         <audio id="reader-audio" controls preload="metadata" src="{{ media_base }}/reading.mp3">
           <track id="reader-cues" kind="metadata" default src="{{ media_base }}/reading.vtt">
         </audio>

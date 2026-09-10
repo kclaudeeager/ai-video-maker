@@ -33,9 +33,10 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 from enum import StrEnum
 from pathlib import Path
 
-from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Form, HTTPException, Request, Response
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, ValidationError
 
 from videomaker.config import Settings
 from videomaker.corpus.audio import (
@@ -78,7 +79,23 @@ class ReadMode(StrEnum):
     SOURCE = "source"
     BRIEF = "brief"
     LISTEN = "listen"
+    #: Not a fourth way of reading: a way of *leaving* the reader. It materialises
+    #: an ordinary project from the passage and hands you to gate 1, because a
+    #: reader asking to watch a chapter is a creator starting a project. The three
+    #: gates are not bypassed and no fourth is added.
+    WATCH = "watch"
 
+
+#: What each mode is called on the switcher. Here rather than in the template
+#: because a Jinja lookup miss renders as an empty string: `watch` was added to
+#: `ReadMode` and not to the literal, and the tab drew as a blank gap that no test
+#: was looking at. `test_every_mode_has_a_label` closes that.
+MODE_LABELS: dict[str, str] = {
+    ReadMode.SOURCE: "Read",
+    ReadMode.BRIEF: "Brief",
+    ReadMode.LISTEN: "Listen",
+    ReadMode.WATCH: "Watch",
+}
 
 #: What a reader who has expressed no preference gets. The brief is the way in:
 #: it is the mode that says what the chapter is about before asking anyone to read
@@ -86,13 +103,41 @@ class ReadMode(StrEnum):
 DEFAULT_MODE = ReadMode.BRIEF
 
 PREFS_COOKIE = "longhand_reader"
-#: A year. The cookie holds a mode and a language; there is nothing in it that
-#: needs to expire, and a preference that resets every session is not one.
+#: A year. The cookie holds a mode, a language and where you were up to; there is
+#: nothing in it that needs to expire, and a preference that resets every session
+#: is not one.
 PREFS_MAX_AGE_S = 365 * 24 * 3600
+
+#: How many works keep a place. Newest first, so the ninth pushes the oldest out.
+#: Eight because the cookie has to stay small — a browser drops one over 4 KB, and
+#: losing every preference to remember a ninth book is a bad trade.
+MAX_BOOKMARKS = 8
 
 #: Used when `Settings.reader_cookie_secret` is empty: a per-process key, so
 #: preferences survive as long as the server does and no longer.
 _PROCESS_SECRET = secrets.token_urlsafe(32)
+
+
+class Bookmark(BaseModel):
+    """Where a reader stopped in one work.
+
+    Per work rather than one global place: someone reading two books at once
+    should not have them fight over a single slot. Kept in the same signed cookie
+    as the mode, because it is the same kind of fact — per person, not per
+    machine — and `Settings` is machine-wide.
+    """
+
+    work_id: str
+    unit_key: str
+    title: str
+    #: The verse the narration had reached, or `0` for the top of the unit.
+    verse: int = 0
+
+    @property
+    def href(self) -> str:
+        ref = UnitRef.parse(self.unit_key)
+        anchor = f"#v{self.verse}" if self.verse else ""
+        return f"/read/{ref.work_id}/{ref.book}/{ref.chapter}{anchor}"
 
 
 def _secret(settings: Settings) -> bytes:
@@ -104,10 +149,55 @@ def _sign(payload: str, settings: Settings) -> str:
     return urlsafe_b64encode(digest).decode().rstrip("=")
 
 
-def encode_prefs(settings: Settings, *, mode: str, language: str = "") -> str:
-    """`<mode>|<language>.<signature>` — small, readable, and tamper-evident."""
-    payload = urlsafe_b64encode(f"{mode}|{language}".encode()).decode().rstrip("=")
+def encode_prefs(
+    settings: Settings,
+    *,
+    mode: str,
+    language: str = "",
+    places: list[Bookmark] | None = None,
+) -> str:
+    """`<mode>|<language>|<places>.<signature>` — small, readable, tamper-evident.
+
+    The places are `work/key/verse/title` joined by `~`, which no field of a
+    bookmark can contain: a work id is a slug, a unit key is a slug and digits,
+    and a title is escaped by the same `|`-free rule as the rest of the payload.
+    A title carrying one would be silently truncated rather than corrupting the
+    cookie, which is why `decode_prefs` rebuilds each bookmark by position.
+    """
+    rows = "~".join(_encode_place(place) for place in (places or []))
+    payload = urlsafe_b64encode(f"{mode}|{language}|{rows}".encode()).decode().rstrip("=")
     return f"{payload}.{_sign(payload, settings)}"
+
+
+def _encode_place(place: Bookmark) -> str:
+    """`<unit_key>:<verse>:<title>`.
+
+    `:` is the field separator because no other field can contain one — a unit
+    key is a slug, a book code and digits — and the title has both separators
+    stripped rather than escaped. A title is a label; losing a colon from one is
+    invisible, and an escaping scheme here would be three lines of code guarding
+    a cookie nobody can read anyway.
+    """
+    title = place.title.replace(":", " ").replace("~", " ")
+    return f"{place.unit_key}:{place.verse}:{title}"
+
+
+def _decode_place(row: str) -> Bookmark | None:
+    """One row back to a bookmark, or None for anything that is not one.
+
+    Every failure is the same answer, for the same reason the mode's is: a lost
+    place is not worth an error page, and a cookie written by an older build must
+    be harmless rather than fatal.
+    """
+    unit_key, _, rest = row.partition(":")
+    verse, _, title = rest.partition(":")
+    try:
+        ref = UnitRef.parse(unit_key)
+        return Bookmark(
+            work_id=ref.work_id, unit_key=unit_key, title=title or unit_key, verse=int(verse)
+        )
+    except (ValueError, ValidationError):
+        return None
 
 
 def decode_prefs(settings: Settings, raw: str) -> tuple[ReadMode, str]:
@@ -126,10 +216,27 @@ def decode_prefs(settings: Settings, raw: str) -> tuple[ReadMode, str]:
         decoded = urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
     except (ValueError, UnicodeDecodeError):
         return DEFAULT_MODE, ""
-    mode, _, language = decoded.partition("|")
+    mode, _, rest = decoded.partition("|")
     if mode not in {m.value for m in ReadMode}:
         return DEFAULT_MODE, ""
+    language, _, _places = rest.partition("|")
     return ReadMode(mode), language
+
+
+def decode_places(settings: Settings, raw: str) -> list[Bookmark]:
+    """Where this reader was up to, newest first. `[]` for anything unreadable."""
+    payload, _, signature = (raw or "").partition(".")
+    if not payload or not signature:
+        return []
+    if not hmac.compare_digest(signature, _sign(payload, settings)):
+        return []
+    try:
+        decoded = urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
+    except (ValueError, UnicodeDecodeError):
+        return []
+    rows = decoded.split("|", 2)[2] if decoded.count("|") >= 2 else ""
+    places = [_decode_place(row) for row in rows.split("~") if row]
+    return [place for place in places if place is not None][:MAX_BOOKMARKS]
 
 
 def _first_supported(modes: list[ReadMode], *wanted: str) -> ReadMode:
@@ -145,11 +252,32 @@ def preferred(request: Request) -> tuple[ReadMode, str]:
     return decode_prefs(request.app.state.settings, request.cookies.get(PREFS_COOKIE, ""))
 
 
-def remember(response, settings: Settings, *, mode: ReadMode, language: str) -> None:
-    """Write the preference back. `httponly` because no script reads it."""
+def bookmarks(request: Request) -> list[Bookmark]:
+    return decode_places(request.app.state.settings, request.cookies.get(PREFS_COOKIE, ""))
+
+
+def bookmark_for(request: Request, work_id: str) -> Bookmark | None:
+    return next((place for place in bookmarks(request) if place.work_id == work_id), None)
+
+
+def with_place(places: list[Bookmark], place: Bookmark) -> list[Bookmark]:
+    """`place` at the front, one entry per work, oldest dropped past the cap."""
+    kept = [other for other in places if other.work_id != place.work_id]
+    return [place, *kept][:MAX_BOOKMARKS]
+
+
+def remember(
+    response,
+    settings: Settings,
+    *,
+    mode: ReadMode,
+    language: str,
+    places: list[Bookmark] | None = None,
+) -> None:
+    """Write the preference and the places back. `httponly`: no script reads it."""
     response.set_cookie(
         PREFS_COOKIE,
-        encode_prefs(settings, mode=mode.value, language=language),
+        encode_prefs(settings, mode=mode.value, language=language, places=places),
         max_age=PREFS_MAX_AGE_S,
         httponly=True,
         samesite="lax",
@@ -194,10 +322,16 @@ def spoken_languages(settings: Settings) -> set[str]:
 
 
 def modes_for(work: WorkRef, settings: Settings) -> list[ReadMode]:
-    """The modes this work supports, in reading order. Source is always there."""
+    """The modes this work supports, in reading order. Source is always there.
+
+    `WATCH` is always offered: it needs no voice for the work's language — the
+    project it makes is written and narrated in whatever the pipeline is
+    configured for, and gate 1 is where that gets decided.
+    """
     modes = [ReadMode.SOURCE, ReadMode.BRIEF]
     if work.language in spoken_languages(settings):
         modes.append(ReadMode.LISTEN)
+    modes.append(ReadMode.WATCH)
     return modes
 
 
@@ -305,7 +439,11 @@ def library_page(request: Request):
         "library.html",
         {
             "works": [
-                {"work": work, "modes": [m.value for m in modes_for(work, settings)]}
+                {
+                    "work": work,
+                    "modes": [m.value for m in modes_for(work, settings)],
+                    "place": bookmark_for(request, work.id),
+                }
                 for work in works
             ]
         },
@@ -332,6 +470,7 @@ def _mode_context(request: Request, ref: UnitRef, mode: ReadMode, voice: str) ->
     """
     unit = _unit(request, ref)
     context: dict[str, object] = {
+        "MODE_LABELS": MODE_LABELS,
         "unit": unit,
         "ref": ref,
         "mode": mode.value,
@@ -350,7 +489,29 @@ def _mode_context(request: Request, ref: UnitRef, mode: ReadMode, voice: str) ->
             context["brief_error"] = str(exc)
     if mode is ReadMode.LISTEN:
         context.update(_listen_context(request, unit, voice))
+    if mode is ReadMode.WATCH:
+        context.update(_watch_context(request, ref))
     return context
+
+
+def _watch_context(request: Request, ref: UnitRef) -> dict[str, object]:
+    """What the Watch panel shows: the project for this passage, if there is one.
+
+    Nothing is created by *looking*. The panel is a description of what watching
+    would mean and a button that means it — materialising on a GET would leave a
+    project behind every time somebody clicked the wrong tab.
+    """
+    from videomaker.corpus.materialise import existing_for
+
+    store = request.app.state.store
+    project = existing_for(store, ref)
+    rendered = None
+    if project is not None:
+        from videomaker.models import Aspect
+
+        spec = project.outputs.get(Aspect.WIDE)
+        rendered = spec.video_path if spec is not None else None
+    return {"project": project, "rendered": rendered}
 
 
 def _reading_root(settings: Settings, ref: UnitRef, key: str) -> Path:
@@ -422,6 +583,8 @@ def read_page(request: Request, work_id: str, book: str, chapter: str, mode: str
     outline = _corpus(request).outline(work_id)
     previous, following = neighbours(outline, ref)
     templates: Jinja2Templates = request.app.state.templates
+    context = _mode_context(request, ref, chosen, voice)
+    unit: UnitText = context["unit"]  # type: ignore[assignment]
     response = templates.TemplateResponse(
         request,
         "read.html",
@@ -430,10 +593,19 @@ def read_page(request: Request, work_id: str, book: str, chapter: str, mode: str
             "modes": [m.value for m in modes],
             "previous": previous,
             "next_ref": following,
-            **_mode_context(request, ref, chosen, voice),
+            **context,
         },
     )
-    remember(response, settings, mode=chosen, language=work.language)
+    # Opening a unit *is* the bookmark: there is no "save my place" control, and
+    # a reader who has to press one has already lost their place once.
+    place = Bookmark(work_id=work.id, unit_key=ref.key(), title=unit.title)
+    remember(
+        response,
+        settings,
+        mode=chosen,
+        language=work.language,
+        places=with_place(bookmarks(request), place),
+    )
     return response
 
 
@@ -454,8 +626,16 @@ def read_mode(request: Request, work_id: str, book: str, chapter: str, mode: str
         request, "_reader_mode.html", {"work": work, "modes": [m.value for m in modes], **context}
     )
     # Switching mode *is* the preference: there is no separate control to set it,
-    # which is the only reason a cookie is worth having here at all.
-    remember(response, settings, mode=ReadMode(mode), language=work.language)
+    # which is the only reason a cookie is worth having here at all. The places
+    # ride along unchanged — writing the cookie without them would erase every
+    # bookmark the moment somebody pressed Brief.
+    remember(
+        response,
+        settings,
+        mode=ReadMode(mode),
+        language=work.language,
+        places=bookmarks(request),
+    )
     return response
 
 
@@ -507,6 +687,58 @@ def _reading_job(settings: Settings, ref: UnitRef, voice: str, confirmed: bool):
 # ------------------------------------------------------------------- the media
 
 
+@router.post("/read/{work_id}/{book}/{chapter}/watch")
+def watch(request: Request, work_id: str, book: str, chapter: str):
+    """Materialise this passage as a project and hand the reader to gate 1.
+
+    A 303 to the project's own page, which is where the script is read and
+    approved — the same screen a project started from a topic arrives at. Pressing
+    it twice lands on the same project: the unit key is the identity.
+    """
+    from videomaker.corpus.materialise import materialise
+
+    _work(request, work_id)
+    ref = _ref(work_id, book, chapter)
+    unit = _unit(request, ref)
+    store = request.app.state.store
+    project = materialise(ref, unit=unit, store=store)
+    jobs: JobQueue = request.app.state.jobs
+    if not project.scenes:
+        from videomaker.web.routes.projects import script_job
+
+        jobs.submit(project.id, "run", script_job(request.app.state.settings, project.id))
+    return RedirectResponse(url=f"/projects/{project.id}", status_code=303)
+
+
+@router.post("/read/{work_id}/{book}/{chapter}/place")
+def record_place(
+    request: Request, work_id: str, book: str, chapter: str, verse: int = Form(0)
+):
+    """Record how far the narration got, so resuming resumes rather than restarts.
+
+    Posted by `reader.js` as the verse changes, and answered with `204 No
+    Content`: nothing on the page changes, and re-rendering a fragment forty
+    times a chapter to update a cookie would be absurd.
+    """
+    work = _work(request, work_id)
+    ref = _ref(work_id, book, chapter)
+    unit = _unit(request, ref)
+    settings: Settings = request.app.state.settings
+    mode, _language = preferred(request)
+    place = Bookmark(
+        work_id=work.id, unit_key=ref.key(), title=unit.title, verse=max(verse, 0)
+    )
+    response = Response(status_code=204)
+    remember(
+        response,
+        settings,
+        mode=mode,
+        language=work.language,
+        places=with_place(bookmarks(request), place),
+    )
+    return response
+
+
 @router.get("/media/reading/{work_id}/{reading_key}/{name}")
 def get_reading_media(request: Request, work_id: str, reading_key: str, name: str):
     """Serve one reading artefact, through `web/media.py`'s guard and nothing else.
@@ -533,8 +765,12 @@ __all__ = [
     "DEFAULT_MODE",
     "LIBRARY_DIRNAME",
     "PREFS_COOKIE",
+    "Bookmark",
     "Brief",
     "ReadMode",
+    "bookmark_for",
+    "bookmarks",
+    "decode_places",
     "decode_prefs",
     "encode_prefs",
     "modes_for",

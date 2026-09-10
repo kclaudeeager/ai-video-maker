@@ -1,7 +1,8 @@
 {#
   The library: every work that has been imported, whatever it was imported from.
 
-  Context: `works` — one `{work, modes}` row each.
+  Context: `works` — one `{work, modes, place}` row each, where `place` is where
+  this reader stopped in that work, or nothing.
 
   A shelf rather than a card grid, and the same row as the workspace root and the
   catalogue: title, language, licence, and what you can do with it. The three
@@ -36,7 +37,9 @@
           <span class="open-kind">{{ row.work.language }}</span>
           <span class="shelf-licence">{{ row.work.licence }}</span>
           <span class="open-detail">
-            {%- if "listen" in row.modes -%}
+            {%- if row.place -%}
+              <a href="{{ row.place.href }}">Pick up {{ row.place.title }}</a>
+            {%- elif "listen" in row.modes -%}
               Read it, skim it, or hear it
             {%- else -%}
               Read it or skim it

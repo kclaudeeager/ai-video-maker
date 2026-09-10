@@ -164,12 +164,18 @@ def test_no_reader_template_carries_an_absolute_url_in_its_source():
         assert not _ABSOLUTE_URL.search(source), f"{name} must not reference an external URL"
 
 
-def test_readerjs_fetches_nothing():
-    """It reads cues off a `<track>` the page already carries. A `fetch` here
-    would be a network call on a page that is meant to work offline."""
+def test_readerjs_reaches_nowhere_but_this_server():
+    """The timings come off a `<track>` the page already carries; the one request
+    it makes is a same-origin POST recording which verse the narration reached,
+    and its URL comes out of a hidden field rather than being built here.
+
+    The rule being guarded is the no-CDN one, not "no requests": a local tool must
+    work with no network and must not announce a page view to a third party.
+    """
     source = (STATIC_DIR / "reader.js").read_text()
-    for forbidden in ("fetch(", "XMLHttpRequest", "import(", "//"):
-        if forbidden == "//":
-            assert not _ABSOLUTE_URL.search(source)
-        else:
-            assert forbidden not in source
+
+    assert not _ABSOLUTE_URL.search(source), "no third party, and nothing off-origin"
+    assert "XMLHttpRequest" not in source and "import(" not in source
+    assert source.count("fetch(") == 1, "one request, and it is the bookmark"
+    assert 'method: "POST"' in source
+    assert "reader-place" in source, "the URL is read from the page, not written here"
