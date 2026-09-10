@@ -210,7 +210,7 @@ whose message contains the input.
 
 ### Task 3: The importer, and the licence gate
 
-- [ ] **Files:** new `corpus/usfm.py`, `corpus/importer.py`; modify `cli.py`,
+- [x] **Files:** new `corpus/usfm.py`, `corpus/importer.py`; modify `cli.py`,
   `pyproject.toml`; test `tests/unit/test_importer.py`,
   `tests/integration/test_import_web.py` (marked `slow` — it downloads)
 

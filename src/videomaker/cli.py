@@ -564,5 +564,62 @@ def _print_library_warnings(library) -> None:
         console.print(f"[yellow]warning[/yellow] {line}")
 
 
+# ------------------------------------------------------------------- the library
+
+library_app = typer.Typer(
+    no_args_is_help=True,
+    help="The texts you can read: import one, list what is here (the project ships none).",
+)
+app.add_typer(library_app, name="library")
+
+
+@library_app.command("import")
+def library_import(
+    work_id: str = typer.Argument(..., help="A catalogue id (web, bsb) — see `library list`."),
+    archive: str | None = typer.Option(
+        None, "--from", help="A USFM zip (URL or path) or a directory of USFM files."
+    ),
+) -> None:
+    """Fetch a text into workspace/library/ — only one whose licence is stated."""
+    from pydantic import ValidationError
+
+    from videomaker.config import load_settings
+    from videomaker.corpus.catalogue import CATALOGUE
+    from videomaker.corpus.importer import import_work, work_dir
+
+    spec = CATALOGUE.get(work_id)
+    if spec is None:
+        known = ", ".join(sorted(CATALOGUE))
+        _fail(f"unknown work {work_id!r}; the catalogue knows: {known}")
+    if archive is not None:
+        spec = spec.model_copy(update={"archive": archive})
+    settings = load_settings()
+    try:
+        work = import_work(spec, settings.workspace_dir)
+    except (ValueError, ValidationError, OSError) as exc:
+        _fail(str(exc))
+    console.print(f"[green]imported[/green] {work.title} ({work.id}, {work.language})")
+    console.print(f"  licence: {work.licence} — {work.licence_url}")
+    console.print(f"  at: {work_dir(settings.workspace_dir, work.id)}")
+
+
+@library_app.command("list")
+def library_list() -> None:
+    """The works in workspace/library/: id, title, language, licence, chapters."""
+    from videomaker.config import load_settings
+    from videomaker.corpus.importer import list_works
+
+    rows = list_works(load_settings().workspace_dir)
+    if not rows:
+        console.print("the library is [bold]empty[/bold]: `videomaker library import web` fetches one.")
+        return
+    table = Table(title="library")
+    for column in ("id", "title", "language", "licence", "chapters"):
+        table.add_column(column)
+    for work, chapters in rows:
+        table.add_row(work.id, work.title, work.language, work.licence, str(chapters))
+    console.print(table)
+
+
 def main() -> None:
     app()

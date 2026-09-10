@@ -1,0 +1,21 @@
+\id JHN Longhand test fixture, invented text
+\h John
+\toc1 The Fixture of John
+\mt1 John
+\c 1
+\s1 A Heading That Must Not Be Read Aloud
+\p
+\v 1 In the beginning of this fixture was a sentence,\f + \fr 1:1 \ft FOOTNOTE-MARKER: a note that must never be narrated.\f* and the sentence was plain.
+\v 2 The same sentence was there from the start.
+\q1
+\v 3 Everything in this chapter was made by hand;\x - \xo 1:3 \xt CROSSREF-MARKER\x* nothing was copied.
+\c 2
+\p
+\v 1 On the third day there was a gathering in a small town.
+\v 2 The \nd Narrator\nd* was invited, and the readers with him.
+\c 3
+\s1 Another Heading
+\p
+\v 1 There was a reader who came by night to ask a question.
+\v 2 The answer was that a text can be read, retold or heard.
+\v 3 And whoever hears it hears the words of the text and not of a machine.
