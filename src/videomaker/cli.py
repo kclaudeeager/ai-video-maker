@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import NoReturn
 
@@ -619,6 +620,76 @@ def library_list() -> None:
     for work, chapters in rows:
         table.add_row(work.id, work.title, work.language, work.licence, str(chapters))
     console.print(table)
+
+
+@library_app.command("brief")
+def library_brief(
+    work_id: str = typer.Argument(..., help="A work already imported — see `library list`."),
+    book: str | None = typer.Option(None, "--book", help="Only this USFM book, e.g. JHN."),
+    providers: str | None = typer.Option(
+        None, "--providers", help="Force every provider kind to this one (e.g. mock)."
+    ),
+) -> None:
+    """Pre-write the plain-language brief for every chapter. Resumable.
+
+    1,189 chapters is 1,189 LLM calls, which is why this is a command and not a web
+    route. It paces against the same quota ledger every provider shares, skips any
+    chapter already cached, and on a spent daily cap stops cleanly with the count
+    and the reset time — run it again tomorrow and it continues where it stopped.
+    """
+    from videomaker.config import load_settings
+    from videomaker.corpus.audio import reader_deps
+    from videomaker.corpus.digest import brief_key, brief_path, build_brief
+    from videomaker.providers.base import CorpusProvider
+    from videomaker.providers.errors import ProviderError, QuotaExceeded
+    from videomaker.providers.ratelimit import SOFT_BUDGETS
+    from videomaker.runner import provider_override
+
+    settings = load_settings()
+    if providers:
+        # `--providers mock` is about not reaching the network, and the library is
+        # already on this disk. Overriding `corpus` too would point the command at
+        # the mock work and report "no chapters" for the work the user just named,
+        # so the corpus chain is put back — every other kind is still forced.
+        corpus_chain = settings.provider_chains.get("corpus", [])
+        settings = provider_override(settings, providers)
+        settings = settings.model_copy(
+            update={"provider_chains": {**settings.provider_chains, "corpus": corpus_chain}}
+        )
+    deps = reader_deps(settings)
+    corpus = deps.provider("corpus")
+    if not isinstance(corpus, CorpusProvider):  # pragma: no cover - registry guarantees it
+        _fail(f"the {settings.provider_chains['corpus'][0]} provider is not a corpus")
+    refs = [ref for ref in corpus.outline(work_id) if book is None or ref.book == book.upper()]
+    if not refs:
+        _fail(f"no chapters for {work_id!r}{f' book {book.upper()}' if book else ''}")
+
+    name = deps.leading_name("llm")
+    budget = SOFT_BUDGETS.get(name)
+    done = skipped = 0
+    for index, ref in enumerate(refs, start=1):
+        unit = corpus.unit(ref)
+        if brief_path(settings.workspace_dir, unit, brief_key(unit, model=name)).is_file():
+            skipped += 1
+            continue
+        if budget is not None:
+            wait = deps.quota.wait_s(name, budget)
+            if wait > 0:
+                console.print(f"[dim]pacing {wait:.0f}s under {name}'s rate limit[/dim]")
+                time.sleep(wait)
+        try:
+            build_brief(unit, deps)
+        except (QuotaExceeded, ProviderError) as exc:
+            resets = deps.quota.day_resets_in_s() / 3600
+            console.print(f"[yellow]stopped[/yellow] at {index}/{len(refs)}: {exc}")
+            console.print(
+                f"  {done} written, {skipped} already cached. Any daily cap resets in "
+                f"{resets:.1f} h (00:00 UTC); run this again to continue."
+            )
+            raise typer.Exit(code=0) from None
+        done += 1
+        console.print(f"  {index}/{len(refs)} {ref.key()}")
+    console.print(f"[green]done[/green] {done} written, {skipped} already cached")
 
 
 def main() -> None:

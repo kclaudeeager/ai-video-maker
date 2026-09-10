@@ -519,7 +519,7 @@ changing `voice` produces a different `reading_key`.
 
 ### Task 8: The brief
 
-- [ ] **Files:** new `corpus/digest.py`; modify `cli.py`; test
+- [x] **Files:** new `corpus/digest.py`; modify `cli.py`; test
   `tests/unit/test_digest.py`
 
 **Interfaces (normative):**
