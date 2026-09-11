@@ -83,8 +83,9 @@ safe to put on a public URL. See *Running the whole thing* below for the studio.
    briefs.
 4. `LONGHAND_PASSWORD` is generated for you. Read it from **Environment** after
    the first deploy; log in as `longhand`.
-5. After it is up, import a work — the container ships none, and on free it will
-   need doing again after each spin-down.
+5. It imports the World English Bible on first boot and publishes it, so the
+   shelf is not empty when you open it. That is `IMPORT_WORKS` in the blueprint —
+   see below.
 
 `FORWARDED_ALLOW_IPS=*` is set for one reason: Render terminates TLS at its edge
 and forwards plain HTTP, and Uvicorn ignores `X-Forwarded-Proto` from a peer that
@@ -111,8 +112,17 @@ empty channel. The zip still works — it bundles the text.
 imported again (~30 s, and it needs egress).
 
 **It sleeps.** Render spins a free instance down when idle, so the first request
-after a quiet spell waits for a cold start — and, per the line above, finds
-nothing imported.
+after a quiet spell waits for a cold start — and then re-imports, because the
+previous filesystem is gone.
+
+**`IMPORT_WORKS` is how anything gets on the shelf.** A reading server mounts no
+route that can import, and a free container has no shell to run the CLI in, so
+this is the only way in: a comma-separated list of catalogue ids, imported in the
+background at startup and published. It is set to `web` in the blueprint. `bsb`
+is the other blessed text; naming both costs another download on every cold
+start. The import runs on the job queue, so `/healthz` answers while it works —
+a boot blocked on a Bible download is a container the platform kills before it
+ever replies.
 
 Briefs do work: they call a hosted model, so they cost RAM only for the length of
 the request.

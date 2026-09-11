@@ -124,6 +124,18 @@ class Settings(BaseSettings):
     reader_narration_minutes_per_day: int = 60
     reader_narration_burst_minutes: int = 10
 
+    #: Catalogue ids to import at startup, comma separated: `IMPORT_WORKS=web,bsb`.
+    #:
+    #: For deployments that cannot import any other way. A reading server mounts
+    #: no route that can import, and a container on a free plan has neither a
+    #: persistent disk nor a shell — so without this its shelf is empty and there
+    #: is nothing that can fill it. Every cold start re-imports, which is the
+    #: honest cost of a filesystem that is wiped on every spin-down.
+    #:
+    #: Empty by default: a local run imports through the UI, where the person
+    #: doing it can see what it costs and choose the licence they are accepting.
+    import_works: str = ""
+
     #: `music_sources:` from `config.yaml`, as written — the catalogues
     #: `videomaker music fetch` asks. Raw for the same reason `voice_providers`
     #: is: this module cannot import the one that validates them. Empty means the

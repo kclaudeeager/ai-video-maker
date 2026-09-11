@@ -81,6 +81,15 @@ services:
       - key: AUDIENCE
         value: reader
 
+      # Imported at startup, because on this plan there is no other way. A
+      # reading server mounts no import route, and a free container has neither a
+      # disk nor a shell — so without this the shelf is empty and nothing can
+      # fill it. Re-runs on every cold start, which is what a filesystem wiped on
+      # every spin-down costs. `web` is the World English Bible: public domain,
+      # ~4.5 MB of text, about half a minute to fetch and parse.
+      - key: IMPORT_WORKS
+        value: web
+
       # Render terminates TLS at its edge and forwards plain HTTP to the
       # container, saying so in `X-Forwarded-Proto`. Uvicorn ignores that header
       # unless the peer is in `forwarded_allow_ips`, which defaults to

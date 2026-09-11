@@ -100,3 +100,18 @@ def test_the_build_matches_what_the_plan_can_run():
 
     expected = "0" if service["plan"] == "free" else "1"
     assert _env(service)["ML"]["value"] == expected
+
+
+def test_a_reading_server_is_given_something_to_read():
+    """A reading server mounts no import route and a free container has no shell,
+    so a blueprint without this deploys a library nothing can ever fill."""
+    env = _env(_web_service())
+    if env.get("AUDIENCE", {}).get("value") != "reader":
+        return
+
+    from videomaker.corpus.catalogue import CATALOGUE
+
+    wanted = [w.strip() for w in str(env["IMPORT_WORKS"]["value"]).split(",") if w.strip()]
+    assert wanted, "a reading server with nothing to import has an empty shelf forever"
+    for work_id in wanted:
+        assert work_id in CATALOGUE, f"{work_id} is not a catalogue id"

@@ -10,6 +10,7 @@ lifespan, so a queue that started itself in the factory would leak a thread out 
 every such test, while routes still need `app.state.jobs` to exist to submit to.
 """
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -39,6 +40,71 @@ TEMPLATES_DIR = _WEB_DIR / "templates"
 STATIC_DIR = _WEB_DIR / "static"
 
 
+_log = logging.getLogger(__name__)
+
+
+def _preload_library(app: FastAPI) -> None:
+    """Import the works named by `settings.import_works`, in the background.
+
+    **Why a deployment needs this at all.** A reading server mounts no route that
+    can import — that is the point of `Audience.READER` — and a container on a
+    free plan has neither a persistent disk nor a shell. Put those together and a
+    deployed reader has an empty shelf with nothing on earth able to fill it. This
+    is the one way in.
+
+    On the job queue rather than in the lifespan body, because a platform health
+    check starts the moment the process does: blocking the boot on a Bible
+    download hands the platform a container that never answers `/healthz` and
+    gets killed for it. The shelf fills a minute later instead, and the same
+    `import_job_key` the catalogue page uses means its "on its way" row is right
+    about a preload too.
+
+    **Published only on a reading server.** Importing a text and putting it in
+    front of other people are two decisions — `importer.set_published` exists to
+    keep them apart — and a studio operator makes the second one in the UI. A
+    reading server has no UI for it and no other way to say yes, so on that
+    audience the preload says it: an unpublished work there is invisible, which
+    would leave the shelf as empty as before.
+    """
+    from videomaker.corpus.catalogue import CATALOGUE
+    from videomaker.corpus.importer import import_work, read_work, set_published, work_dir
+    from videomaker.web.routes.start import import_job_key
+
+    settings: Settings = app.state.settings
+    wanted = [work_id.strip() for work_id in settings.import_works.split(",") if work_id.strip()]
+    publish = settings.audience is Audience.READER
+
+    def preload(spec):
+        def job(progress) -> None:
+            progress.update(stage="import", progress=0.1, message=f"fetching {spec.title}")
+            work = import_work(spec, settings.workspace_dir)
+            if publish:
+                set_published(work.id, True, settings.workspace_dir)
+            progress.update(stage="import", progress=1.0, message=f"{work.title} is in the library")
+
+        return job
+
+    for work_id in wanted:
+        spec = CATALOGUE.get(work_id)
+        if spec is None:
+            # Named but unknown: say so and carry on. A typo in one id must not
+            # cost the other imports, and must not stop the server answering.
+            _log.warning("import_works names %r, which is not in the catalogue", work_id)
+            continue
+        # Already on disk — from an earlier boot on a platform that has a disk, or
+        # from a re-deploy that did not wipe it. Re-importing would be a download
+        # and a parse of 66 books to arrive at the same files.
+        here = work_dir(settings.workspace_dir, work_id)
+        if here.is_dir():
+            # Published only if it is not already: `set_published` rewrites
+            # `work.yaml`, and doing that on every boot would touch the file a
+            # platform restart has no business touching.
+            if publish and not read_work(here).published:
+                set_published(work_id, True, settings.workspace_dir)
+            continue
+        app.state.jobs.submit(import_job_key(work_id), "import", preload(spec))
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -62,6 +128,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.jobs.start()
+        _preload_library(app)
         try:
             yield
         finally:
