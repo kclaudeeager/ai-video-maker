@@ -23,12 +23,20 @@
 
 {% block content %}
   {% if not works %}
-    <p class="prose">Nothing here yet. Longhand ships no texts of its own — bring
-      one in, or add a document you already have.</p>
-    <p class="flush">
-      <a class="button button-primary" href="/start/read">Start from a work</a>
-      <a class="button" href="/start/document">Start from your own file</a>
-    </p>
+    {# A reading server mounts neither `/start` route, so offering them here sent
+       a visitor to a 404 — and the person who *could* fix it is not the person
+       reading. Tell them what is true instead: nothing is published yet. #}
+    {% if audience == "reader" %}
+      <p class="prose">Nothing published yet. This library is empty until whoever
+        runs it puts something on the shelf.</p>
+    {% else %}
+      <p class="prose">Nothing here yet. Longhand ships no texts of its own — bring
+        one in, or add a document you already have.</p>
+      <p class="flush">
+        <a class="button button-primary" href="/start/read">Start from a work</a>
+        <a class="button" href="/start/document">Start from your own file</a>
+      </p>
+    {% endif %}
   {% else %}
     <ul class="open-list flush">
       {% for row in works %}

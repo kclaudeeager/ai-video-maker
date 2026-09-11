@@ -137,7 +137,9 @@ def test_an_unpublished_work_is_absent_from_the_shelf(workspace):
 
     assert "Longhand Test Fixture" not in body
     assert "fixture" not in body
-    assert "Nothing here yet" in body, "and the shelf reads as empty rather than filtered"
+    # A reading server says "Nothing published yet": it has no import route to
+    # offer, and the person who could fix an empty shelf is not the one reading.
+    assert "Nothing published yet" in body, "and the shelf reads as empty rather than filtered"
 
 
 def test_publishing_makes_it_readable(workspace):
