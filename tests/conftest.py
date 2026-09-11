@@ -13,6 +13,13 @@ The music index (`audio.DEFAULT_INDEX_PATH`) lives in the same user-wide directo
 and is redirected for the same reason: `videomaker music scan` writes it, and a
 test that forgot would clobber the developer's real one.
 
+`importer.NOTICE_PATH` is redirected because it is a path *relative to the working
+directory*: `import_work` appends the licence of every text it fetches, and the
+working directory during a test run is the repository. A test that imported
+anything without redirecting it therefore edited the project's own `NOTICE.md` —
+and one that monkeypatched `CATALOGUE` wrote its fixture's invented source URL in
+there as though it were a real bundled text. Found exactly that way.
+
 The library itself is redirected too, and that one is about *results* rather than
 tidiness. `Settings.music_dir` defaults to `assets/music` relative to the working
 directory, and `.gitignore` keeps that folder out of the repository — so it is empty
@@ -27,6 +34,7 @@ import pytest
 
 from videomaker import audio as audio_module
 from videomaker import runner as runner_module
+from videomaker.corpus import importer as importer_module
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -34,9 +42,11 @@ def _isolate_user_cache(tmp_path_factory):
     """Point the caches and the audio library at throwaway paths."""
     cache_dir = tmp_path_factory.mktemp("user_cache")
     library_dir = tmp_path_factory.mktemp("empty_library")
+    notice = tmp_path_factory.mktemp("notice") / "NOTICE.md"
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(runner_module, "USER_CACHE_DIR", cache_dir)
         patch.setattr(audio_module, "DEFAULT_INDEX_PATH", cache_dir / audio_module.INDEX_FILENAME)
+        patch.setattr(importer_module, "NOTICE_PATH", notice)
         patch.setenv("MUSIC_DIR", str(library_dir / "music"))
         patch.setenv("SFX_DIR", str(library_dir / "sfx"))
         yield
