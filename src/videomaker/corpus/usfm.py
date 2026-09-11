@@ -62,13 +62,32 @@ UNKNOWN_WORK = ""
 #: its content is ordinary verse text, and nothing downstream renders colour. So
 #: the tags go and every word stays. The four Gospels, Acts and Revelation parse
 #: only because of this line; with it, all 66 books do.
+#: `\w word|strong="G1161"\w*` is a wordlist entry — a word plus its lexicon
+#: attributes — and `\+w` is the same marker *nested* inside another character
+#: span. The World English Bible has 645,747 of the first and 76,242 of the
+#: second (measured on the 2026-09-11 archive); the Berean has none at all.
+#:
+#: They have to go for a reason created above: stripping `\wj` leaves every
+#: `\+w` inside it orphaned, and a nested marker with nothing to nest in is
+#: invalid USFM that crashes `usj_generator.node_2_usj_char` with the same
+#: `IndexError` — fatal, not tolerated by `ignore_errors`. Measured: with `\wj`
+#: removed and these kept, 5 of the WEB's 68 files die — Matthew, Mark, Luke,
+#: John and Revelation, which is to say exactly the books where Jesus speaks.
+#:
+#: Dropping them costs nothing this module keeps. The attributes after `|` are
+#: apparatus — Strong's numbers and lemmas — and the display text before it is
+#: the word itself, so this is the same trade as `\ref`: the words survive, the
+#: apparatus does not, and `source/` keeps the original for anyone who wants it.
+#: `\wh` is the Hebrew wordlist form of the same thing (270 of them).
+_WORD_MARKUP = re.compile(r"\\\+?wh?\s+([^|\\]*?)(?:\|[^\\]*?)?\\\+?wh?\*")
 _INLINE_REF = re.compile(r"\\ref\s+([^|\\]*)\|[^\\]*\\ref\*")
 _WORDS_OF_JESUS = re.compile(r"\\wj\*?\s?")
 
 
 def normalise_markup(text: str) -> str:
     """What has to be rewritten before the grammar will read the file at all."""
-    return _WORDS_OF_JESUS.sub(" ", _INLINE_REF.sub(r"\1", text))
+    without_words = _WORD_MARKUP.sub(r"\1", text)
+    return _WORDS_OF_JESUS.sub(" ", _INLINE_REF.sub(r"\1", without_words))
 
 
 def _usj_content(text: str) -> list[Any]:

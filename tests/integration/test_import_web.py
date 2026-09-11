@@ -30,3 +30,13 @@ def test_the_web_imports_with_every_chapter_and_the_selahs_intact(tmp_path):
     psalm = json.loads((root / "units" / "PSA" / "003.json").read_text())
     assert any(v["text"].endswith("Selah.") for v in psalm["verses"])
     assert not any("\\" in v["text"] for v in psalm["verses"])
+
+    # The WEB wraps all 645,747 of its words in `\w ...|strong="..."\w*`, and
+    # nests them as `\+w` inside `\wj`. Stripping `\wj` alone orphans the nested
+    # form, which crashes the generator on exactly the five books where Jesus
+    # speaks — so this reads one red-letter verse back and checks it is prose.
+    john = json.loads((root / "units" / "JHN" / "003.json").read_text())
+    verse = next(v for v in john["verses"] if v["number"] == 16)
+    assert "God so loved the world" in verse["text"]
+    assert "strong=" not in verse["text"]
+    assert "\\" not in verse["text"]

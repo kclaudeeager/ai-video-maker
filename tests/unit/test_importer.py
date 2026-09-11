@@ -266,6 +266,46 @@ def test_an_inline_ref_keeps_its_display_text_and_loses_its_target():
     assert "|" not in text
 
 
+def test_a_wordlist_entry_keeps_its_word_and_loses_its_lexicon():
+    """`\\w word|strong="G4314"\\w*` is a word plus apparatus. The World English
+    Bible has 645,747 of them; the word is the text, the attributes are not."""
+    text = normalise_markup(r'\w to|strong="G4314"\w* \w him|strong="G3588"\w*')
+
+    assert text == "to him"
+    assert "strong" not in text
+
+
+def test_a_nested_wordlist_entry_inside_words_of_jesus_still_parses():
+    """The construct that killed Matthew, Mark, Luke, John and Revelation.
+
+    Stripping `\\wj` leaves every `\\+w` inside it with nothing to nest in, which
+    is invalid USFM and crashes `usj_generator.node_2_usj_char` with an
+    `IndexError` that `ignore_errors=True` does not catch. Measured on the WEB
+    archive of 2026-09-11: 5 of 68 files, and precisely the books where Jesus
+    speaks.
+    """
+    book = (
+        "\\id MAT\n\\c 3\n\\p\n"
+        r'\v 15 \w But|strong="G1161"\w* Jesus said, '
+        r'\wj \u201cAllow \+w it|strong="G1161"\+w* \+w now|strong="G3568"\+w*.\wj*'
+        "\n"
+    ).replace(r"\u201c", "\u201c")
+
+    (chapter,) = list(iter_chapters(book))
+
+    assert chapter.verses[0].number == 15
+    assert "But Jesus said," in chapter.verses[0].text
+    assert "Allow it now." in chapter.verses[0].text
+
+
+def test_a_hebrew_wordlist_entry_goes_the_same_way():
+    assert normalise_markup(r'\wh Yahweh|strong="H3068"\wh*') == "Yahweh"
+
+
+def test_a_wordlist_entry_without_attributes_keeps_its_word():
+    assert normalise_markup(r"\w plain\w*") == "plain"
+
+
 def test_the_normalisation_leaves_ordinary_usfm_alone():
     original = "\\c 1\n\\p\n\\v 1 Plain words with \\nd Lord\\nd* in them.\n"
     assert normalise_markup(original) == original
@@ -277,3 +317,4 @@ def test_the_cross_reference_line_still_reaches_no_verse():
     spoken = " ".join(verse.text for chapter in chapters for verse in chapter.verses)
     assert "Matthew 4:1-17" not in spoken, "an \\r line is apparatus, not the text"
     assert "FIXTURE-FOOTNOTE" not in spoken
+
