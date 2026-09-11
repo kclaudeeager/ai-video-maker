@@ -114,13 +114,14 @@ def test_readerjs_is_served_as_javascript(reader_client):
     assert "verse-current" in response.text
 
 
-def test_readerjs_is_small_enough_to_read_in_one_sitting():
-    """Under 60 lines of code. Past that, the design is wrong and a library is
+@pytest.mark.parametrize("script", ["reader.js", "speak.js"])
+def test_our_scripts_are_small_enough_to_read_in_one_sitting(script):
+    """Under 60 lines of code each. Past that, the design is wrong and a library is
     being reinvented — which is the moment to stop, not to minify."""
-    lines = (STATIC_DIR / "reader.js").read_text().splitlines()
+    lines = (STATIC_DIR / script).read_text().splitlines()
     code = [line for line in lines if line.strip() and not line.strip().startswith(("//", "/*", "*"))]
 
-    assert len(code) < 60, f"reader.js is {len(code)} lines of code"
+    assert len(code) < 60, f"{script} is {len(code)} lines of code"
 
 
 def test_the_reading_page_loads_readerjs_from_static(reader_client):

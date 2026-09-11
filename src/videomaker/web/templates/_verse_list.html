@@ -10,6 +10,27 @@
   importer's invention rather than part of the text, and set as superscripts they
   read as footnote markers on something that has no footnotes.
 #}
+{# The fallback for a server with no voice of its own. Here rather than in one
+   mode's branch because `brief` is the default mode and shows these same verses,
+   so a source-only control was invisible on most visits.
+
+   `hidden` until `speak.js` finds `speechSynthesis`: a device without it sees no
+   button rather than a dead one. The hidden field is the one the real player
+   posts to, so a verse reached by the browser's voice is remembered exactly as
+   one reached by a narration — and it cannot collide with the player's own copy,
+   because a server with a voice never sets `may_speak`. #}
+{% if may_speak %}
+  <p class="speak flush" id="speak" hidden>
+    <button class="button" type="button" id="speak-start">Read aloud</button>
+    <span class="hint">Your device's own voice. Nothing is generated or saved, so
+      there is no file to download and nothing for the feed.</span>
+    {# Where `speak.js` says so if the device turns out to have the API and no
+       voice — which is silence that would otherwise look like a broken button. #}
+    <span class="hint" id="speak-status" role="status"></span>
+  </p>
+  <input type="hidden" id="reader-place"
+         value="/read/{{ ref.work_id }}/{{ ref.book }}/{{ ref.chapter }}/place">
+{% endif %}
 <div class="verses" id="verses">
   {% for verse in unit.verses %}
     <p class="verse" data-verse="{{ verse.number }}" id="v{{ verse.number }}">

@@ -23,6 +23,7 @@
      from our own /static like the vendored htmx: no CDN, and the tool works
      with no network at all. #}
   <script src="/static/reader.js" defer></script>
+  {% if may_speak %}<script src="/static/speak.js" defer></script>{% endif %}
 {% endblock %}
 
 {% block content %}

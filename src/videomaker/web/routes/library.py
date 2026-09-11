@@ -586,9 +586,15 @@ def _mode_context(request: Request, ref: UnitRef, mode: ReadMode, voice: str) ->
     a request on a brief nobody looked at.
     """
     unit = _unit(request, ref)
+    settings: Settings = request.app.state.settings
     context: dict[str, object] = {
         "MODE_LABELS": MODE_LABELS,
-        "reader_view": request.app.state.settings.audience is Audience.READER,
+        "reader_view": settings.audience is Audience.READER,
+        # Offered only where there is no server voice for this language. Where
+        # there is one, Listen is strictly better — it is seekable, downloadable,
+        # in the feed and in the zip — and two ways to hear the same chapter, one
+        # of them worse and invisible in every export, is a choice nobody wants.
+        "may_speak": _work(request, ref.work_id).language not in spoken_languages(settings),
         "unit": unit,
         "ref": ref,
         "mode": mode.value,

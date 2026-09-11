@@ -2010,6 +2010,18 @@ video {
   gap: var(--s2);
 }
 
+/* Read aloud: the fallback where the server has no voice. Sits above the verses
+   at the reading measure, so it reads as part of the passage's own furniture
+   rather than a toolbar. */
+.speak {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  max-width: var(--measure);
+  margin-bottom: var(--s4);
+}
+
 /* ==========================================================================
    THE FIRST-RUN SCREEN
    ========================================================================== */
