@@ -115,3 +115,15 @@ def test_a_reading_server_is_given_something_to_read():
     assert wanted, "a reading server with nothing to import has an empty shelf forever"
     for work_id in wanted:
         assert work_id in CATALOGUE, f"{work_id} is not a catalogue id"
+
+
+def test_a_reading_server_signs_its_cookies_with_a_stable_key():
+    """Empty means a per-process key: every bookmark dies with the container, and
+    a free plan spins one down whenever it is idle."""
+    env = _env(_web_service())
+    if env.get("AUDIENCE", {}).get("value") != "reader":
+        return
+
+    entry = env["READER_COOKIE_SECRET"]
+    assert entry.get("generateValue") is True
+    assert "value" not in entry, "a signing key does not belong in the repository"

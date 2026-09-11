@@ -57,6 +57,13 @@ services:
       - key: LONGHAND_PASSWORD
         generateValue: true
 
+      # Also generated once and kept. Empty falls back to a per-process key, so
+      # every reader's bookmark and mode preference is invalidated on restart —
+      # and on a plan that spins the container down when idle, that is most
+      # visits. It signs a cookie and nothing else; rotating it forgets places.
+      - key: READER_COOKIE_SECRET
+        generateValue: true
+
       # `sync: false` means "ask me for this in the dashboard, do not read it
       # from the repo". These are live billing credentials.
       - key: GROQ_API_KEY

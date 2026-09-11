@@ -115,6 +115,12 @@ imported again (~30 s, and it needs egress).
 after a quiet spell waits for a cold start — and then re-imports, because the
 previous filesystem is gone.
 
+**Set `READER_COOKIE_SECRET`.** Empty falls back to a per-process key, so every
+reader's bookmark and remembered mode is invalidated the moment the container
+restarts — which on a plan that sleeps is most visits. The blueprint generates
+one; a service created by hand needs it set. It signs a cookie and nothing else,
+so rotating it costs people their places and nothing more.
+
 **`IMPORT_WORKS` is how anything gets on the shelf.** A reading server mounts no
 route that can import, and a free container has no shell to run the CLI in, so
 this is the only way in: a comma-separated list of catalogue ids, imported in the
