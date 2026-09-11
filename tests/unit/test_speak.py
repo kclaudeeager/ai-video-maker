@@ -120,8 +120,24 @@ def test_a_device_with_the_api_and_no_voice_is_told_so(voiceless):
     assert 'id="speak-status"' in body
     assert 'role="status"' in body
     source = (STATIC_DIR / "speak.js").read_text()
-    assert "speech.speaking || speech.pending" in source
+    assert "speech.speaking || speech.pending || speech.getVoices().length" in source
     assert "no speech voice installed" in source
+
+
+def test_slowness_alone_never_cancels_the_speech():
+    """The first cut checked at 800 ms and cancelled whenever nothing had begun.
+
+    Measured against espeak through speech-dispatcher: from a cold voice list
+    nothing has started by then, so the check silenced speech that was about to
+    happen — "read aloud does nothing", exactly the report. The engine's own
+    `onerror` is the real failure signal; the timer is a last resort and only
+    fires when the voice list is *still* empty.
+    """
+    source = (STATIC_DIR / "speak.js").read_text()
+
+    assert "said.onerror" in source
+    assert "}, 2500);" in source, "800 ms is shorter than a cold engine takes to start"
+    assert "speech.getVoices().length) return;" in source
 
 
 def test_the_button_stays_hidden_where_the_api_is_missing():

@@ -37,11 +37,13 @@
     fetch(at.value, { method: "POST", body: body, keepalive: true }).catch(function () {});
   }
 
-  function stop(button) {
+  function stop(button, why) {
     speech.cancel();
     delete button.dataset.speaking;
     button.textContent = "Read aloud";
     light(null);
+    var said = document.getElementById("speak-status");
+    if (said) said.textContent = why || "";
   }
 
   function start(button) {
@@ -54,24 +56,35 @@
       said.onstart = function () {
         light(verse);
       };
-      if (index === list.length - 1) said.onend = function () {
-        stop(button);
+      // The engine's own failure signal, which beats guessing from a timer:
+      // Chrome reports `synthesis-unavailable` and `not-allowed` here.
+      said.onerror = function () {
+        if (button.dataset.speaking) stop(button, "This device would not read it aloud.");
       };
+      if (index === list.length - 1) said.onend = function () { stop(button); };
       speech.speak(said);
     });
     button.dataset.speaking = "yes";
     button.textContent = "Stop";
     // A browser can have the API and no voice at all — headless Chromium does,
-    // and so do some stripped Linux and Android builds. `getVoices()` cannot be
-    // trusted at click time because it fills in asynchronously, so the test is
-    // whether anything is actually speaking a moment later.
+    // and so do some stripped Linux and Android builds. Checked late and only
+    // when the voice list is *still* empty: an engine takes its time starting
+    // (measured: espeak through speech-dispatcher had not begun at 800 ms from a
+    // cold list), and a timer that fired on slowness alone cancelled speech that
+    // was about to happen — which is exactly what "read aloud does nothing"
+    // looks like from the outside.
     window.setTimeout(function () {
-      if (speech.speaking || speech.pending) return;
-      stop(button);
-      var said = document.getElementById("speak-status");
-      if (said) said.textContent = "This device has no speech voice installed.";
-    }, 800);
+      if (speech.speaking || speech.pending || speech.getVoices().length) return;
+      stop(button, "This device has no speech voice installed.");
+    }, 2500);
   }
+
+  // Speech outlives the page in Chrome, so cancelling on `pagehide` is not
+  // optional — registered once here rather than per attach, which is also what
+  // keeps this file inside the sixty lines the size test allows.
+  window.addEventListener("pagehide", function () {
+    speech && speech.cancel();
+  });
 
   function attach() {
     var panel = document.getElementById("speak");
@@ -86,10 +99,6 @@
     button.addEventListener("click", function () {
       if (button.dataset.speaking) stop(button);
       else start(button);
-    });
-    // Chrome keeps speaking after the page is gone unless it is told otherwise.
-    window.addEventListener("pagehide", function () {
-      speech.cancel();
     });
   }
 
